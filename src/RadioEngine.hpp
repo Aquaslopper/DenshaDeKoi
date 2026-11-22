@@ -22,7 +22,7 @@ struct RadioStatus {
     std::string statusText;
     float volume = 0.7f;
     bool muted = false;
-    float bufferedSec = 0.0f;
+    float bufferedSec = 1.0f;
 };
 
 // Lock-protected PCM FIFO between the stream thread and the output. Small and
@@ -92,7 +92,7 @@ public:
     [[nodiscard]] RadioStatus Status() const;
 
     // Seconds of audio that must be buffered before playback may start.
-    static constexpr float PrebufferSeconds = 1.5f;
+    static constexpr float PrebufferSeconds = 3.5f;
 
 private:
     void Run(std::vector<std::string> candidateUrls);
