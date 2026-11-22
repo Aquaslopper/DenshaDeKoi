@@ -19,10 +19,11 @@ inline constexpr Rect PauseButton{1218.0f, 352.0f, 130.0f, 64.0f};
 // Centered Pause & Internet Radio overlay in 1360x768 HUD space.
 inline constexpr Rect PausePanel{310.0f, 96.0f, 740.0f, 576.0f};
 inline constexpr Rect ResumeTopButton{878.0f, 118.0f, 146.0f, 40.0f};
-inline constexpr Rect RadioPowerButton{336.0f, 184.0f, 150.0f, 44.0f};
-inline constexpr Rect RadioMuteButton{498.0f, 184.0f, 96.0f, 44.0f};
-inline constexpr Rect VolumeBar{608.0f, 196.0f, 356.0f, 20.0f};
-inline constexpr Rect VolumeHitBox{602.0f, 186.0f, 368.0f, 40.0f};
+inline constexpr Rect RadioPowerButton{336.0f, 184.0f, 136.0f, 44.0f};
+inline constexpr Rect RadioMuteButton{480.0f, 184.0f, 86.0f, 44.0f};
+inline constexpr Rect RadioBufferButton{574.0f, 184.0f, 176.0f, 44.0f};
+inline constexpr Rect VolumeBar{760.0f, 196.0f, 204.0f, 20.0f};
+inline constexpr Rect VolumeHitBox{754.0f, 186.0f, 216.0f, 40.0f};
 inline constexpr Rect PasteUrlButton{336.0f, 524.0f, 210.0f, 42.0f};
 inline constexpr Rect NewMatchButton{336.0f, 594.0f, 170.0f, 44.0f};
 inline constexpr Rect ResumeBottomButton{854.0f, 594.0f, 170.0f, 44.0f};

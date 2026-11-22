@@ -82,6 +82,8 @@ int main() {
                         radio.ToggleEnabled();
                     } else if (In(canvas, TableHud::RadioMuteButton)) {
                         radio.ToggleMute();
+                    } else if (In(canvas, TableHud::RadioBufferButton)) {
+                        radio.CycleBufferMode();
                     } else if (In(canvas, TableHud::VolumeHitBox)) {
                         draggingVolume = true;
                         radio.SetVolume((canvas.x - TableHud::VolumeBar.x) / TableHud::VolumeBar.width);

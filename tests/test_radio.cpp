@@ -110,6 +110,16 @@ void TestIcyDemuxerAndRingBuffer() {
           popped[14] == 10 && popped[15] == -10,
           "Ring buffer wraparound pop mismatch");
 
+    ring.Push(f1, 5, 44100, 2);
+    std::size_t rem = 99;
+    std::int16_t cbOut[8]{};
+    Check(!ring.PopExact(cbOut, 6, 44100, 2, rem) && rem == 5,
+          "PopExact must reject insufficient frames without consuming");
+    Check(!ring.PopExact(cbOut, 4, 48000, 2, rem) && rem == 5,
+          "PopExact must reject sample rate mismatch");
+    Check(ring.PopExact(cbOut, 4, 44100, 2, rem) && rem == 1 && cbOut[0] == 1 && cbOut[7] == -4,
+          "PopExact failed on valid read");
+
     Mp3StreamDecoder decoder;
     std::vector<std::uint8_t> noise(4096, 0);
     decoder.Feed(noise.data(), noise.size(), true,

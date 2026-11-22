@@ -46,8 +46,8 @@
 #endif
 
 namespace {
-constexpr std::size_t kBufferReadyFrames = 88200; // ~2.0s at 44.1 kHz
-constexpr std::size_t kHighWaterBufferFrames = 529200; // ~12.0s at 44.1 kHz
+constexpr std::size_t kBufferReadyFrames = 66150; // ~1.5s at 44.1 kHz
+constexpr std::size_t kHighWaterBufferFrames = 600000; // ~13.6s at 44.1 kHz
 constexpr std::size_t kMp3LookaheadBytes = 2048;
 constexpr std::size_t kMaxPlaylistBytes = 65536;
 
@@ -667,6 +667,26 @@ std::size_t PcmRingBuffer::Pop(std::int16_t* out, std::size_t exactFrames, int& 
     headFrames_ = (headFrames_ + exactFrames) % maxFrames_;
     countFrames_ -= exactFrames;
     return exactFrames;
+}
+
+bool PcmRingBuffer::PopExact(std::int16_t* out, std::size_t exactFrames, int expectedSampleRate, int expectedChannels,
+                             std::size_t& outRemaining) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (sampleRate_ != expectedSampleRate || channels_ != expectedChannels || channels_ <= 0 ||
+        countFrames_ < exactFrames) {
+        outRemaining = countFrames_;
+        return false;
+    }
+    const std::size_t ch = static_cast<std::size_t>(channels_);
+    const std::size_t first = std::min(exactFrames, maxFrames_ - headFrames_);
+    std::memcpy(out, samples_.data() + headFrames_ * ch, first * ch * sizeof(std::int16_t));
+    if (exactFrames > first) {
+        std::memcpy(out + first * ch, samples_.data(), (exactFrames - first) * ch * sizeof(std::int16_t));
+    }
+    headFrames_ = (headFrames_ + exactFrames) % maxFrames_;
+    countFrames_ -= exactFrames;
+    outRemaining = countFrames_;
+    return true;
 }
 
 void PcmRingBuffer::FormatAndAvailable(int& outSampleRate, int& outChannels, std::size_t& outFrames) const {

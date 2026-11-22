@@ -68,6 +68,8 @@ public:
     void Clear(int sampleRate = 0, int channels = 0);
     void Push(const std::int16_t* interleaved, std::size_t frames, int sampleRate, int channels);
     std::size_t Pop(std::int16_t* out, std::size_t exactFrames, int& outSampleRate, int& outChannels);
+    bool PopExact(std::int16_t* out, std::size_t exactFrames, int expectedSampleRate, int expectedChannels,
+                  std::size_t& outRemaining);
     void FormatAndAvailable(int& outSampleRate, int& outChannels, std::size_t& outFrames) const;
     [[nodiscard]] std::size_t AvailableFrames() const;
 
