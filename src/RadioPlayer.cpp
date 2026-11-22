@@ -6,7 +6,11 @@
 
 namespace {
 constexpr std::size_t kMinTargetFrames = 8192;
-constexpr std::array<float, 5> kAutoBufferLadderSec = {2.5f, 4.0f, 6.0f, 8.0f, 10.0f};
+constexpr std::array<float, 4> kAutoBufferLadderSec = {4.0f, 6.0f, 8.0f, 10.0f};
+
+std::size_t ResumeThresholdFrames(std::size_t targetFrames) {
+    return std::max<std::size_t>(kMinTargetFrames, (targetFrames * 9) / 10);
+}
 
 void FillRadioAudioTrampoline(void* user, std::int16_t* out, std::size_t frames) {
     if (!user || !out || frames == 0) return;
@@ -53,8 +57,9 @@ void RadioPlayer::FillAudioFrames(std::int16_t* out, std::size_t frames) {
     }
 
     const std::size_t targetFrames = targetBufferFrames_.load(std::memory_order_acquire);
+    const std::size_t resumeThreshold = ResumeThresholdFrames(targetFrames);
     if (rebuffering_.load(std::memory_order_acquire)) {
-        if (worker_.Ring().AvailableFrames() < targetFrames) {
+        if (worker_.Ring().AvailableFrames() < resumeThreshold) {
             std::memset(out, 0, byteCount);
             return;
         }
@@ -206,7 +211,7 @@ void RadioPlayer::Update() {
     }
     SyncTargetFrames(sr);
 
-    const std::size_t startThreshold = targetBufferFrames_.load(std::memory_order_acquire);
+    const std::size_t startThreshold = ResumeThresholdFrames(targetBufferFrames_.load(std::memory_order_acquire));
     if (!output_.IsActive() || output_.SampleRate() != sr || output_.Channels() != ch) {
         if (avail < startThreshold) return;
         ResetAudioStream();

@@ -30,7 +30,7 @@ struct RadioSnapshot {
     float volume = 0.65f;
     bool muted = false;
     BufferMode bufferMode = BufferMode::AUTO;
-    float targetBufferSec = 2.5f;
+    float targetBufferSec = 4.0f;
     float bufferedSec = 0.0f;
     bool rebuffering = false;
     std::uint64_t underruns = 0;
@@ -72,7 +72,7 @@ private:
     float volume_ = 0.65f;
     bool muted_ = false;
     BufferMode bufferMode_ = BufferMode::AUTO;
-    float autoTargetSec_ = 2.5f;
+    float autoTargetSec_ = 4.0f;
     float bufferedSec_ = 0.0f;
 
     std::atomic<bool> callbackActive_{false};
@@ -80,7 +80,7 @@ private:
     std::atomic<bool> fadeInPending_{false};
     std::atomic<int> callbackSampleRate_{0};
     std::atomic<int> callbackChannels_{0};
-    std::atomic<std::size_t> targetBufferFrames_{110250};
+    std::atomic<std::size_t> targetBufferFrames_{176400};
     std::atomic<std::uint64_t> underrunCount_{0};
     std::uint64_t lastSeenUnderruns_ = 0;
 };

@@ -300,6 +300,9 @@ SocketHandle ConnectTcpSocket(const ParsedUrl& url, const std::atomic<bool>& sto
     for (addrinfo* p = res; p != nullptr && !stop.load(); p = p->ai_next) {
         SocketHandle candidate = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
         if (candidate == kInvalidSocket) continue;
+        const int rcvBufBytes = 262144;
+        setsockopt(candidate, SOL_SOCKET, SO_RCVBUF,
+                   reinterpret_cast<const char*>(&rcvBufBytes), sizeof(rcvBufBytes));
         SetNonBlocking(candidate, true);
         const int rc = connect(candidate, p->ai_addr, static_cast<int>(p->ai_addrlen));
         if (rc == 0) {
@@ -919,11 +922,30 @@ void RadioStreamWorker::Run(std::string stationName, std::vector<std::string> ca
                             decoder.Feed(audio, audioLen, false,
                                 [&](const std::int16_t* pcm, std::size_t frames, int hz, int ch) {
                                     anyDecoded = true;
+                                    // Never let the live PCM ring exceed the configured target buffer.
+                                    const std::size_t sr = static_cast<std::size_t>(hz > 0 ? hz : 44100);
+                                    const auto computeMaxFrames = [&]() -> std::size_t {
+                                        return std::min<std::size_t>(
+                                            ring_.CapacityFrames() - sr,
+                                            static_cast<std::size_t>(
+                                                targetBufferSeconds_.load(std::memory_order_relaxed) *
+                                                static_cast<float>(sr)));
+                                    };
                                     std::size_t written = 0;
                                     while (written < frames && !stopRequested_.load()) {
+                                        const std::size_t maxRingFrames = computeMaxFrames();
+                                        const std::size_t availNow = ring_.AvailableFrames();
+                                        const std::size_t headroom = availNow < maxRingFrames
+                                            ? (maxRingFrames - availNow)
+                                            : 0;
+                                        if (headroom == 0) {
+                                            std::this_thread::sleep_for(std::chrono::milliseconds(15));
+                                            continue;
+                                        }
+                                        const std::size_t chunkFrames = std::min(frames - written, headroom);
                                         const std::size_t n = ring_.Push(
                                             pcm + written * static_cast<std::size_t>(ch),
-                                            frames - written, hz, ch);
+                                            chunkFrames, hz, ch);
                                         written += n;
                                         if (written < frames) {
                                             int ringSr = 0, ringCh = 0;
@@ -936,9 +958,9 @@ void RadioStreamWorker::Run(std::string stationName, std::vector<std::string> ca
                                         }
                                     }
                                     if (!playingAnnounced) {
-                                        int sr = 0, c = 0;
+                                        int srCheck = 0, c = 0;
                                         std::size_t avail = 0;
-                                        ring_.FormatAndAvailable(sr, c, avail);
+                                        ring_.FormatAndAvailable(srCheck, c, avail);
                                         if (avail >= kBufferReadyFrames) {
                                             playingAnnounced = true;
                                             SetStatus(RadioState::PLAYING, "LIVE");
@@ -950,18 +972,6 @@ void RadioStreamWorker::Run(std::string stationName, std::vector<std::string> ca
                             }
                         },
                         [&](const std::string& title) { SetNowPlaying(title); });
-                    // Keep target + 1.5s headroom ahead in the 30s lock-free ring via TCP backpressure.
-                    int curSr = 0, curCh = 0;
-                    std::size_t curAvail = 0;
-                    ring_.FormatAndAvailable(curSr, curCh, curAvail);
-                    const std::size_t sr = static_cast<std::size_t>(curSr > 0 ? curSr : 44100);
-                    const std::size_t desiredHeadroom = std::min<std::size_t>(
-                        ring_.CapacityFrames() - sr * 2,
-                        static_cast<std::size_t>((targetBufferSeconds_.load(std::memory_order_relaxed) + 1.5f) *
-                                                 static_cast<float>(sr)));
-                    while (!stopRequested_.load() && ring_.AvailableFrames() >= desiredHeadroom) {
-                        std::this_thread::sleep_for(std::chrono::milliseconds(20));
-                    }
                     return !abortNonMp3 && !stopRequested_.load();
                 });
 
