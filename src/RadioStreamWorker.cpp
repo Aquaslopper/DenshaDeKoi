@@ -33,6 +33,7 @@
 #endif
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#include <windows.h>
 #include <winhttp.h>
 #else
 #include <arpa/inet.h>
@@ -753,7 +754,7 @@ void RadioStreamWorker::Run(std::string stationName, std::vector<std::string> ca
     }
 
     if (resolvedUrls.empty()) {
-        SetStatus(RadioState::ERROR, "No valid stream URL");
+        SetStatus(RadioState::FAILED, "No valid stream URL");
         return;
     }
 
@@ -813,7 +814,7 @@ void RadioStreamWorker::Run(std::string stationName, std::vector<std::string> ca
 
         if (stopRequested_.load()) return;
         if (!anyDecoded && ++failures >= 3) {
-            SetStatus(RadioState::ERROR, "Stream unavailable");
+            SetStatus(RadioState::FAILED, "Stream unavailable");
             return;
         }
         SetStatus(RadioState::CONNECTING, "Reconnecting...");

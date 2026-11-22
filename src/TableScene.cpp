@@ -304,7 +304,7 @@ void DrawPauseMenu(const ScreenMap& map, const TableHudState& hud) {
     if (hud.radio.state == RadioState::PLAYING) badgeColor = Color{130, 228, 182, 255};
     else if (hud.radio.state == RadioState::CONNECTING || hud.radio.state == RadioState::BUFFERING)
         badgeColor = Color{240, 206, 126, 255};
-    else if (hud.radio.state == RadioState::ERROR) badgeColor = Color{236, 122, 112, 255};
+    else if (hud.radio.state == RadioState::FAILED) badgeColor = Color{236, 122, 112, 255};
 
     DrawText(("Station: " + stationLabel).c_str(), map.X(338), map.Y(242), map.Font(17), WHITE);
     DrawText(("[" + statusBadge + "]").c_str(), map.X(720), map.Y(242), map.Font(17), badgeColor);

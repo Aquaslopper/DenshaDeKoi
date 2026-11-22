@@ -17,7 +17,7 @@ enum class RadioState {
     CONNECTING,
     BUFFERING,
     PLAYING,
-    ERROR,
+    FAILED,
 };
 
 // Demuxes SHOUTcast/Icecast inline metadata blocks (icy-metaint) from an audio byte stream.
