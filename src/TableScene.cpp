@@ -13,6 +13,41 @@
 namespace {
 using TableLayout::Rect;
 
+// Camera presets and motion, expressed relative to the calibrated overview
+// camera in TableLayout so the two can never drift apart.
+constexpr float kFocusDolly = 0.18f;   // 18% of the 1-unit camera->target distance
+constexpr float kFocusAimDrop = 0.02f; // leans the frame down; keeps the near hand in view
+constexpr float kParallax = 0.02f;     // max target offset in world units (~14 px of drift)
+
+const float PitchSin = std::sin(TableLayout::PitchRadians);
+const float PitchCos = std::cos(TableLayout::PitchRadians);
+const Vector3 View{0.0f, -PitchSin, -PitchCos}; // unit forward vector of the overview camera
+const Vector3 CAM_OVERVIEW_POS{0.0f, TableLayout::CameraHeight, 0.0f};
+const Vector3 CAM_OVERVIEW_TARGET{0.0f, TableLayout::CameraHeight - PitchSin, -PitchCos};
+
+Vector3 Slide(Vector3 v, float distance) {
+    return {v.x + View.x * distance, v.y + View.y * distance, v.z + View.z * distance};
+}
+
+// A dolly-only preset would push the near hand about 20 px past the bottom
+// edge, so the target drops by a hair (1.1 degrees) as the camera leans in.
+const Vector3 CAM_FOCUSED_POS = Slide(CAM_OVERVIEW_POS, kFocusDolly);
+const Vector3 CAM_FOCUSED_TARGET{CAM_OVERVIEW_TARGET.x + View.x * kFocusDolly,
+                                 CAM_OVERVIEW_TARGET.y + View.y * kFocusDolly - kFocusAimDrop,
+                                 CAM_OVERVIEW_TARGET.z + View.z * kFocusDolly};
+
+Vector3 Lerp(Vector3 a, Vector3 b, float t) {
+    return {a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t};
+}
+Vector3 Sub(Vector3 a, Vector3 b) { return {a.x - b.x, a.y - b.y, a.z - b.z}; }
+Vector3 Cross(Vector3 a, Vector3 b) {
+    return {a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x};
+}
+Vector3 Normalized(Vector3 v) {
+    const float length = std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+    return {v.x / length, v.y / length, v.z / length};
+}
+
 void Vertex(float x, float y, float u, float v, float elevation) {
     const auto point = TableLayout::OnPlane(x, y, elevation);
     rlTexCoord2f(u, v);
@@ -57,6 +92,8 @@ Texture2D LoadRequiredTexture(const char* path) {
 } // namespace
 
 TableScene::TableScene(const char* backgroundPath, const char* atlasPath) {
+    camera_ = {CAM_OVERVIEW_POS, CAM_OVERVIEW_TARGET, {0.0f, 1.0f, 0.0f},
+               TableLayout::FovDegrees, CAMERA_PERSPECTIVE};
     try {
         background_ = LoadRequiredTexture(backgroundPath);
         atlas_ = LoadRequiredTexture(atlasPath);
@@ -81,17 +118,55 @@ TableScene::~TableScene() {
     UnloadTexture(background_);
 }
 
+void TableScene::Update(const TableGame& game, float dt, Vector2 mouse) {
+    const bool playerTurn = game.Rules().GetPhase() != Phase::ROUND_END &&
+                            game.Rules().CurrentPlayer() == Player::PLAYER;
+    if (!game.Dragging()) pointer_ = mouse;
+    Vector3 position = playerTurn ? CAM_FOCUSED_POS : CAM_OVERVIEW_POS;
+    Vector3 target = playerTurn ? CAM_FOCUSED_TARGET : CAM_OVERVIEW_TARGET;
+    if (playerTurn) {
+        // Look a hair toward the pointer: a depth cue, not a pan. The offset
+        // magnitude is capped at kParallax so corner pointers stay subtle.
+        const float length = std::sqrt(pointer_.x * pointer_.x + pointer_.y * pointer_.y);
+        const float scale = length > 1.0f ? kParallax / length : kParallax;
+        target.x += pointer_.x * scale;
+        target.y -= pointer_.y * scale;
+    }
+    const float blend = 1.0f - std::exp(-8.0f * dt);
+    camera_.position = Lerp(camera_.position, position, blend);
+    camera_.target = Lerp(camera_.target, target, blend);
+}
+
+TableLayout::Point2 TableScene::PlanPoint(TableLayout::Point2 canvas) const {
+    // Inverse of the live perspective camera; identical to
+    // TableLayout::Unproject() while the camera sits at CAM_OVERVIEW.
+    const Vector3 forward = Normalized(Sub(camera_.target, camera_.position));
+    const Vector3 right = Normalized(Cross(forward, camera_.up));
+    const Vector3 up = Cross(right, forward);
+    const float focal = TableLayout::ImageHeight * 0.5f /
+                        std::tan(TableLayout::FovDegrees * 0.5f * 0.017453292519943295f);
+    const float sx = (canvas.x - TableLayout::ImageWidth * 0.5f) / focal;
+    const float sy = (canvas.y - TableLayout::ImageHeight * 0.5f) / focal;
+    const Vector3 ray{forward.x + right.x * sx - up.x * sy,
+                      forward.y + right.y * sx - up.y * sy,
+                      forward.z + right.z * sx - up.z * sy};
+    if (ray.y > -1e-5f) return {-10000.0f, -10000.0f};
+    const float t = (TableLayout::CardElevation - camera_.position.y) / ray.y;
+    const float x = camera_.position.x + ray.x * t;
+    const float z = camera_.position.z + ray.z * t;
+    return {(x + TableLayout::PlaneHalfWidth) * TableLayout::PlanWidth /
+                (2.0f * TableLayout::PlaneHalfWidth),
+            (z + TableLayout::FarDepth) * TableLayout::PlanHeight /
+                (TableLayout::FarDepth - TableLayout::NearDepth)};
+}
+
 void TableScene::Draw(const TableGame& game) const {
     BeginTextureMode(canvas_);
     ClearBackground(BLACK);
     DrawTexturePro(background_, {0, 0, static_cast<float>(background_.width), static_cast<float>(background_.height)},
                    {0, 0, static_cast<float>(TableLayout::ImageWidth), static_cast<float>(TableLayout::ImageHeight)},
                    {0, 0}, 0, WHITE);
-    const Camera3D camera{{0, TableLayout::CameraHeight, 0},
-                          {0, TableLayout::CameraHeight - std::sin(TableLayout::PitchRadians),
-                           -std::cos(TableLayout::PitchRadians)},
-                          {0, 1, 0}, TableLayout::FovDegrees, CAMERA_PERSPECTIVE};
-    BeginMode3D(camera);
+    BeginMode3D(camera_);
     DrawCards(atlas_, game.Cards());
     EndMode3D();
     DrawRectangle(8, 8, 500, 102, Color{15, 20, 27, 220});

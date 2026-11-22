@@ -39,7 +39,7 @@ Drag a hand card onto a same-month field card; when two cards match, drop onto t
 
 The supplied city image remains the fixed background. Cards occupy a horizontal 3D plane under a perspective camera; opponent cards and the stock have solid-black backs, while card faces use the complete original atlas cells. Resizing preserves the scene's aspect ratio. A crowded field uses a compact layout. Close the window or press Escape to exit.
 
-The CPU currently uses a simple first-available-match strategy and always banks a yaku, rather than Xeno-koi's full AI. Camera zoom and turn-sensitive camera movement are not implemented yet.
+The CPU currently uses a simple first-available-match strategy and always banks a yaku, rather than Xeno-koi's full AI. On the player's turn the camera eases 18% closer along its view vector and leans a hair toward the pointer; it returns to the wide framing on the CPU's turn and between rounds. Field of view, projection and the city backdrop are unchanged.
 
 The separate `denshadekoi_inspector` uses columns for months 1–12 and rows for card indices 0–3. Hover a card to see its identifiers; the white outline is drawn outside the card so its original black frame remains visible.
 

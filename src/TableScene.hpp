@@ -14,10 +14,17 @@ public:
     TableScene(TableScene&&) = delete;
     TableScene& operator=(TableScene&&) = delete;
 
+    // Eases the 3D camera between the overview and player-turn framing.
+    // `mouse` is the pointer normalised to [-1, 1] around the window centre.
+    void Update(const TableGame& game, float dt, Vector2 mouse);
     void Draw(const TableGame& game) const;
+    // Screen point (canvas pixels) -> table-plan point for the live camera.
+    [[nodiscard]] TableLayout::Point2 PlanPoint(TableLayout::Point2 canvas) const;
 
 private:
     Texture2D background_{};
     Texture2D atlas_{};
     RenderTexture2D canvas_{};
+    Camera3D camera_{};
+    Vector2 pointer_{}; // Held while dragging so pick and draw stay in sync.
 };
