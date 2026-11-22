@@ -47,7 +47,8 @@
 
 namespace {
 constexpr std::size_t kBufferReadyFrames = 66150; // ~1.5s at 44.1 kHz
-constexpr std::size_t kMp3LookaheadBytes = 2048;
+constexpr std::size_t kMp3LookaheadBytes = 16384; // Matches dr_mp3 DRMP3_MIN_DATA_CHUNK_SIZE
+constexpr std::size_t kMp3TailPreserveBytes = 2304; // Matches DRMP3_MAX_FREE_FORMAT_FRAME_SIZE
 constexpr std::size_t kMaxPlaylistBytes = 65536;
 
 std::string ToLowerAscii(std::string_view sv) {
@@ -667,16 +668,30 @@ void Mp3StreamDecoder::Feed(
 
     while (inBuf_.size() > consumed && (inBuf_.size() - consumed) >= minRemaining) {
         drmp3dec_frame_info info{};
-        const int available = static_cast<int>(std::min<std::size_t>(inBuf_.size() - consumed, 32768));
+        const std::size_t rem = inBuf_.size() - consumed;
+        const int available = static_cast<int>(std::min<std::size_t>(rem, 32768));
         const int samples = drmp3dec_decode_frame(
             &impl_->dec, inBuf_.data() + consumed, available, pcmFloat, &info);
         if (info.frame_bytes <= 0) break;
-        consumed += static_cast<std::size_t>(info.frame_bytes);
+
+        const std::size_t step = static_cast<std::size_t>(info.frame_bytes);
         if (samples > 0 && info.channels > 0 && info.channels <= 2 && info.hz > 0) {
+            consumed += step;
             drmp3dec_f32_to_s16(pcmFloat, pcmS16,
                                 static_cast<std::size_t>(samples) * static_cast<std::size_t>(info.channels));
             decodedFrames_ += static_cast<std::size_t>(samples);
             onPcm(pcmS16, static_cast<std::size_t>(samples), info.hz, info.channels);
+        } else {
+            // Preserve a full max-frame tail when syncing mid-stream so a partial frame
+            // straddling a network chunk boundary is never discarded.
+            if (!flush && step >= static_cast<std::size_t>(available)) {
+                if (rem > kMp3TailPreserveBytes) {
+                    consumed += std::min(step, rem - kMp3TailPreserveBytes);
+                    continue;
+                }
+                break;
+            }
+            consumed += step;
         }
     }
     if (consumed > 0) {
@@ -911,6 +926,12 @@ void RadioStreamWorker::Run(std::string stationName, std::vector<std::string> ca
                                             frames - written, hz, ch);
                                         written += n;
                                         if (written < frames) {
+                                            int ringSr = 0, ringCh = 0;
+                                            std::size_t ringAvail = 0;
+                                            ring_.FormatAndAvailable(ringSr, ringCh, ringAvail);
+                                            if (ringSr > 0 && ringCh > 0 && (ringSr != hz || ringCh != ch)) {
+                                                break;
+                                            }
                                             std::this_thread::sleep_for(std::chrono::milliseconds(15));
                                         }
                                     }

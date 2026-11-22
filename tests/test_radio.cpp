@@ -126,6 +126,27 @@ void TestIcyDemuxerAndRingBuffer() {
                  [](const std::int16_t*, std::size_t, int, int) {});
     Check(decoder.DecodedFrames() == 0, "Zeroed bytes must not produce valid MP3 frames");
 
+    // Verify Mp3StreamDecoder preserves partial frames across chunk boundaries without dropping them.
+    // 40 silent MPEG-1 Layer 3 320 kbps 44.1 kHz stereo frames (1044 bytes each) after 1300 bytes of junk.
+    std::vector<std::uint8_t> mp3Stream(1300, 0x12);
+    for (int f = 0; f < 40; ++f) {
+        std::vector<std::uint8_t> frame(1044, 0);
+        frame[0] = 0xFF;
+        frame[1] = 0xFB;
+        frame[2] = 0xE0;
+        frame[3] = 0x00;
+        mp3Stream.insert(mp3Stream.end(), frame.begin(), frame.end());
+    }
+    Mp3StreamDecoder chunkDecoder;
+    for (std::size_t off = 0; off < mp3Stream.size(); off += 512) {
+        const std::size_t n = std::min<std::size_t>(512, mp3Stream.size() - off);
+        chunkDecoder.Feed(mp3Stream.data() + off, n, false,
+                          [](const std::int16_t*, std::size_t, int, int) {});
+    }
+    chunkDecoder.Feed(nullptr, 0, true, [](const std::int16_t*, std::size_t, int, int) {});
+    Check(chunkDecoder.DecodedFrames() == 40u * 1152u,
+          "Mp3StreamDecoder dropped frames across network chunk boundaries");
+
     HttpChunkedDecoder chunked;
     chunked.Reset(true);
     const std::string chunkedPayload = "5\r\nHello\r\n7;ext=1\r\n, JPop!\r\n0\r\n\r\n";
