@@ -25,6 +25,7 @@ add_library(hanafuda_core STATIC
     src/Deck.cpp
     src/KoiKoiRules.cpp
     src/KoiKoiStateMachine.cpp
+    src/RadioPlaylist.cpp
     src/TableGame.cpp
 )
 configure_project_target(hanafuda_core)
@@ -40,9 +41,21 @@ if(BUILD_DESKTOP_APP)
     )
     FetchContent_MakeAvailable(raylib)
 
-    add_executable(denshadekoi src/TableMain.cpp src/TableScene.cpp)
+    add_executable(denshadekoi
+        src/TableMain.cpp
+        src/TableScene.cpp
+        src/RadioEngine.cpp
+        src/SimpleRadio.cpp
+    )
     configure_project_target(denshadekoi)
+    target_include_directories(denshadekoi PRIVATE "${raylib_SOURCE_DIR}/src")
     target_link_libraries(denshadekoi PRIVATE raylib hanafuda_core)
+    if(WIN32)
+        target_link_libraries(denshadekoi PRIVATE winhttp ws2_32 winmm ole32)
+    else()
+        find_package(Threads REQUIRED)
+        target_link_libraries(denshadekoi PRIVATE Threads::Threads)
+    endif()
 
     # Keep the earlier inspector available as a separate developer tool.
     add_executable(denshadekoi_inspector src/main.cpp src/AtlasManager.cpp)
@@ -94,6 +107,17 @@ if(BUILD_TESTING)
     configure_project_target(test_table_game)
     target_link_libraries(test_table_game PRIVATE hanafuda_core)
     add_test(NAME table_game COMMAND test_table_game)
+
+    add_executable(test_radio tests/test_radio.cpp src/RadioEngine.cpp)
+    configure_project_target(test_radio)
+    target_link_libraries(test_radio PRIVATE hanafuda_core)
+    if(WIN32)
+        target_link_libraries(test_radio PRIVATE winhttp ws2_32)
+    else()
+        find_package(Threads REQUIRED)
+        target_link_libraries(test_radio PRIVATE Threads::Threads)
+    endif()
+    add_test(NAME radio COMMAND test_radio)
 
     add_executable(test_rules tests/test_rules.cpp)
     configure_project_target(test_rules)
