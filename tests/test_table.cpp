@@ -37,16 +37,17 @@ void TestGeometry() {
     const auto b = Project(OnPlane(PlanWidth, 0));
     const auto c = Project(OnPlane(0, PlanHeight));
     const auto d = Project(OnPlane(PlanWidth, PlanHeight));
-    Check(Near(a.x, 392.5f, 2) && Near(a.y, 277.9f, 2) && Near(b.x, 967.5f, 2) &&
-          Near(c.x, 104.3f, 2) && Near(c.y, 714.0f, 2) && Near(d.x, 1255.7f, 2),
+    Check(Near(a.x, 270.4f, 2) && Near(a.y, 284.0f, 2) && Near(b.x, 1089.6f, 2) &&
+          Near(c.x, -146.2f, 2) && Near(c.y, 745.0f, 2) && Near(d.x, 1506.2f, 2),
           "Plane projection does not align with the baked table");
     const auto within = [](Rect r) { return r.x >= 0 && r.y >= 0 && r.x + r.width <= PlanWidth &&
                                            r.y + r.height <= PlanHeight; };
-    Check(MatchRounds == 3 && within(Stock), "Wrong rounds or stock position");
+    Check(MatchRounds == 3 && within(Stock) && within(OpponentCapture) && within(PlayerCapture),
+          "Wrong rounds, stock, or capture position");
     for (auto r : OpponentHand) Check(within(r), "Opponent hand outside plane");
     for (auto r : PlayerHand) Check(within(r), "Player hand outside plane");
     for (auto r : Field) Check(within(r), "Field slot outside plane");
-
+    for (std::size_t i = 0; i < FieldSlotCount; ++i) Check(within(FieldSlot(i, true)), "Compact field slot outside plane");
 }
 void TestDraw() {
     Reset();

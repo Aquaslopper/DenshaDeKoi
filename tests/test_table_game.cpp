@@ -87,7 +87,7 @@ void TestDropTolerance() {
         if (game.Rules().GetPhase() != Phase::AWAIT_HAND_PLAY || game.Rules().CurrentPlayer() != Player::PLAYER) continue;
         for (int id : game.Rules().Hand(Player::PLAYER)) for (int f : game.Rules().Field()) {
             const auto r = game.FieldRect(f);
-            if (id/4 != f/4 || r.y > 200) continue;
+            if (id/4 != f/4 || r.y > TableLayout::Field[0].y + 1.0f) continue;
             const Rect atTen{r.x + r.width/2, r.y - 11, 1, 1};
             const Rect atEleven{r.x + r.width/2, r.y - 12, 1, 1};
             Check(game.FindDropTarget(id, atTen).has_value(), "10 pixel edge gap should match");
