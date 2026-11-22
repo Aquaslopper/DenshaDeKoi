@@ -44,9 +44,8 @@ if(BUILD_DESKTOP_APP)
     add_executable(denshadekoi
         src/TableMain.cpp
         src/TableScene.cpp
-        src/RadioAudioOutput.cpp
-        src/RadioPlayer.cpp
-        src/RadioStreamWorker.cpp
+        src/RadioEngine.cpp
+        src/SimpleRadio.cpp
     )
     configure_project_target(denshadekoi)
     target_include_directories(denshadekoi PRIVATE "${raylib_SOURCE_DIR}/src")
@@ -109,7 +108,7 @@ if(BUILD_TESTING)
     target_link_libraries(test_table_game PRIVATE hanafuda_core)
     add_test(NAME table_game COMMAND test_table_game)
 
-    add_executable(test_radio tests/test_radio.cpp src/RadioStreamWorker.cpp)
+    add_executable(test_radio tests/test_radio.cpp src/RadioEngine.cpp)
     configure_project_target(test_radio)
     target_link_libraries(test_radio PRIVATE hanafuda_core)
     if(WIN32)

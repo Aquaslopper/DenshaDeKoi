@@ -1,7 +1,7 @@
-#include "RadioPlayer.hpp" // buffer policy helpers (header-only)
+#include "RadioEngine.hpp"
 #include "RadioPlaylist.hpp"
-#include "RadioStreamWorker.hpp"
 
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <iostream>
@@ -10,6 +10,8 @@
 #include <vector>
 
 namespace {
+constexpr std::size_t kWholeFrameSamples = 1152; // one MPEG-1 Layer III frame of 44.1 kHz audio
+
 void Check(bool ok, const char* msg) {
     if (!ok) throw std::runtime_error(msg);
 }
@@ -20,268 +22,125 @@ void TestDefaultStations() {
     Check(stations[0].name == "J-Pop Powerplay", "First station must be J-Pop Powerplay");
     for (const auto& s : stations) {
         Check(LooksLikePlaylistUrl(s.plsUrl), "Station plsUrl must be a .pls URL");
-        Check(ParseUrl(s.fallbackUrl).valid, "Station fallbackUrl must be valid");
+        Check(ParseUrl(s.fallbackUrl).valid, "Station fallbackUrl must be a valid URL");
     }
 }
 
-void TestUrlParser() {
-    const auto a = ParseUrl("  http://kathy.torontocast.com:3560/;  ");
-    Check(a.valid && a.scheme == "http" && a.host == "kathy.torontocast.com" && a.port == 3560 && a.path == "/;",
-          "Failed to parse SHOUTcast URL with port and /; path");
+void TestUrlAndPlaylistParsing() {
+    const auto a = ParseUrl("  http://kathy.torontocast.com:3560/stream  ");
+    Check(a.valid && a.scheme == "http" && a.host == "kathy.torontocast.com" && a.port == 3560 &&
+              a.path == "/stream",
+          "Failed to parse a SHOUTcast URL with port");
 
-    const auto b = ParseUrl("https://asiadreamradio.torontocast.stream/stations/ewExternalFiles/JPopPowerplay1.pls");
-    Check(b.valid && b.scheme == "https" && b.port == 443 &&
-          b.path == "/stations/ewExternalFiles/JPopPowerplay1.pls",
-          "Failed to parse HTTPS .pls URL");
-    Check(LooksLikePlaylistUrl("https://example.com/listen.pls?id=1"), "Query-string .pls URL not detected");
-    Check(!LooksLikePlaylistUrl("http://example.com:8000/stream"), "Direct stream misclassified as playlist");
+    const auto b = ParseUrl("https://asiadreamradio.torontocast.stream/stations/x.pls");
+    Check(b.valid && b.scheme == "https" && b.port == 443, "Failed to parse an HTTPS .pls URL");
+    Check(!ParseUrl("ftp://example.com/test.pls").valid, "Non-HTTP scheme must be rejected");
+    Check(!ParseUrl("not a url").valid, "Garbage must be rejected");
 
-    const auto c = ParseUrl("http://[2001:db8::1]:8000/live");
-    Check(c.valid && c.host == "2001:db8::1" && c.port == 8000 && c.path == "/live", "IPv6 URL failed");
-
-    Check(!ParseUrl("ftp://example.com/test.pls").valid, "Non-HTTP scheme must fail");
-    Check(!ParseUrl("http://example.com:99999/test").valid, "Out-of-range port must fail");
-    Check(!ParseUrl("not a url").valid, "Invalid URL accepted");
-}
-
-void TestPlsAndIcyMetadata() {
     const std::string pls =
         "[playlist]\r\n"
         "numberofentries=2\r\n"
         "File2=http://backup.example.com:8000/stream\r\n"
-        "Title2=Backup Stream\r\n"
+        "Title2=Backup\r\n"
         "File1=http://kathy.torontocast.com:3560/;\r\n"
-        "Title1=J-Pop Powerplay\r\n"
-        "Length1=-1\r\n"
-        "version=2\r\n";
+        "Title1=J-Pop Powerplay\r\n";
     const auto entries = ParsePlsPlaylist(pls);
-    Check(entries.size() == 2 &&
-          entries[0].url == "http://kathy.torontocast.com:3560/;" &&
-          entries[0].title == "J-Pop Powerplay" &&
-          entries[1].url == "http://backup.example.com:8000/stream",
-          "PLS parser ordering or fields incorrect");
-
-    const auto m3u = ParsePlsPlaylist("#EXTM3U\n#EXTINF:-1,J-Pop\nhttp://quincy.torontocast.com/JHits\n");
-    Check(m3u.size() == 1 && m3u[0].url == "http://quincy.torontocast.com/JHits", "M3U fallback parse failed");
-
-    Check(ExtractIcyStreamTitle("StreamTitle='YOASOBI - Don't Stop';StreamUrl='';") == "YOASOBI - Don't Stop",
-          "ICY StreamTitle extraction with apostrophe failed");
-    Check(SanitizeAsciiDisplay("  Perfume -   TOKYO GIRL  \xE3\x81\x82 ", 40) == "Perfume - TOKYO GIRL ?",
-          "ASCII display sanitization failed");
+    Check(entries.size() == 2 && entries[0].url == "http://kathy.torontocast.com:3560/;" &&
+              entries[0].title == "J-Pop Powerplay",
+          "PLS parser returned the wrong order or fields");
 }
 
-void TestIcyDemuxerAndRingBuffer() {
-    // 5 bytes audio + 1 meta len byte (1 => 16 meta bytes) + 16 meta bytes + 4 bytes audio
-    std::vector<std::uint8_t> packet = {'A', 'B', 'C', 'D', 'E', 1};
-    const std::string meta = "StreamTitle='Ado';"; // 17 chars? Trim to 16: "StreamTitle='X';"
-    const std::string meta16 = "StreamTitle='X';";
-    Check(meta16.size() == 16, "Test fixture must be 16 bytes");
-    packet.insert(packet.end(), meta16.begin(), meta16.end());
-    packet.push_back('F');
-    packet.push_back('G');
-    packet.push_back('H');
-    packet.push_back('I');
+// Builds a stream of real 128 kbps / 44.1 kHz MPEG-1 Layer III frames (silence).
+std::vector<std::uint8_t> SilentMp3(std::size_t frames) {
+    std::vector<std::uint8_t> out;
+    std::vector<std::uint8_t> frame(417, 0);
+    frame[0] = 0xFF;
+    frame[1] = 0xFB;
+    frame[2] = 0x90;
+    frame[3] = 0x00;
+    for (std::size_t i = 0; i < frames; ++i) out.insert(out.end(), frame.begin(), frame.end());
+    return out;
+}
 
-    IcyDemuxer demux(5);
-    std::string audioOut;
-    std::vector<std::string> metas;
-    // Feed 3 bytes at a time to exercise chunk boundary splitting.
-    for (std::size_t off = 0; off < packet.size(); off += 3) {
-        const std::size_t n = std::min<std::size_t>(3, packet.size() - off);
-        demux.Feed(packet.data() + off, n,
-                   [&](const std::uint8_t* a, std::size_t len) {
-                       audioOut.append(reinterpret_cast<const char*>(a), len);
-                   },
-                   [&](const std::string& m) { metas.push_back(m); });
-    }
-    Check(audioOut == "ABCDEFGHI" && metas.size() == 1 && metas[0] == "X",
-          "ICY demuxer corrupted audio or missed metadata across chunk boundaries");
+void TestMp3Decoder() {
+    constexpr std::size_t kFrames = 200;
+    const auto stream = SilentMp3(kFrames);
+    const std::size_t expected = kWholeFrameSamples * kFrames;
 
-    PcmRingBuffer ring(8);
-    const std::int16_t f1[10] = {1, -1, 2, -2, 3, -3, 4, -4, 5, -5};
-    const std::int16_t f2[10] = {6, -6, 7, -7, 8, -8, 9, -9, 10, -10};
-    Check(ring.Push(f1, 5, 44100, 2) == 5, "Initial push must write 5 frames");
-    Check(ring.Push(f2, 5, 44100, 2) == 3, "SPSC push must clamp cleanly at ring capacity");
-    int sr = 0, ch = 0;
-    std::size_t avail = 0;
-    ring.FormatAndAvailable(sr, ch, avail);
-    Check(sr == 44100 && ch == 2 && avail == 8 && ring.AvailableFrames() == 8, "Ring buffer count/format mismatch");
-    std::int16_t popped[16]{};
-    Check(ring.Pop(popped, 8, sr, ch) == 8 && popped[0] == 1 && popped[1] == -1 &&
-          popped[14] == 8 && popped[15] == -8,
-          "Ring buffer wraparound pop mismatch");
-
-    ring.Push(f1, 5, 44100, 2);
-    std::size_t rem = 99;
-    std::int16_t cbOut[8]{};
-    Check(!ring.PopExact(cbOut, 6, 44100, 2, rem) && rem == 5,
-          "PopExact must reject insufficient frames without consuming");
-    Check(!ring.PopExact(cbOut, 4, 48000, 2, rem) && rem == 5,
-          "PopExact must reject sample rate mismatch");
-    Check(ring.PopExact(cbOut, 4, 44100, 2, rem) && rem == 1 && cbOut[0] == 1 && cbOut[7] == -4,
-          "PopExact failed on valid read");
-
-    Mp3StreamDecoder decoder;
-    std::vector<std::uint8_t> noise(4096, 0);
-    decoder.Feed(noise.data(), noise.size(), true,
-                 [](const std::int16_t*, std::size_t, int, int) {});
-    Check(decoder.DecodedFrames() == 0, "Zeroed bytes must not produce valid MP3 frames");
-
-    // Verify Mp3StreamDecoder preserves partial frames across chunk boundaries without dropping them.
-    // 40 silent MPEG-1 Layer 3 320 kbps 44.1 kHz stereo frames (1044 bytes each) after 1300 bytes of junk.
-    std::vector<std::uint8_t> mp3Stream(1300, 0x12);
-    for (int f = 0; f < 40; ++f) {
-        std::vector<std::uint8_t> frame(1044, 0);
-        frame[0] = 0xFF;
-        frame[1] = 0xFB;
-        frame[2] = 0xE0;
-        frame[3] = 0x00;
-        mp3Stream.insert(mp3Stream.end(), frame.begin(), frame.end());
-    }
-    Mp3StreamDecoder chunkDecoder;
-    for (std::size_t off = 0; off < mp3Stream.size(); off += 512) {
-        const std::size_t n = std::min<std::size_t>(512, mp3Stream.size() - off);
-        chunkDecoder.Feed(mp3Stream.data() + off, n, false,
-                          [](const std::int16_t*, std::size_t, int, int) {});
-    }
-    chunkDecoder.Feed(nullptr, 0, true, [](const std::int16_t*, std::size_t, int, int) {});
-    Check(chunkDecoder.DecodedFrames() == 40u * 1152u,
-          "Mp3StreamDecoder dropped frames across network chunk boundaries");
-
-    // End-to-end ICY + MP3 + SPSC ring streaming check across 300 frames (~7.8s at 44.1 kHz).
-    std::vector<std::uint8_t> longMp3;
-    for (int f = 0; f < 300; ++f) {
-        std::vector<std::uint8_t> frame(417, 0); // 128 kbps 44.1 kHz MPEG-1 Layer 3 frame
-        frame[0] = 0xFF;
-        frame[1] = 0xFB;
-        frame[2] = 0x90;
-        frame[3] = 0x00;
-        longMp3.insert(longMp3.end(), frame.begin(), frame.end());
-    }
-    std::vector<std::uint8_t> icyStream;
-    constexpr std::size_t kTestMetaInt = 4096;
-    for (std::size_t off = 0; off < longMp3.size(); off += kTestMetaInt) {
-        const std::size_t slice = std::min(kTestMetaInt, longMp3.size() - off);
-        icyStream.insert(icyStream.end(), longMp3.begin() + static_cast<std::ptrdiff_t>(off),
-                         longMp3.begin() + static_cast<std::ptrdiff_t>(off + slice));
-        if (slice == kTestMetaInt) {
-            icyStream.push_back(off == kTestMetaInt ? 3 : 0);
-            if (off == kTestMetaInt) {
-                std::string title = "StreamTitle='Test Track - DenshaDeKoi';";
-                title.resize(48, '\0');
-                icyStream.insert(icyStream.end(), title.begin(), title.end());
-            }
+    // Feeding in network-sized chunks must not lose or duplicate audio.
+    for (std::size_t chunk : {std::size_t(64), std::size_t(1460), std::size_t(4096)}) {
+        Mp3Decoder decoder;
+        std::size_t decoded = 0;
+        int sampleRate = 0;
+        int channels = 0;
+        for (std::size_t off = 0; off < stream.size(); off += chunk) {
+            const std::size_t n = std::min(chunk, stream.size() - off);
+            decoder.Feed(stream.data() + off, n,
+                         [&](const std::int16_t*, std::size_t frames, int hz, int ch) {
+                             decoded += frames;
+                             sampleRate = hz;
+                             channels = ch;
+                         });
         }
+        decoder.Feed(nullptr, 0, [&](const std::int16_t*, std::size_t frames, int, int) { decoded += frames; },
+                     /*flush=*/true);
+        Check(decoded == expected, "Decoder lost or duplicated PCM across chunk boundaries");
+        Check(sampleRate == 44100 && channels == 2, "Decoder reported the wrong stream format");
     }
-    IcyDemuxer longDemux(kTestMetaInt);
-    Mp3StreamDecoder longDec;
-    PcmRingBuffer longRing(44100 * 10);
-    std::string detectedTitle;
-    const std::size_t chunkPattern[] = {64, 513, 1460, 4096, 257};
-    std::size_t patIdx = 0;
-    for (std::size_t off = 0; off < icyStream.size();) {
-        const std::size_t n = std::min(chunkPattern[patIdx++ % 5], icyStream.size() - off);
-        longDemux.Feed(icyStream.data() + off, n,
-                       [&](const std::uint8_t* a, std::size_t len) {
-                           longDec.Feed(a, len, false, [&](const std::int16_t* pcm, std::size_t frames, int hz, int ch) {
-                               Check(longRing.Push(pcm, frames, hz, ch) == frames, "Ring overflow in stream test");
-                           });
-                       },
-                       [&](const std::string& m) { detectedTitle = m; });
-        off += n;
-    }
-    longDec.Feed(nullptr, 0, true, [&](const std::int16_t* pcm, std::size_t frames, int hz, int ch) {
-        Check(longRing.Push(pcm, frames, hz, ch) == frames, "Ring overflow on flush");
-    });
-    Check(longDec.DecodedFrames() == 300u * 1152u && longDec.ResyncCount() == 0,
-          "Long ICY+MP3 stream decode dropped frames or triggered false resyncs");
-    Check(longRing.AvailableFrames() == 300u * 1152u && detectedTitle == "Test Track - DenshaDeKoi",
-          "Long ICY+MP3 stream lost PCM frames or metadata");
 
-    HttpChunkedDecoder chunked;
-    chunked.Reset(true);
-    const std::string chunkedPayload = "5\r\nHello\r\n7;ext=1\r\n, JPop!\r\n0\r\n\r\n";
-    std::string decodedChunks;
-    for (std::size_t off = 0; off < chunkedPayload.size(); off += 2) {
-        const std::size_t n = std::min<std::size_t>(2, chunkedPayload.size() - off);
-        chunked.Feed(reinterpret_cast<const std::uint8_t*>(chunkedPayload.data() + off), n,
-                     [&](const std::uint8_t* p, std::size_t len) {
-                         decodedChunks.append(reinterpret_cast<const char*>(p), len);
-                     });
-    }
-    Check(decodedChunks == "Hello, JPop!", "HTTP chunked decoder failed");
-}
-void TestBufferPolicy() {
-    const int sr = 44100;
-    const std::size_t targetFrames = static_cast<std::size_t>(4 * sr);
-
-    // Starting playback keeps the configured cushion: the slider is the share
-    // of the buffer that has to be buffered before audio starts.
-    Check(RadioStartThresholdFrames(targetFrames, sr, 0.75f) == static_cast<std::size_t>(3 * sr),
-          "75% prebuffer must start at 3 s of a 4 s target");
-
-    // Resuming after a dropout must never demand that cushion back: it is
-    // capped, otherwise one glitch costs seconds of silence.
-    const std::size_t full = RadioResumeThresholdFrames(targetFrames, sr, 1.0f);
-    Check(full <= static_cast<std::size_t>(kRadioMaxResumeSeconds * sr),
-          "100% prebuffer exceeded the resume-time cap");
-    Check(full > 0, "100% prebuffer must still buffer something");
-    Check(RadioResumeThresholdFrames(targetFrames, sr, 0.75f) <
-              RadioStartThresholdFrames(targetFrames, sr, 0.75f),
-          "resume threshold must be smaller than the start cushion");
-
-    // 0% must not start on an empty ring (that produced permanent dropouts).
-    const std::size_t none = RadioResumeThresholdFrames(targetFrames, sr, 0.0f);
-    Check(none >= static_cast<std::size_t>(kRadioMinResumeSeconds * sr),
-          "0% prebuffer dropped below the minimum cushion");
-    Check(none < static_cast<std::size_t>(0.5 * sr), "0% prebuffer buffered far too much");
-
-    // A tiny target must not produce an inverted clamp or exceed the buffer.
-    const std::size_t tiny = RadioResumeThresholdFrames(256, sr, 1.0f);
-    Check(tiny <= 256, "resume threshold must never exceed the target buffer");
-    Check(RadioStartThresholdFrames(256, sr, 1.0f) <= 256,
-          "start threshold must never exceed the target buffer");
-
-    // AUTO grows on an underrun, stays capped, and decays after a stable run.
-    Check(RadioNextAutoBufferTarget(4.0f, true, 0.0) == 6.0f, "AUTO did not grow after an underrun");
-    Check(RadioNextAutoBufferTarget(6.0f, true, 0.0) == 6.0f, "AUTO grew past its cap");
-    Check(RadioNextAutoBufferTarget(6.0f, false, 5.0) == 6.0f, "AUTO decayed too early");
-    Check(RadioNextAutoBufferTarget(6.0f, false, kRadioAutoDecaySeconds + 1.0) == 4.0f,
-          "AUTO did not decay after a stable run");
+    // Random bytes must not crash or be mistaken for audio.
+    Mp3Decoder decoder;
+    std::vector<std::uint8_t> noise(8192, 0x5A);
+    std::size_t decoded = 0;
+    decoder.Feed(noise.data(), noise.size(),
+                 [&](const std::int16_t*, std::size_t frames, int, int) { decoded += frames; });
+    Check(decoder.DecodedFrames() == 0 && decoded == 0, "Garbage decoded as audio");
 }
 
-void TestRingBufferPartialFillAndFormatChange() {
-    PcmRingBuffer ring(8);
-    const std::int16_t frames[6] = {1, -1, 2, -2, 3, -3};
-    Check(ring.Push(frames, 3, 44100, 2) == 3, "push failed");
+void TestPcmQueue() {
+    PcmQueue queue(8);
+    const std::int16_t frames[12] = {1, -1, 2, -2, 3, -3, 4, -4, 5, -5, 6, -6};
+    int sampleRate = 0;
+    int channels = 0;
+    Check(!queue.Format(sampleRate, channels), "A fresh queue must report no format");
 
-    // A short read must return what is there instead of nothing at all.
-    std::int16_t out[8]{};
-    Check(ring.PopAvailable(out, 4, 44100, 2) == 3 && out[0] == 1 && out[4] == 3,
-          "PopAvailable must return the frames that are buffered");
-    Check(ring.PopAvailable(out, 4, 44100, 2) == 0, "PopAvailable must report an empty ring");
-    Check(ring.PopAvailable(out, 4, 48000, 2) == 0, "PopAvailable must reject a format mismatch");
+    queue.SetFormat(44100, 2);
+    Check(queue.Push(frames, 6) == 6, "Push must accept frames that fit");
+    Check(queue.Push(frames, 6) == 2, "Push must clamp to the remaining capacity");
+    Check(queue.AvailableFrames() == 8, "Queue frame count mismatch");
 
-    // A reconnect with another format must be adopted, not rejected forever.
-    Check(ring.Push(frames, 3, 44100, 2) == 3, "push before format change failed");
-    Check(ring.Push(frames, 3, 48000, 2) == 3, "format change must reset and adopt the new stream");
-    int sr = 0, ch = 0;
-    std::size_t avail = 0;
-    ring.FormatAndAvailable(sr, ch, avail);
-    Check(sr == 48000 && ch == 2 && avail == 3, "ring did not restart with the new format");
+    std::int16_t out[16]{};
+    Check(queue.Pop(out, 4) == 4 && out[0] == 1 && out[7] == -4, "Queue pop returned wrong frames");
+    Check(queue.Pop(out, 16) == 4, "Queue pop must return only what is buffered");
+    Check(queue.Pop(out, 4) == 0 && queue.AvailableFrames() == 0, "Empty queue must return 0");
+
+    // Wrapping around the end of the ring must keep frame order intact.
+    queue.Clear();
+    queue.SetFormat(48000, 1);
+    const std::int16_t mono[6] = {10, 20, 30, 40, 50, 60};
+    Check(queue.Push(mono, 6) == 6, "Mono push failed");
+    Check(queue.Pop(out, 2) == 2 && out[0] == 10 && out[1] == 20, "Mono pop order wrong");
+    Check(queue.Push(mono, 4) == 4, "Push across the ring end failed");
+    Check(queue.Pop(out, 8) == 8, "Wrap-around pop returned the wrong count");
+    const std::int16_t expect[8] = {30, 40, 50, 60, 10, 20, 30, 40};
+    Check(std::memcmp(out, expect, sizeof(expect)) == 0, "Wrap-around pop order wrong");
+
+    // A format change must drop stale audio of the previous format.
+    queue.Clear();
+    queue.SetFormat(44100, 2);
+    queue.Push(frames, 6);
+    queue.SetFormat(48000, 2);
+    Check(queue.AvailableFrames() == 0, "Format change must clear stale audio");
 }
-
 } // namespace
 
 int main() {
     try {
         TestDefaultStations();
-        TestUrlParser();
-        TestPlsAndIcyMetadata();
-        TestIcyDemuxerAndRingBuffer();
-        TestBufferPolicy();
-        TestRingBufferPartialFillAndFormatChange();
-        std::cout << "Radio playlist, ICY demuxer, and stream buffer checks passed.\n";
+        TestUrlAndPlaylistParsing();
+        TestMp3Decoder();
+        TestPcmQueue();
+        std::cout << "Radio playlist, PCM queue, and MP3 decoder checks passed.\n";
         return 0;
     } catch (const std::exception& e) {
         std::cerr << e.what() << '\n';

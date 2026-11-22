@@ -152,26 +152,21 @@ void TestDraw() {
         pausedHud.radio.state = RadioState::PLAYING;
         pausedHud.radio.stationIndex = 0;
         pausedHud.radio.stationName = "J-Pop Powerplay";
-        pausedHud.radio.nowPlaying = "YOASOBI - Idol";
-        pausedHud.radio.statusText = "LIVE";
+        pausedHud.radio.statusText = "Live";
         pausedHud.radio.volume = 0.75f;
-        pausedHud.radio.bufferMode = BufferMode::AUTO;
-        pausedHud.radio.targetBufferSec = 4.0f;
         pausedHud.radio.bufferedSec = 2.8f;
-        pausedHud.radio.prebufferRatio = 0.75f;
         scene.Draw(game, pausedHud);
         const auto hasText = [&](const std::string& needle) {
             return std::any_of(drawnTexts.begin(), drawnTexts.end(),
                                [&](const std::string& s) { return s.find(needle) != std::string::npos; });
         };
-        Check(hasText("PAUSED") && hasText("J-Pop Powerplay") && hasText("YOASOBI - Idol") &&
-              hasText("75%") && hasText("BUF: AUTO 4.0s") && hasText("Buf 2.8s/4.0s") &&
-              hasText("PREBUFFER:") && hasText("75% (3.0s)"),
-              "Pause menu must render radio state, auto buffer readout, prebuffer slider, station presets, and track title");
-        Check(noOverlap(TableHud::VolumeHitBox, TableHud::PrebufferHitBox) &&
-              noOverlap(TableHud::RadioBufferButton, TableHud::PrebufferHitBox) &&
-              noOverlap(TableHud::PrebufferHitBox, TableHud::StationButton(0)),
-              "Prebuffer slider must not overlap adjacent controls");
+        Check(hasText("PAUSED") && hasText("J-Pop Powerplay") && hasText("75%") &&
+              hasText("Live") && hasText("buffered 2.8s") && hasText("J-Pop Sakura"),
+              "Pause menu must render the radio state, station presets, volume and buffer readout");
+        Check(noOverlap(TableHud::VolumeHitBox, TableHud::StationButton(0)) &&
+              noOverlap(TableHud::RadioPowerButton, TableHud::RadioMuteButton) &&
+              noOverlap(TableHud::VolumeHitBox, TableHud::RadioMuteButton),
+              "Radio controls must not overlap each other or the station grid");
     }
     Check(renderUnloads == 1 && unloaded == std::vector<unsigned int>({4, 2, 1}), "Resources not released");
 }

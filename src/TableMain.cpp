@@ -1,7 +1,7 @@
-#include "RadioPlayer.hpp"
 #include "TableGame.hpp"
 #include "TableHud.hpp"
 #include "TableScene.hpp"
+#include "SimpleRadio.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -37,6 +37,8 @@ int main() {
     SetExitKey(KEY_NULL);
     SetWindowMinSize(680, 384);
     SetTargetFPS(60);
+    InitAudioDevice(); // the radio streams into a Raylib AudioStream
+    if (!IsAudioDeviceReady()) std::fprintf(stderr, "[radio] no audio device; radio will stay silent\n");
 
     int result = 0;
     try {
@@ -45,27 +47,16 @@ int main() {
         const std::string atlas = (appDir / "cards_atlas.png").string();
         const TableScene scene(background.c_str(), atlas.c_str());
         TableGame game;
-        RadioPlayer radio;
+        SimpleRadio radio;
         bool paused = false;
         bool draggingVolume = false;
-        bool draggingPrebuffer = false;
-        std::string hudFeedback;
-        float feedbackTimer = 0.0f;
 
         while (!WindowShouldClose()) {
             const float dt = std::min(GetFrameTime(), 0.1f);
-            if (feedbackTimer > 0.0f) {
-                feedbackTimer -= dt;
-                if (feedbackTimer <= 0.0f) {
-                    feedbackTimer = 0.0f;
-                    hudFeedback.clear();
-                }
-            }
 
             if (IsKeyPressed(KEY_ESCAPE) || IsKeyPressed(KEY_P)) {
                 paused = !paused;
                 draggingVolume = false;
-                draggingPrebuffer = false;
                 if (paused) game.CancelDrag();
             }
             if (IsKeyPressed(KEY_M)) {
@@ -80,39 +71,21 @@ int main() {
                         In(canvas, TableHud::ResumeBottomButton)) {
                         paused = false;
                         draggingVolume = false;
-                        draggingPrebuffer = false;
                     } else if (In(canvas, TableHud::RadioPowerButton)) {
                         radio.ToggleEnabled();
                     } else if (In(canvas, TableHud::RadioMuteButton)) {
                         radio.ToggleMute();
-                    } else if (In(canvas, TableHud::RadioBufferButton)) {
-                        radio.CycleBufferMode();
                     } else if (In(canvas, TableHud::VolumeHitBox)) {
                         draggingVolume = true;
                         radio.SetVolume((canvas.x - TableHud::VolumeBar.x) / TableHud::VolumeBar.width);
-                    } else if (In(canvas, TableHud::PrebufferHitBox)) {
-                        draggingPrebuffer = true;
-                        radio.SetPrebufferRatio(
-                            (canvas.x - TableHud::PrebufferBar.x) / TableHud::PrebufferBar.width);
-                    } else if (In(canvas, TableHud::PasteUrlButton)) {
-                        const char* clip = GetClipboardText();
-                        if (clip && ParseUrl(clip).valid) {
-                            radio.PlayCustomUrl(clip);
-                            hudFeedback.clear();
-                        } else {
-                            hudFeedback = "Copy a valid http(s) .pls or MP3 stream URL first";
-                            feedbackTimer = 3.5f;
-                        }
                     } else if (In(canvas, TableHud::NewMatchButton)) {
                         game = TableGame();
                         paused = false;
                         draggingVolume = false;
-                        draggingPrebuffer = false;
                     } else {
                         for (std::size_t i = 0; i < TableHud::StationSlotCount; ++i) {
                             if (In(canvas, TableHud::StationButton(i))) {
                                 radio.SelectStation(static_cast<int>(i));
-                                hudFeedback.clear();
                                 break;
                             }
                         }
@@ -121,16 +94,8 @@ int main() {
                 if (draggingVolume && IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
                     radio.SetVolume((canvas.x - TableHud::VolumeBar.x) / TableHud::VolumeBar.width);
                 }
-                if (draggingPrebuffer && IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
-                    radio.SetPrebufferRatio(
-                        (canvas.x - TableHud::PrebufferBar.x) / TableHud::PrebufferBar.width);
-                }
                 if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) {
-                    if (draggingPrebuffer) {
-                        radio.ApplyPrebufferThreshold();
-                    }
                     draggingVolume = false;
-                    draggingPrebuffer = false;
                 }
             } else {
                 if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) game.CancelDrag();
@@ -157,12 +122,13 @@ int main() {
             }
 
             radio.Update();
-            scene.Draw(game, {paused, radio.Snapshot(), hudFeedback});
+            scene.Draw(game, {paused, radio.Status()});
         }
     } catch (const std::exception& error) {
         std::fprintf(stderr, "%s\n", error.what());
         result = 1;
     }
+    CloseAudioDevice();
     CloseWindow();
     return result;
 }
