@@ -21,8 +21,13 @@ function(configure_project_target target)
 endfunction()
 
 # The card database and deck have no Raylib or window-system dependency.
-add_library(hanafuda_core STATIC src/Deck.cpp)
+add_library(hanafuda_core STATIC
+    src/Deck.cpp
+    src/KoiKoiRules.cpp
+    src/KoiKoiStateMachine.cpp
+)
 configure_project_target(hanafuda_core)
+target_compile_features(hanafuda_core PUBLIC cxx_std_20)
 target_include_directories(hanafuda_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
 
 if(BUILD_DESKTOP_APP)
@@ -59,6 +64,11 @@ if(BUILD_DESKTOP_APP)
 endif()
 
 if(BUILD_TESTING)
+    add_executable(test_rules tests/test_rules.cpp)
+    configure_project_target(test_rules)
+    target_link_libraries(test_rules PRIVATE hanafuda_core)
+    add_test(NAME rules COMMAND test_rules)
+
     add_executable(test_deck tests/test_deck.cpp)
     configure_project_target(test_deck)
     target_link_libraries(test_deck PRIVATE hanafuda_core)

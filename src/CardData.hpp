@@ -21,5 +21,6 @@ struct Card {
     CardType type;
     RibbonType ribbon;
     bool isSakeCup;
-    const char* name; // Points to a static string literal.
+    const char* name;     // Points to a static string literal.
+    const char* stableId; // Frozen MM-X identifier; points to a static string literal.
 };
