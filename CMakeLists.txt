@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
 project(DenshaDeKoi VERSION 0.1.0 LANGUAGES CXX)
 
-option(BUILD_DESKTOP_APP "Build the Raylib desktop atlas inspector" ON)
+option(BUILD_DESKTOP_APP "Build the Raylib game and atlas inspector" ON)
 include(CTest)
 
 function(configure_project_target target)
@@ -25,6 +25,7 @@ add_library(hanafuda_core STATIC
     src/Deck.cpp
     src/KoiKoiRules.cpp
     src/KoiKoiStateMachine.cpp
+    src/TableGame.cpp
 )
 configure_project_target(hanafuda_core)
 target_compile_features(hanafuda_core PUBLIC cxx_std_20)
@@ -39,31 +40,61 @@ if(BUILD_DESKTOP_APP)
     )
     FetchContent_MakeAvailable(raylib)
 
-    add_executable(denshadekoi
-        src/main.cpp
-        src/AtlasManager.cpp
-    )
+    add_executable(denshadekoi src/TableMain.cpp src/TableScene.cpp)
     configure_project_target(denshadekoi)
     target_link_libraries(denshadekoi PRIVATE raylib hanafuda_core)
 
-    # Keep the runtime asset alongside the executable, including multi-config builds.
+    # Keep the earlier inspector available as a separate developer tool.
+    add_executable(denshadekoi_inspector src/main.cpp src/AtlasManager.cpp)
+    configure_project_target(denshadekoi_inspector)
+    target_link_libraries(denshadekoi_inspector PRIVATE raylib hanafuda_core)
+    # Both normally share an output directory; serialize asset writes there.
+    add_dependencies(denshadekoi_inspector denshadekoi)
+
+    # Target-specific builds must also receive their assets on the first build.
     add_custom_command(TARGET denshadekoi POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${CMAKE_CURRENT_SOURCE_DIR}/cards_atlas.png"
-            "$<TARGET_FILE_DIR:denshadekoi>/cards_atlas.png"
+            "${CMAKE_CURRENT_SOURCE_DIR}/cards_atlas.png" "$<TARGET_FILE_DIR:denshadekoi>/cards_atlas.png"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/assets/the-city.jpg" "$<TARGET_FILE_DIR:denshadekoi>/the-city.jpg"
         VERBATIM
     )
-    # Also refresh the asset on ordinary builds when only the PNG has changed.
-    add_custom_target(update_card_atlas ALL
+    add_custom_command(TARGET denshadekoi_inspector POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/cards_atlas.png" "$<TARGET_FILE_DIR:denshadekoi_inspector>/cards_atlas.png"
+        VERBATIM
+    )
+
+    # Copy both assets beside the executables, including multi-config builds.
+    # The custom target refreshes assets even when the executables do not relink.
+    add_custom_target(update_game_assets ALL
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${CMAKE_CURRENT_SOURCE_DIR}/cards_atlas.png"
             "$<TARGET_FILE_DIR:denshadekoi>/cards_atlas.png"
-        DEPENDS denshadekoi
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/assets/the-city.jpg"
+            "$<TARGET_FILE_DIR:denshadekoi>/the-city.jpg"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/cards_atlas.png"
+            "$<TARGET_FILE_DIR:denshadekoi_inspector>/cards_atlas.png"
+        DEPENDS denshadekoi denshadekoi_inspector
         VERBATIM
     )
 endif()
 
 if(BUILD_TESTING)
+    # Exercise the actual table rendering commands with a Raylib test double.
+    add_executable(test_table tests/test_table.cpp src/TableScene.cpp)
+    configure_project_target(test_table)
+    target_include_directories(test_table PRIVATE tests/fake_raylib src)
+    target_link_libraries(test_table PRIVATE hanafuda_core)
+    add_test(NAME table COMMAND test_table)
+
+    add_executable(test_table_game tests/test_table_game.cpp)
+    configure_project_target(test_table_game)
+    target_link_libraries(test_table_game PRIVATE hanafuda_core)
+    add_test(NAME table_game COMMAND test_table_game)
+
     add_executable(test_rules tests/test_rules.cpp)
     configure_project_target(test_rules)
     target_link_libraries(test_rules PRIVATE hanafuda_core)

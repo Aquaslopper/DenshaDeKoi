@@ -27,7 +27,9 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
           Copy-Item build/Release/denshadekoi.exe dist/
+          Copy-Item build/Release/denshadekoi_inspector.exe dist/
           Copy-Item cards_atlas.png dist/
+          Copy-Item assets/the-city.jpg dist/
 
       - name: Upload game
         uses: actions/upload-artifact@v4
@@ -63,7 +65,9 @@ jobs:
         run: |
           mkdir -p dist
           cp build/denshadekoi.exe dist/
+          cp build/denshadekoi_inspector.exe dist/
           cp cards_atlas.png dist/
+          cp assets/the-city.jpg dist/
 
       - name: Upload game
         uses: actions/upload-artifact@v4

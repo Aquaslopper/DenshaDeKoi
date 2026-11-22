@@ -1,6 +1,6 @@
 # DenshaDeKoi
 
-A C++20 / Raylib atlas inspector with a GUI-independent Hanafuda database, deck, and Koi-Koi rules engine. A playable UI and AI are not implemented yet.
+A C++20 / Raylib Koi-Koi table with a GUI-independent Hanafuda database, deck, rules engine, and match controller.
 
 ## Build and run
 
@@ -13,9 +13,11 @@ cd build
 ./denshadekoi
 ```
 
-On multi-configuration generators, run the executable from its configuration directory (for example, `build/Debug`). CMake copies `cards_atlas.png` alongside the executable. The application loads that copy regardless of the current working directory, so an unrelated file in that directory cannot be picked up accidentally. You can alternatively pass a path to another atlas as the first argument (relative paths are resolved from the current working directory).
+On multi-configuration generators, run the executable from its configuration directory (for example, `build/Debug`). CMake copies `cards_atlas.png` and `the-city.jpg` alongside the executables. Assets are loaded from that directory regardless of the current working directory.
 
-To verify the rules, deck, atlas, rectangle math, asset lookup, grid layout, and hover selection without Raylib, a window system, or network access (the inspector test uses a Raylib test double):
+The former atlas inspector remains available as `denshadekoi_inspector` (or `denshadekoi_inspector.exe` on Windows). You can pass it an alternative packed atlas path as its first argument.
+
+To verify the rules, deck, table geometry and render commands, atlas, asset lookup, and inspector without Raylib, a window system, or network access (the table and inspector tests use Raylib test doubles):
 
 ```sh
 cmake -S . -B build-headless -DBUILD_DESKTOP_APP=OFF -DBUILD_TESTING=ON
@@ -29,9 +31,17 @@ When Python 3 is available, CTest also checks the black frame pixels on every ca
 
 `.github/workflows/build.yml` builds and tests every push to `main` and every pull request on Windows with both MSVC and MinGW-w64, and uploads the compiled `denshadekoi.exe` as a build artifact.
 
-## Usage
+## Table and controls
 
-The inspector uses columns for months 1–12 and rows for card indices 0–3. Hover a card to see its identifiers; the white outline is drawn outside the card so its original black frame remains visible. Close the window or press Escape to exit.
+`denshadekoi` starts a **three-round match** against a basic CPU. A card draw chooses the first dealer; the prior round winner deals next, and a draw retains the dealer. The game automatically deals, handles lucky hands and misdeals, scores rounds, and shows match totals. Click **Next Round** between rounds, or **Match Over** to start a new match.
+
+Drag a hand card onto a same-month field card; when two cards match, drop onto the desired one. If there is no match, drop it in the field. A far or invalid drop glides back to the hand; right-click cancels a drag. Matching accepts overlap or an edge gap of up to 10 pixels in the 840×720 table-plan coordinate system, with Xeno-koi's protection against mostly overlapping a non-matching card. After a hand play, the stock card flips and resolves; click the desired field card if the stock has two possible matches. When a yaku appears or grows, use the **Koi-Koi** or **Shobu** button. Matches pause briefly for a 50 ms hit freeze before cards move to the capture pile.
+
+The supplied city image remains the fixed background. Cards occupy a horizontal 3D plane under a perspective camera; opponent cards and the stock have solid-black backs, while card faces use the complete original atlas cells. Resizing preserves the scene's aspect ratio. A crowded field uses a compact layout. Close the window or press Escape to exit.
+
+The CPU currently uses a simple first-available-match strategy and always banks a yaku, rather than Xeno-koi's full AI. Camera zoom and turn-sensitive camera movement are not implemented yet.
+
+The separate `denshadekoi_inspector` uses columns for months 1–12 and rows for card indices 0–3. Hover a card to see its identifiers; the white outline is drawn outside the card so its original black frame remains visible.
 
 ## Atlas
 
@@ -55,4 +65,4 @@ The sake cup counts as both an animal and one phantom plain. Ino-shika-cho stack
 
 Xeno-koi's speed minigame and match-end speed bonus are intentionally excluded from DenshaDeKoi.
 
-The existing `std::mt19937` shuffle remains instead of Xeno-koi's xorshift32, so seeds and replay sequences are not interchangeable. The caller chooses or draws the initial dealer; there is no automatic dealer-selection UI, match ledger, match-total integration, AI, persistence, or graphical gameplay yet. The executable remains an atlas inspector.
+The existing `std::mt19937` shuffle remains instead of Xeno-koi's xorshift32, so seeds and replay sequences are not interchangeable. The table controller draws the initial dealer automatically and tracks three-round match totals. It does not include Xeno-koi's dealer-selection screen, advanced AI, persistence, or match history.
