@@ -12,6 +12,11 @@ AtlasManager::AtlasManager(const char* path) {
         throw std::runtime_error(std::string("Could not load card atlas: ") + path);
     }
 
+    if (atlas_.width % MonthCount != 0 || atlas_.height % CardsPerMonth != 0) {
+        UnloadTexture(atlas_);
+        throw std::runtime_error(std::string("Atlas dimensions must form an even 12x4 grid: ") + path);
+    }
+
     cardWidth_ = static_cast<float>(atlas_.width) / MonthCount;
     cardHeight_ = static_cast<float>(atlas_.height) / CardsPerMonth;
     // Nearest-neighbor sampling avoids bleeding between adjacent atlas cells.

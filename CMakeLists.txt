@@ -12,7 +12,8 @@ function(configure_project_target target)
     else()
         target_compile_options(${target} PRIVATE -Wall -Wextra)
     endif()
-    if(MINGW)
+    get_target_property(target_type ${target} TYPE)
+    if(MINGW AND NOT target_type STREQUAL "OBJECT_LIBRARY")
         # Link the GCC runtime statically so the .exe also runs on PCs without MSYS2
         # (otherwise it needs libstdc++-6.dll, libgcc_s_seh-1.dll, libwinpthread-1.dll).
         target_link_options(${target} PRIVATE -static)
@@ -42,6 +43,14 @@ if(BUILD_DESKTOP_APP)
             "$<TARGET_FILE_DIR:denshadekoi>/cards_atlas.png"
         VERBATIM
     )
+    # Also refresh the asset on ordinary builds when only the PNG has changed.
+    add_custom_target(update_card_atlas ALL
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/cards_atlas.png"
+            "$<TARGET_FILE_DIR:denshadekoi>/cards_atlas.png"
+        DEPENDS denshadekoi
+        VERBATIM
+    )
 endif()
 
 if(BUILD_TESTING)
@@ -50,4 +59,24 @@ if(BUILD_TESTING)
     target_include_directories(test_atlas_math PRIVATE src)
     add_test(NAME atlas_math
         COMMAND test_atlas_math "${CMAKE_CURRENT_SOURCE_DIR}/cards_atlas.png")
+
+    # If Python is available, also inspect the actual PNG pixels in every frame.
+    find_package(Python3 QUIET COMPONENTS Interpreter)
+    if(Python3_Interpreter_FOUND)
+        add_test(NAME atlas_frames COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_atlas_frames.py"
+            "${CMAKE_CURRENT_SOURCE_DIR}/cards_atlas.png")
+    endif()
+
+    # Exercise the real inspector and AtlasManager with a lightweight Raylib test double.
+    add_library(inspector_test_main OBJECT src/main.cpp)
+    configure_project_target(inspector_test_main)
+    target_compile_definitions(inspector_test_main PRIVATE main=InspectorMain)
+    target_include_directories(inspector_test_main PRIVATE tests/fake_raylib src)
+
+    add_executable(test_inspector tests/test_inspector.cpp src/AtlasManager.cpp
+        $<TARGET_OBJECTS:inspector_test_main>)
+    configure_project_target(test_inspector)
+    target_include_directories(test_inspector PRIVATE tests/fake_raylib src)
+    add_test(NAME inspector COMMAND test_inspector)
 endif()

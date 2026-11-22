@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cstdio>
 #include <exception>
+#include <filesystem>
+#include <string>
 
 namespace {
 constexpr int WindowWidth = 1280;
@@ -47,7 +49,10 @@ void RunInspector(const AtlasManager& atlas) {
                 if (CheckCollisionPointRec(mouse, bounds)) {
                     hoveredMonth = column + 1;
                     hoveredIndex = row;
-                    DrawRectangleLinesEx(bounds, 2.0f, WHITE);
+                    // Keep the hover outline outside the card's original black frame.
+                    const Rectangle outline{bounds.x - 3.0f, bounds.y - 3.0f,
+                                            bounds.width + 6.0f, bounds.height + 6.0f};
+                    DrawRectangleLinesEx(outline, 2.0f, WHITE);
                 }
             }
         }
@@ -74,12 +79,24 @@ int main(int argc, char* argv[]) {
 
     int result = 0;
     try {
-        // Optional path makes it possible to inspect another uniformly packed atlas.
-        const AtlasManager atlas(argc > 1 ? argv[1] : "cards_atlas.png");
+        // The default asset is beside the executable, not in the caller's working directory.
+        // An explicit path may still be supplied to inspect another packed atlas.
+        const std::string atlasPath = argc > 1 ? argv[1] :
+            (std::filesystem::path(GetApplicationDirectory()) / "cards_atlas.png").string();
+        const AtlasManager atlas(atlasPath.c_str());
         RunInspector(atlas);
     } catch (const std::exception& error) {
         std::fprintf(stderr, "%s\n", error.what());
         result = 1;
+        while (!WindowShouldClose()) {
+            BeginDrawing();
+            ClearBackground(StationGrey);
+            DrawText("Could not load the card atlas.", 30, 40, 24, WHITE);
+            DrawText("Check the atlas path and use a tightly packed 12x4 image.",
+                     30, 80, 18, LIGHTGRAY);
+            DrawText("See the console for details.", 30, 110, 18, LIGHTGRAY);
+            EndDrawing();
+        }
     }
     // The atlas is destroyed before the graphics context is closed.
     CloseWindow();
