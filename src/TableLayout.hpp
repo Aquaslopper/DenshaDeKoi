@@ -18,13 +18,15 @@ struct Rect { float x, y, width, height; };
 struct Point3 { float x, y, z; };
 struct Point2 { float x, y; };
 
-// Camera and table plane calibrated against the supplied perspective mockup.
-inline constexpr float CameraHeight = 1.0f;
-inline constexpr float PitchRadians = 0.370f;
+// Camera and table plane calibrated against the baked table backdrop. The
+// height, pitch, and plane bounds are a perspective fit to the eight hand and
+// eight opponent card slots plus the stock in the supplied table image.
+inline constexpr float CameraHeight = 0.992949f;
+inline constexpr float PitchRadians = 0.528482f;
 inline constexpr float FovDegrees = 45.0f;
-inline constexpr float PlaneHalfWidth = 0.93f;
-inline constexpr float NearDepth = 1.09f;
-inline constexpr float FarDepth = 2.51f;
+inline constexpr float PlaneHalfWidth = 0.759738f;
+inline constexpr float NearDepth = 0.836865f;
+inline constexpr float FarDepth = 2.256865f;
 inline constexpr float CardElevation = 0.002f;
 
 [[nodiscard]] inline Point3 OnPlane(float x, float y, float elevation = 0.0f) {
@@ -67,7 +69,7 @@ inline constexpr float CardElevation = 0.002f;
 }
 
 inline constexpr auto OpponentHand = MakeHand(185.0f, 12.0f, 62.0f, 56.0f, 91.0f);
-inline constexpr auto PlayerHand = MakeHand(49.0f, 567.0f, 96.0f, 88.0f, 142.0f);
+inline constexpr auto PlayerHand = MakeHand(40.218f, 567.0f, 96.0f, 88.0f, 142.0f);
 inline constexpr Rect Stock{49.0f, 261.0f, 76.0f, 126.0f};
 
 // The first sixteen field positions use two rows of eight as in the plan.

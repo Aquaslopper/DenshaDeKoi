@@ -37,9 +37,9 @@ void TestGeometry() {
     const auto b = Project(OnPlane(PlanWidth, 0));
     const auto c = Project(OnPlane(0, PlanHeight));
     const auto d = Project(OnPlane(PlanWidth, PlanHeight));
-    Check(Near(a.x, 361, 2) && Near(a.y, 392, 2) && Near(b.x, 999, 2) &&
-          Near(c.x, 54, 2) && Near(c.y, 746, 2) && Near(d.x, 1306, 2),
-          "Plane projection does not align with the mockup");
+    Check(Near(a.x, 392.5f, 2) && Near(a.y, 277.9f, 2) && Near(b.x, 967.5f, 2) &&
+          Near(c.x, 104.3f, 2) && Near(c.y, 714.0f, 2) && Near(d.x, 1255.7f, 2),
+          "Plane projection does not align with the baked table");
     const auto within = [](Rect r) { return r.x >= 0 && r.y >= 0 && r.x + r.width <= PlanWidth &&
                                            r.y + r.height <= PlanHeight; };
     Check(MatchRounds == 3 && within(Stock), "Wrong rounds or stock position");

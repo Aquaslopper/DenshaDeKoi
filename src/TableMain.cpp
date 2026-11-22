@@ -17,12 +17,6 @@ TableLayout::Point2 CanvasPoint(Vector2 mouse) {
 bool In(TableLayout::Point2 p, float x, float y, float w, float h) {
     return p.x >= x && p.x <= x+w && p.y >= y && p.y <= y+h;
 }
-// Maps the unzoomed canvas point through the visible (cropped) world source.
-TableLayout::Point2 TablePoint(const TableScene& scene, TableLayout::Point2 canvas) {
-    const Rectangle source = scene.SourceRect();
-    return {source.x + canvas.x / TableLayout::ImageWidth * source.width,
-            source.y + canvas.y / TableLayout::ImageHeight * source.height};
-}
 TableLayout::Point2 PlanPoint(TableLayout::Point2 canvas) {
     auto p = TableLayout::Unproject(canvas);
     p.x = std::clamp(p.x, -200.0f, TableLayout::PlanWidth + 200.0f);
@@ -46,11 +40,10 @@ int main() {
         const std::filesystem::path appDir(GetApplicationDirectory());
         const std::string background = (appDir / "the-city.jpg").string();
         const std::string atlas = (appDir / "cards_atlas.png").string();
-        TableScene scene(background.c_str(), atlas.c_str());
+        const TableScene scene(background.c_str(), atlas.c_str());
         TableGame game;
         while (!WindowShouldClose()) {
-            const Vector2 mouse = GetMousePosition();
-            const auto canvas = CanvasPoint(mouse);
+            const auto canvas = CanvasPoint(GetMousePosition());
             if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) game.CancelDrag();
             if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
                 if (game.Rules().GetPhase() == Phase::ROUND_END && In(canvas, 1000, 20, 310, 66)) {
@@ -62,13 +55,11 @@ int main() {
                 } else if (game.Rules().GetPhase() == Phase::AWAIT_DECISION && !game.Busy() &&
                            game.Rules().CurrentPlayer() == Player::PLAYER && In(canvas, 1165, 20, 145, 40)) {
                     game.Choose(Decision::SHOUBU);
-                } else game.PointerDown(PlanPoint(TablePoint(scene, canvas)));
+                } else game.PointerDown(PlanPoint(canvas));
             }
-            if (game.Dragging()) game.PointerMove(PlanPoint(TablePoint(scene, canvas)));
-            if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) game.PointerUp(PlanPoint(TablePoint(scene, canvas)));
-            const float dt = std::min(GetFrameTime(), 0.1f);
-            game.Update(dt);
-            scene.Update(game, dt);
+            if (game.Dragging()) game.PointerMove(PlanPoint(canvas));
+            if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) game.PointerUp(PlanPoint(canvas));
+            game.Update(std::min(GetFrameTime(), 0.1f));
             scene.Draw(game);
         }
     } catch (const std::exception& error) {

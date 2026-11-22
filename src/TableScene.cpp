@@ -13,12 +13,6 @@
 namespace {
 using TableLayout::Rect;
 
-// Digital zoom. The world canvas is cropped and magnified; the HUD is drawn
-// after the blit so controls are never cropped or resized by the zoom.
-constexpr float kZoomInset = 0.10f;  // 10% of each axis at full zoom
-constexpr float kZoomAnchorY = 0.85f; // bias the crop toward the near edge
-constexpr float kZoomSeconds = 0.2f;  // full transition duration
-
 void Vertex(float x, float y, float u, float v, float elevation) {
     const auto point = TableLayout::OnPlane(x, y, elevation);
     rlTexCoord2f(u, v);
@@ -63,8 +57,8 @@ struct ScreenMap {
     [[nodiscard]] int Font(float size) const { return W(size); }
 };
 
-// The HUD belongs to the screen, not the zoomed world: it is drawn after the
-// world blit, in the same unzoomed 1360x768 layout as the click rectangles.
+// The HUD belongs to the screen, not the world canvas: it is drawn after the
+// world blit, in the same 1360x768 design space as the click rectangles.
 void DrawHud(const TableGame& game, Rectangle destination, float scale) {
     const ScreenMap map{destination, scale};
     DrawRectangle(map.X(8), map.Y(8), map.W(500), map.H(102), Color{15, 20, 27, 220});
@@ -123,25 +117,6 @@ TableScene::~TableScene() {
     UnloadTexture(background_);
 }
 
-void TableScene::Update(const TableGame& game, float dt) {
-    const bool playerTurn = game.Rules().GetPhase() != Phase::ROUND_END &&
-                            game.Rules().CurrentPlayer() == Player::PLAYER;
-    const float step = std::max(0.0f, dt) / kZoomSeconds;
-    zoomPhase_ = std::clamp(zoomPhase_ + (playerTurn ? step : -step), 0.0f, 1.0f);
-    zoom_ = zoomPhase_ * zoomPhase_ * (3.0f - 2.0f * zoomPhase_); // smoothstep
-}
-
-Rectangle TableScene::SourceRect() const {
-    const float width = static_cast<float>(canvas_.texture.width);
-    const float height = static_cast<float>(canvas_.texture.height);
-    const float insetX = width * kZoomInset * zoom_;
-    const float insetY = height * kZoomInset * zoom_;
-    const float cropWidth = width - 2.0f * insetX;
-    const float cropHeight = height - 2.0f * insetY;
-    return {(width - cropWidth) * 0.5f, (height - cropHeight) * kZoomAnchorY,
-            cropWidth, cropHeight};
-}
-
 void TableScene::Draw(const TableGame& game) const {
     BeginTextureMode(canvas_);
     ClearBackground(BLACK);
@@ -163,12 +138,12 @@ void TableScene::Draw(const TableGame& game) const {
     const float height = TableLayout::ImageHeight * scale;
     const Rectangle destination{(GetScreenWidth() - width) / 2.0f, (GetScreenHeight() - height) / 2.0f,
                                 width, height};
-    const Rectangle source = SourceRect();
     BeginDrawing();
     ClearBackground(BLACK);
     // A render texture is vertically inverted in Raylib; a negative source
-    // height flips the cropped sub-rectangle as well.
-    DrawTexturePro(canvas_.texture, {source.x, source.y, source.width, -source.height},
+    // height flips it back. The whole canvas is blitted: no crop, no zoom.
+    DrawTexturePro(canvas_.texture, {0, 0, static_cast<float>(canvas_.texture.width),
+                                    -static_cast<float>(canvas_.texture.height)},
                    destination, {0, 0}, 0, WHITE);
     DrawHud(game, destination, scale);
     EndDrawing();
