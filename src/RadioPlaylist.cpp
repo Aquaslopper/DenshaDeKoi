@@ -65,13 +65,13 @@ const std::vector<RadioStation>& DefaultRadioStations() {
             "J-Pop Sakura",
             "Nostalgic 80s-00s",
             "https://asiadreamradio.torontocast.stream/stations/ewExternalFiles/JPopSakura1.pls",
-            "http://igor.torontocast.com:1710/;",
+            "http://quincy.torontocast.com:2070/;",
         },
         {
             "Japan Hits",
             "Tokyo Top Charts",
             "https://asiadreamradio.torontocast.stream/stations/ewExternalFiles/JapanHits1.pls",
-            "http://quincy.torontocast.com/JHits",
+            "http://quincy.torontocast.com:2020/",
         },
         {
             "J-Rock Powerplay",
