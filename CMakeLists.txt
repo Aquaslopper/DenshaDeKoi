@@ -40,7 +40,7 @@ if(BUILD_DESKTOP_APP)
     )
     FetchContent_MakeAvailable(raylib)
 
-    add_executable(denshadekoi src/TableMain.cpp src/TableScene.cpp src/TableCameraController.cpp)
+    add_executable(denshadekoi src/TableMain.cpp src/TableScene.cpp src/TableView.cpp src/CardPresentation.cpp)
     configure_project_target(denshadekoi)
     target_link_libraries(denshadekoi PRIVATE raylib hanafuda_core)
 
@@ -84,17 +84,29 @@ endif()
 
 if(BUILD_TESTING)
     # Exercise the actual table rendering commands with a Raylib test double.
-    add_executable(test_table tests/test_table.cpp src/TableScene.cpp src/TableCameraController.cpp)
+    add_executable(test_table tests/test_table.cpp src/TableScene.cpp src/TableView.cpp src/CardPresentation.cpp)
     configure_project_target(test_table)
     target_include_directories(test_table PRIVATE tests/fake_raylib src)
     target_link_libraries(test_table PRIVATE hanafuda_core)
     add_test(NAME table COMMAND test_table)
 
-    add_executable(test_camera tests/test_camera.cpp src/TableCameraController.cpp)
-    configure_project_target(test_camera)
-    target_include_directories(test_camera PRIVATE tests/fake_raylib src)
-    target_link_libraries(test_camera PRIVATE hanafuda_core)
-    add_test(NAME camera COMMAND test_camera)
+    add_executable(test_card_presentation tests/test_card_presentation.cpp src/CardPresentation.cpp src/TableView.cpp)
+    configure_project_target(test_card_presentation)
+    target_include_directories(test_card_presentation PRIVATE tests/fake_raylib src)
+    target_link_libraries(test_card_presentation PRIVATE hanafuda_core)
+    add_test(NAME card_presentation COMMAND test_card_presentation)
+
+    # Run the real main loop against scripted, windowless Raylib input.
+    add_library(table_main_test_entry OBJECT src/TableMain.cpp)
+    configure_project_target(table_main_test_entry)
+    target_compile_definitions(table_main_test_entry PRIVATE main=TableMainForTest DENSHA_TEST_SEED=5)
+    target_include_directories(table_main_test_entry PRIVATE tests/fake_raylib src)
+    add_executable(test_table_main tests/test_table_main.cpp src/TableScene.cpp src/TableView.cpp src/CardPresentation.cpp
+        $<TARGET_OBJECTS:table_main_test_entry>)
+    configure_project_target(test_table_main)
+    target_include_directories(test_table_main PRIVATE tests/fake_raylib src)
+    target_link_libraries(test_table_main PRIVATE hanafuda_core)
+    add_test(NAME table_main COMMAND test_table_main)
 
     add_executable(test_table_game tests/test_table_game.cpp)
     configure_project_target(test_table_game)

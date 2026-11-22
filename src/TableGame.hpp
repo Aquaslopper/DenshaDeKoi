@@ -10,11 +10,14 @@
 #include <string>
 #include <vector>
 
+enum class TableCardZone { OTHER, PLAYER_HAND, DRAGGED };
+
 struct TableCard {
     int id = -1; // -1 means a solid black back.
     TableLayout::Rect rect{};
     float flip = 1.0f; // Horizontal width factor for a card flip.
     float elevation = TableLayout::CardElevation;
+    TableCardZone zone = TableCardZone::OTHER;
 };
 
 // At most 48 physical cards plus a handful of simultaneous presentation
@@ -42,10 +45,10 @@ public:
     void Update(float seconds);
     void PointerDown(TableLayout::Point2 p);
     void PointerMove(TableLayout::Point2 p);
-    // Re-anchor the grabbed point when a presentation layer raises the card.
-    void ReanchorDrag(TableLayout::Point2 p);
-    void PointerUp(TableLayout::Point2 p);
-    void CancelDrag();
+    // The optional visual position keeps return/flight animations continuous
+    // while hit testing uses the unraised tabletop drag position.
+    void PointerUp(TableLayout::Point2 p, std::optional<TableLayout::Rect> visualFrom = std::nullopt);
+    void CancelDrag(std::optional<TableLayout::Rect> visualFrom = std::nullopt);
     void Choose(Decision decision);
     void NextRound();
 

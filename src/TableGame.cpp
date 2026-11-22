@@ -129,20 +129,17 @@ void TableGame::PointerDown(Point2 p) {
 void TableGame::PointerMove(Point2 p) {
     if (dragged_) { dragRect_.x = p.x - dragOffset_.x; dragRect_.y = p.y - dragOffset_.y; }
 }
-void TableGame::ReanchorDrag(Point2 p) {
-    if (dragged_) dragOffset_ = {p.x - dragRect_.x, p.y - dragRect_.y};
-}
-void TableGame::CancelDrag() {
+void TableGame::CancelDrag(std::optional<Rect> visualFrom) {
     if (!dragged_) return;
     const auto& hand = game_.Hand(Player::PLAYER);
     auto it = std::find(hand.begin(), hand.end(), *dragged_);
     if (it != hand.end()) {
-        moving_ = {{*dragged_, dragRect_, HandRect(Player::PLAYER, static_cast<std::size_t>(it - hand.begin()))}};
+        moving_ = {{*dragged_, visualFrom.value_or(dragRect_), HandRect(Player::PLAYER, static_cast<std::size_t>(it - hand.begin()))}};
         BeginAnimation(Animation::RETURN, 0.4f);
     }
     dragged_.reset();
 }
-void TableGame::PointerUp(Point2 p) {
+void TableGame::PointerUp(Point2 p, std::optional<Rect> visualFrom) {
     if (!dragged_) return;
     PointerMove(p);
     const int id = *dragged_;
@@ -151,9 +148,9 @@ void TableGame::PointerUp(Point2 p) {
     });
     const auto target = FindDropTarget(id, dragRect_);
     if ((hasMatch && !target) || (!hasMatch && !Contains({132, 160, 700, 390}, Center(dragRect_)))) {
-        CancelDrag(); return;
+        CancelDrag(visualFrom); return;
     }
-    const Rect from = dragRect_;
+    const Rect from = visualFrom.value_or(dragRect_);
     dragged_.reset();
     StartHand(id, from, target);
 }
@@ -292,7 +289,8 @@ TableCardList TableGame::CardVisuals() const {
         for (std::size_t i = 0; i < hand.size(); ++i) {
             const int id = hand[i];
             if ((dragged_ && *dragged_ == id) || isMoving(id)) continue;
-            cards.push_back({p == Player::PLAYER ? id : -1, HandRect(p, i)});
+            cards.push_back({p == Player::PLAYER ? id : -1, HandRect(p, i), 1, TableLayout::CardElevation,
+                             p == Player::PLAYER ? TableCardZone::PLAYER_HAND : TableCardZone::OTHER});
         }
     }
     if (game_.StockRemaining() > 0) cards.push_back({-1, TableLayout::Stock});
@@ -301,7 +299,7 @@ TableCardList TableGame::CardVisuals() const {
         const auto& pile = game_.Captured(p);
         if (!pile.empty() && !isMoving(pile.back())) cards.push_back({pile.back(), CaptureRect(p)});
     }
-    if (dragged_) cards.push_back({*dragged_, dragRect_, 1, TableLayout::DragCardElevation});
+    if (dragged_) cards.push_back({*dragged_, dragRect_, 1, TableLayout::CardElevation, TableCardZone::DRAGGED});
     if (stockReady_ && game_.GetPhase() == Phase::AWAIT_DRAW_CHOICE) cards.push_back({*game_.PendingCard(), TableLayout::Stock, 1, 0.008f});
     for (const auto& m : moving_) {
         float t = duration_ > 0 ? std::min(1.0f, elapsed_ / duration_) : 1;

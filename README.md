@@ -17,7 +17,7 @@ On multi-configuration generators, run the executable from its configuration dir
 
 The former atlas inspector remains available as `denshadekoi_inspector` (or `denshadekoi_inspector.exe` on Windows). You can pass it an alternative packed atlas path as its first argument.
 
-To verify the rules, deck, camera, ray picking, table geometry and render commands, atlas, asset lookup, and inspector without Raylib, a window system, or network access (the camera, table and inspector tests use Raylib test doubles):
+To verify the rules, deck, card presentation, ray picking, table geometry and render commands, atlas, asset lookup, and inspector without Raylib, a window system, or network access (the presentation, table and inspector tests use Raylib test doubles):
 
 ```sh
 cmake -S . -B build-headless -DBUILD_DESKTOP_APP=OFF -DBUILD_TESTING=ON
@@ -39,21 +39,15 @@ Drag a hand card onto a same-month field card; when two cards match, drop onto t
 
 Cards occupy a horizontal 3D plane under a perspective camera; opponent cards and the stock have solid-black backs, while card faces use the complete original atlas cells. Resizing preserves the scene's aspect ratio. A crowded field uses a compact layout. Close the window or press Escape to exit.
 
-The camera smoothly dollies and tilts on your turn, reframes while dragging or making a decision, and returns to the overview on CPU turns and between rounds. Its field of view stays fixed. **Z** toggles dynamic camera movement, **P** toggles parallax, and **[ / ]** adjust dolly intensity in 10% steps; zero intensity returns to the fixed overview. These settings apply for the current run. Because the city is a single flat image rather than a 3D environment, its tabletop area is reprojected to stay aligned with the moving cards; the skyline is blended toward the original image and cannot exhibit true 3D parallax. Image edges may stretch during camera movement.
+The world camera and city image remain fixed. Hover a hand card to raise it and turn its face toward the camera; it stays raised while dragging. Hover any visible face-up card to see its full, undistorted atlas cell and metadata in the **Train Telemetry** panel. Captured cards are also available individually in the capture browser above the table; hover a thumbnail to inspect it. The preview is drawn at native atlas-cell size in screen space, even when the window is resized. At small window sizes the panels necessarily cover more of the scene. Hidden opponent cards and the stock never reveal their identities.
 
 The CPU currently uses a simple first-available-match strategy and always banks a yaku, rather than Xeno-koi's full AI.
 
 The separate `denshadekoi_inspector` uses columns for months 1–12 and rows for card indices 0–3. Hover a card to see its identifiers; the white outline is drawn outside the card so its original black frame remains visible.
 
-### Camera integration
+### Presentation and picking
 
-`TableCameraController.hpp/.cpp` lives in the Raylib presentation layer. It owns the overview calibration and camera state; `CameraSettings` defaults to dynamic zoom and parallax enabled, with `dollyIntensity = 1.0f`. In `TableMain.cpp`, once per frame and **before picking or drawing**, the loop calls:
-
-```cpp
-cameraController.Update(camera, dt, cameraContext, cameraSettings);
-```
-
-`cameraContext` contains the current player, dragging/decision/round-transition flags, and normalized canvas mouse coordinates. The same resulting `camera` is passed to the renderer and to `ScreenRay` / `IntersectPlane`. Mouse coordinates are first converted through the letterboxed viewport; during a drag the initial local grab offset is reanchored to the raised card plane, so the grabbed point remains under the cursor as the camera moves. Failed/parallel ray intersections are ignored or return the card safely. `ExponentialBlend` and ray/plane helpers are exposed for testing. The controller and normal-frame presentation snapshots use fixed-size storage rather than per-frame C++ heap allocations; gameplay state transitions may still allocate.
+`TableView.hpp/.cpp` provides the fixed overview and ray/plane helpers. The main loop creates a `const Camera3D`, which is never modified, and draws the city image directly without a backdrop warp. `CardPresentation.hpp/.cpp` owns hover easing and the local card transform; it is separate from the Raylib-free rules and match core. During a drag, the rendered card's grab point remains under the cursor as its lift and orientation change. Drop matching uses a separate intersection against the stationary tabletop, while the visual position is retained as the start of the return or play animation. Face-down cards are not inspectable. The capture browser and inspection panel are drawn outside 3D mode.
 
 ## Atlas
 

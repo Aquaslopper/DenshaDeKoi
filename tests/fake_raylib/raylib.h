@@ -49,3 +49,9 @@ void BeginMode3D(Camera3D camera);
 void EndMode3D();
 
 void DrawRectangle(int x, int y, int width, int height, Color color);
+
+inline constexpr int MOUSE_BUTTON_LEFT = 0;
+inline constexpr int MOUSE_BUTTON_RIGHT = 1;
+float GetFrameTime();
+bool IsMouseButtonPressed(int button);
+bool IsMouseButtonReleased(int button);

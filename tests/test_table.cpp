@@ -1,6 +1,8 @@
 #include "TableLayout.hpp"
 #include "TableGame.hpp"
 #include "TableScene.hpp"
+#include "CardInspection.hpp"
+#include "DeckRegister.hpp"
 #include <raylib.h>
 
 #include <algorithm>
@@ -17,6 +19,10 @@ std::vector<Vertex> vertices;
 std::vector<unsigned int> unloaded;
 std::vector<Rectangle> destinations;
 std::vector<Rectangle> sources;
+std::vector<unsigned int> textureDraws;
+std::vector<std::string> textDraws;
+bool in3D = false, inTexture = false;
+std::vector<bool> textureDrawOutsideCanvas;
 Camera3D camera{};
 Color color{};
 float u = 0, v = 0;
@@ -29,7 +35,8 @@ bool failAtlas = false, invalidAtlas = false, failCanvas = false;
 void Check(bool condition, const char* text) { if (!condition) throw std::runtime_error(text); }
 bool Near(float a, float b, float tolerance = 0.01f) { return std::abs(a - b) < tolerance; }
 void Reset() {
-    vertices.clear(); unloaded.clear(); destinations.clear(); sources.clear();
+    vertices.clear(); unloaded.clear(); destinations.clear(); sources.clear(); textureDraws.clear();
+    textDraws.clear(); textureDrawOutsideCanvas.clear(); in3D = inTexture = false;
     loads = renderUnloads = backdropVertices = 0; invalidBackdrop = false; failAtlas = invalidAtlas = failCanvas = false;
 }
 void TestGeometry() {
@@ -54,11 +61,11 @@ void TestDraw() {
     {
         TableScene scene("city", "atlas");
         TableGame game(42);
-        Camera3D cameraView = TableCameraController::DefaultOverview();
-        TableCameraController controller(cameraView);
-        scene.Draw(game, cameraView, controller, CameraSettings{});
+        Camera3D cameraView = TableView::DefaultOverview();
+        CardPresentation presentation;
+        scene.Draw(game, cameraView, presentation, {-1,-1});
         const auto cards = game.Cards();
-        Check(backdropVertices == 64 * 48 * 4 && !invalidBackdrop, "Backdrop mesh or UVs invalid");
+        Check(backdropVertices == 0, "Backdrop must not be reprojected");
         Check(vertices.size() == cards.size() * 4, "Card render count differs from game state");
         for (std::size_t i = 0; i < cards.size(); ++i) {
             const auto& card = cards[i];
@@ -87,11 +94,57 @@ void TestDraw() {
             }
         }
         Check(camera.projection == CAMERA_PERSPECTIVE && Near(camera.fovy, 45), "Wrong 3D camera");
-        Check(destinations.size() == 1 && Near(destinations[0].height, 900) &&
-              Near(destinations[0].width, 1360.0f * 900.0f / 768.0f) && sources[0].height < 0,
+        Check(destinations.size() == 2 && Near(destinations[0].width, 1360) && Near(destinations[0].height, 768) &&
+              Near(destinations[1].height, 900) &&
+              Near(destinations[1].width, 1360.0f * 900.0f / 768.0f) && sources[1].height < 0,
               "Window resize must preserve aspect ratio and flip render target");
     }
     Check(renderUnloads == 1 && unloaded == std::vector<unsigned int>({2, 1}), "Resources not released");
+}
+void TestInspectionAndStaticBackground() {
+    for (int id=0; id<48; ++id) {
+        Reset();
+        TableScene scene("city", "atlas");
+        TableGame game(42);
+        CardPresentation presentation;
+        presentation.InspectCaptured(id);
+        const auto cameraView = TableView::DefaultOverview();
+        scene.Draw(game, cameraView, presentation, {-1,-1});
+        Check(textureDraws.size()==3 && textureDraws[0]==1 && textureDraws[1]==4 && textureDraws[2]==2,
+              "Backdrop, canvas, and inspection draw order incorrect");
+        Check(!textureDrawOutsideCanvas[0] && textureDrawOutsideCanvas[1] && textureDrawOutsideCanvas[2],
+              "Inspection must draw in screen space after the canvas");
+        Check(Near(sources[0].x,0)&&Near(sources[0].y,0)&&Near(sources[0].width,1360)&&Near(sources[0].height,768)&&
+              Near(destinations[0].x,0)&&Near(destinations[0].y,0)&&Near(destinations[0].width,1360)&&Near(destinations[0].height,768),
+              "Backdrop is not a fixed, undistorted copy");
+        Check(Near(sources[2].x,(id/4)*179)&&Near(sources[2].y,(id%4)*264)&&
+              Near(sources[2].width,179)&&Near(sources[2].height,264)&&
+              Near(destinations[2].width,179)&&Near(destinations[2].height,264), "Inspection must use full 1:1 atlas cell");
+        Check(std::find(textDraws.begin(),textDraws.end(),"TRAIN TELEMETRY")!=textDraws.end(),"Missing inspection header");
+        Check(std::find(textDraws.begin(),textDraws.end(),"Month: "+std::to_string(DeckRegister::At(id).month))!=textDraws.end(),"Wrong inspection month");
+        const char* type = id == 0 ? "Type: Bright" : id == 4 ? "Type: Animal" : id == 1 ? "Type: Ribbon" : id == 2 ? "Type: Plain" : nullptr;
+        if(type) Check(std::find(textDraws.begin(),textDraws.end(),type)!=textDraws.end(), "Wrong inspection type");
+        if(id==32) {
+            for (auto tag : {"Hanami-zake candidate", "Tsukimi-zake candidate", "Also counts toward Kasu"})
+                Check(std::find(textDraws.begin(),textDraws.end(),tag)!=textDraws.end(), "Missing sake yaku tag");
+        }
+        if(id==20 || id==24 || id==36)
+            Check(std::find(textDraws.begin(),textDraws.end(),"Ino-Shika-Cho candidate")!=textDraws.end(),"Missing Ino-Shika-Cho tag");
+    }
+    // The screen-space preview remains native size even when the canvas shrinks.
+    Reset(); width=680; height=384;
+    { TableScene scene("city","atlas"); TableGame game(42); CardPresentation p; p.InspectCaptured(8);
+      scene.Draw(game,TableView::DefaultOverview(),p,{-1,-1});
+      Check(Near(destinations.back().width,179)&&Near(destinations.back().height,264),"Preview was downscaled on resize"); }
+    width=1600; height=900;
+    std::array<int,24> player{}, opponent{};
+    for(int i=0;i<24;++i) {player[i]=i; opponent[i]=i+24;}
+    for(int i=0;i<48;++i) {
+        const float x=CardInspection::GridX+(i%8)*CardInspection::CellWidth+5;
+        const float y=CardInspection::GridY+(i/8)*CardInspection::CellHeight+5;
+        Check(CardInspection::CapturedAt(player,opponent,x,y)==i,"Captured card cannot be inspected");
+    }
+    Check(CardInspection::CapturedAt(player,opponent,-1,0)==-1,"Invalid browser point accepted");
 }
 void TestFailures() {
     Reset(); failAtlas = true;
@@ -119,18 +172,21 @@ void UnloadTexture(Texture2D t) { unloaded.push_back(t.id); }
 void SetTextureFilter(Texture2D, int) {}
 RenderTexture2D LoadRenderTexture(int w, int h) { return failCanvas ? RenderTexture2D{} : RenderTexture2D{3, {4,w,h,1,0}, {}}; }
 void UnloadRenderTexture(RenderTexture2D) { ++renderUnloads; }
-void BeginTextureMode(RenderTexture2D) {}
-void EndTextureMode() {}
-void BeginMode3D(Camera3D c) { camera = c; }
-void EndMode3D() {}
+void BeginTextureMode(RenderTexture2D) { inTexture = true; }
+void EndTextureMode() { inTexture = false; }
+void BeginMode3D(Camera3D c) { camera = c; in3D = true; }
+void EndMode3D() { in3D = false; }
 void ClearBackground(Color) {}
-void DrawText(const char*, int, int, int, Color) {}
+void DrawText(const char* text, int, int, int, Color) { textDraws.emplace_back(text); }
 void DrawRectangle(int, int, int, int, Color) {}
 int GetScreenWidth() { return width; }
 int GetScreenHeight() { return height; }
 void BeginDrawing() {}
 void EndDrawing() {}
-void DrawTexturePro(Texture2D, Rectangle src, Rectangle dst, Vector2, float, Color) { sources.push_back(src); destinations.push_back(dst); }
+void DrawTexturePro(Texture2D texture, Rectangle src, Rectangle dst, Vector2, float, Color) {
+    Check(!in3D, "2D texture drawn inside 3D mode");
+    sources.push_back(src); destinations.push_back(dst); textureDraws.push_back(texture.id); textureDrawOutsideCanvas.push_back(!inTexture);
+}
 unsigned int rlGetTextureIdDefault() { return 99; }
 void rlSetTexture(unsigned int id) { textureId = id; }
 void rlBegin(int) {}
@@ -145,6 +201,6 @@ void rlVertex2f(float x, float y) {
 }
 
 int main() {
-    try { TestGeometry(); TestDraw(); TestFailures(); std::cout << "Table layout and rendering commands passed.\n"; return 0; }
+    try { TestGeometry(); TestDraw(); TestInspectionAndStaticBackground(); TestFailures(); std::cout << "Table layout and rendering commands passed.\n"; return 0; }
     catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }
 }
