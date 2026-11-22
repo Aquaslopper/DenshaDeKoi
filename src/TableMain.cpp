@@ -9,19 +9,22 @@
 
 namespace {
 TableLayout::Point2 CanvasPoint(Vector2 mouse) {
-    const float scale = std::min(static_cast<float>(GetScreenWidth()) / TableLayout::ImageWidth,
-                                 static_cast<float>(GetScreenHeight()) / TableLayout::ImageHeight);
-    return {(mouse.x - (GetScreenWidth() - TableLayout::ImageWidth * scale) / 2.0f) / scale,
-            (mouse.y - (GetScreenHeight() - TableLayout::ImageHeight * scale) / 2.0f) / scale};
+    const Rectangle viewport = TableCameraController::CanvasViewport(static_cast<float>(GetScreenWidth()),
+                                                                      static_cast<float>(GetScreenHeight()));
+    Vector2 point{};
+    if (!TableCameraController::WindowToCanvas(mouse, viewport, point)) return {-1, -1};
+    return {point.x, point.y};
 }
 bool In(TableLayout::Point2 p, float x, float y, float w, float h) {
     return p.x >= x && p.x <= x+w && p.y >= y && p.y <= y+h;
 }
-TableLayout::Point2 PlanPoint(TableLayout::Point2 canvas) {
-    auto p = TableLayout::Unproject(canvas);
-    p.x = std::clamp(p.x, -200.0f, TableLayout::PlanWidth + 200.0f);
-    p.y = std::clamp(p.y, -200.0f, TableLayout::PlanHeight + 200.0f);
-    return p;
+bool PlanPoint(TableLayout::Point2 canvas, const Camera3D& camera, float height, TableLayout::Point2& result) {
+    Vector3 hit{};
+    const auto ray = TableCameraController::ScreenRay(camera, {canvas.x, canvas.y},
+                                                      TableLayout::ImageWidth, TableLayout::ImageHeight);
+    if (!TableCameraController::IntersectPlane(ray, height, hit)) return false;
+    result = TableLayout::FromPlane({hit.x, hit.y, hit.z});
+    return true;
 }
 } // namespace
 
@@ -42,8 +45,25 @@ int main() {
         const std::string atlas = (appDir / "cards_atlas.png").string();
         const TableScene scene(background.c_str(), atlas.c_str());
         TableGame game;
+        Camera3D camera = TableCameraController::DefaultOverview();
+        TableCameraController cameraController(camera);
+        CameraSettings cameraSettings;
         while (!WindowShouldClose()) {
+            const float dt = std::max(0.0f, GetFrameTime());
             const auto canvas = CanvasPoint(GetMousePosition());
+            if (IsKeyPressed(KEY_Z)) cameraSettings.enableDynamicZoom = !cameraSettings.enableDynamicZoom;
+            if (IsKeyPressed(KEY_P)) cameraSettings.enableParallax = !cameraSettings.enableParallax;
+            if (IsKeyPressed(KEY_LEFT_BRACKET)) cameraSettings.dollyIntensity = std::max(0.0f, cameraSettings.dollyIntensity - 0.1f);
+            if (IsKeyPressed(KEY_RIGHT_BRACKET)) cameraSettings.dollyIntensity = std::min(1.0f, cameraSettings.dollyIntensity + 0.1f);
+            const Phase phase = game.Rules().GetPhase();
+            const TableCameraContext cameraContext{
+                game.Rules().CurrentPlayer() == Player::PLAYER, game.Dragging(),
+                phase == Phase::AWAIT_DECISION || phase == Phase::AWAIT_DRAW_CHOICE,
+                phase == Phase::ROUND_END || game.MatchFinished(),
+                {2.0f * canvas.x / TableLayout::ImageWidth - 1.0f,
+                 2.0f * canvas.y / TableLayout::ImageHeight - 1.0f}};
+            // Update once before picking; this exact camera is also used to draw.
+            cameraController.Update(camera, dt, cameraContext, cameraSettings);
             if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) game.CancelDrag();
             if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
                 if (game.Rules().GetPhase() == Phase::ROUND_END && In(canvas, 1000, 20, 310, 66)) {
@@ -55,12 +75,28 @@ int main() {
                 } else if (game.Rules().GetPhase() == Phase::AWAIT_DECISION && !game.Busy() &&
                            game.Rules().CurrentPlayer() == Player::PLAYER && In(canvas, 1165, 20, 145, 40)) {
                     game.Choose(Decision::SHOUBU);
-                } else game.PointerDown(PlanPoint(canvas));
+                } else if (In(canvas, 0, 0, TableLayout::ImageWidth, TableLayout::ImageHeight)) {
+                    TableLayout::Point2 plan{};
+                    if (PlanPoint(canvas, camera, TableLayout::CardElevation, plan)) {
+                        game.PointerDown(plan);
+                        // The dragged card is raised slightly; retain its local grab point
+                        // against the plane where it is actually rendered.
+                        if (game.Dragging() && PlanPoint(canvas, camera, TableLayout::DragCardElevation, plan))
+                            game.ReanchorDrag(plan);
+                    }
+                }
             }
-            if (game.Dragging()) game.PointerMove(PlanPoint(canvas));
-            if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) game.PointerUp(PlanPoint(canvas));
-            game.Update(std::min(GetFrameTime(), 0.1f));
-            scene.Draw(game);
+            if (game.Dragging()) {
+                TableLayout::Point2 plan{};
+                const bool hit = PlanPoint(canvas, camera, TableLayout::DragCardElevation, plan);
+                if (hit) game.PointerMove(plan);
+                if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) {
+                    if (hit) game.PointerUp(plan);
+                    else game.CancelDrag();
+                }
+            }
+            game.Update(std::min(dt, 0.1f));
+            scene.Draw(game, camera, cameraController, cameraSettings);
         }
     } catch (const std::exception& error) {
         std::fprintf(stderr, "%s\n", error.what());

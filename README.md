@@ -17,7 +17,7 @@ On multi-configuration generators, run the executable from its configuration dir
 
 The former atlas inspector remains available as `denshadekoi_inspector` (or `denshadekoi_inspector.exe` on Windows). You can pass it an alternative packed atlas path as its first argument.
 
-To verify the rules, deck, table geometry and render commands, atlas, asset lookup, and inspector without Raylib, a window system, or network access (the table and inspector tests use Raylib test doubles):
+To verify the rules, deck, camera, ray picking, table geometry and render commands, atlas, asset lookup, and inspector without Raylib, a window system, or network access (the camera, table and inspector tests use Raylib test doubles):
 
 ```sh
 cmake -S . -B build-headless -DBUILD_DESKTOP_APP=OFF -DBUILD_TESTING=ON
@@ -37,11 +37,23 @@ When Python 3 is available, CTest also checks the black frame pixels on every ca
 
 Drag a hand card onto a same-month field card; when two cards match, drop onto the desired one. If there is no match, drop it in the field. A far or invalid drop glides back to the hand; right-click cancels a drag. Matching accepts overlap or an edge gap of up to 10 pixels in the 840×720 table-plan coordinate system, with Xeno-koi's protection against mostly overlapping a non-matching card. After a hand play, the stock card flips and resolves; click the desired field card if the stock has two possible matches. When a yaku appears or grows, use the **Koi-Koi** or **Shobu** button. Matches pause briefly for a 50 ms hit freeze before cards move to the capture pile.
 
-The supplied city image remains the fixed background. Cards occupy a horizontal 3D plane under a perspective camera; opponent cards and the stock have solid-black backs, while card faces use the complete original atlas cells. Resizing preserves the scene's aspect ratio. A crowded field uses a compact layout. Close the window or press Escape to exit.
+Cards occupy a horizontal 3D plane under a perspective camera; opponent cards and the stock have solid-black backs, while card faces use the complete original atlas cells. Resizing preserves the scene's aspect ratio. A crowded field uses a compact layout. Close the window or press Escape to exit.
 
-The CPU currently uses a simple first-available-match strategy and always banks a yaku, rather than Xeno-koi's full AI. Camera zoom and turn-sensitive camera movement are not implemented yet.
+The camera smoothly dollies and tilts on your turn, reframes while dragging or making a decision, and returns to the overview on CPU turns and between rounds. Its field of view stays fixed. **Z** toggles dynamic camera movement, **P** toggles parallax, and **[ / ]** adjust dolly intensity in 10% steps; zero intensity returns to the fixed overview. These settings apply for the current run. Because the city is a single flat image rather than a 3D environment, its tabletop area is reprojected to stay aligned with the moving cards; the skyline is blended toward the original image and cannot exhibit true 3D parallax. Image edges may stretch during camera movement.
+
+The CPU currently uses a simple first-available-match strategy and always banks a yaku, rather than Xeno-koi's full AI.
 
 The separate `denshadekoi_inspector` uses columns for months 1–12 and rows for card indices 0–3. Hover a card to see its identifiers; the white outline is drawn outside the card so its original black frame remains visible.
+
+### Camera integration
+
+`TableCameraController.hpp/.cpp` lives in the Raylib presentation layer. It owns the overview calibration and camera state; `CameraSettings` defaults to dynamic zoom and parallax enabled, with `dollyIntensity = 1.0f`. In `TableMain.cpp`, once per frame and **before picking or drawing**, the loop calls:
+
+```cpp
+cameraController.Update(camera, dt, cameraContext, cameraSettings);
+```
+
+`cameraContext` contains the current player, dragging/decision/round-transition flags, and normalized canvas mouse coordinates. The same resulting `camera` is passed to the renderer and to `ScreenRay` / `IntersectPlane`. Mouse coordinates are first converted through the letterboxed viewport; during a drag the initial local grab offset is reanchored to the raised card plane, so the grabbed point remains under the cursor as the camera moves. Failed/parallel ray intersections are ignored or return the card safely. `ExponentialBlend` and ray/plane helpers are exposed for testing. The controller and normal-frame presentation snapshots use fixed-size storage rather than per-frame C++ heap allocations; gameplay state transitions may still allocate.
 
 ## Atlas
 

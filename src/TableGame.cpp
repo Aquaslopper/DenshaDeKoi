@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <limits>
 #include <stdexcept>
 
@@ -127,6 +128,9 @@ void TableGame::PointerDown(Point2 p) {
 }
 void TableGame::PointerMove(Point2 p) {
     if (dragged_) { dragRect_.x = p.x - dragOffset_.x; dragRect_.y = p.y - dragOffset_.y; }
+}
+void TableGame::ReanchorDrag(Point2 p) {
+    if (dragged_) dragOffset_ = {p.x - dragRect_.x, p.y - dragRect_.y};
 }
 void TableGame::CancelDrag() {
     if (!dragged_) return;
@@ -280,8 +284,8 @@ void TableGame::NextRound() {
     Start();
 }
 
-std::vector<TableCard> TableGame::Cards() const {
-    std::vector<TableCard> cards;
+TableCardList TableGame::CardVisuals() const {
+    TableCardList cards;
     const auto isMoving = [this](int id) { return std::any_of(moving_.begin(), moving_.end(), [id](const Moving& m){ return m.id == id; }); };
     for (Player p : {Player::OPPONENT, Player::PLAYER}) {
         const auto& hand = game_.Hand(p);
@@ -297,7 +301,7 @@ std::vector<TableCard> TableGame::Cards() const {
         const auto& pile = game_.Captured(p);
         if (!pile.empty() && !isMoving(pile.back())) cards.push_back({pile.back(), CaptureRect(p)});
     }
-    if (dragged_) cards.push_back({*dragged_, dragRect_, 1, 0.008f});
+    if (dragged_) cards.push_back({*dragged_, dragRect_, 1, TableLayout::DragCardElevation});
     if (stockReady_ && game_.GetPhase() == Phase::AWAIT_DRAW_CHOICE) cards.push_back({*game_.PendingCard(), TableLayout::Stock, 1, 0.008f});
     for (const auto& m : moving_) {
         float t = duration_ > 0 ? std::min(1.0f, elapsed_ / duration_) : 1;
@@ -311,22 +315,32 @@ std::vector<TableCard> TableGame::Cards() const {
     }
     return cards;
 }
-std::string TableGame::Status() const {
+std::vector<TableCard> TableGame::Cards() const {
+    const auto cards = CardVisuals();
+    return {cards.begin(), cards.end()};
+}
+
+void TableGame::FormatStatus(char* output, std::size_t size) const {
     if (game_.GetPhase() == Phase::ROUND_END) {
         if (finished_) {
             const int you = scores_[PlayerIndex(Player::PLAYER)], cpu = scores_[PlayerIndex(Player::OPPONENT)];
-            return you == cpu ? "Match drawn" : (you > cpu ? "You won the match" : "CPU won the match");
-        }
-        if (!game_.Result()->winner) return "Round drawn";
-        return (*game_.Result()->winner == Player::PLAYER ? "You won: +" : "CPU won: +") +
-               std::to_string(game_.Result()->points[PlayerIndex(*game_.Result()->winner)]);
-    }
-    if (game_.GetPhase() == Phase::AWAIT_DECISION && game_.CurrentPlayer() == Player::PLAYER) {
+            std::snprintf(output, size, "%s", you == cpu ? "Match drawn" : (you > cpu ? "You won the match" : "CPU won the match"));
+        } else if (!game_.Result()->winner) std::snprintf(output, size, "Round drawn");
+        else std::snprintf(output, size, "%s won: +%d", *game_.Result()->winner == Player::PLAYER ? "You" : "CPU",
+                           game_.Result()->points[PlayerIndex(*game_.Result()->winner)]);
+    } else if (game_.GetPhase() == Phase::AWAIT_DECISION && game_.CurrentPlayer() == Player::PLAYER) {
         const int base = game_.CurrentScore().base;
         const auto award = CalculateSettlement(base, game_.HasCalledKoi(Player::OPPONENT), game_.KoiCalls(Player::PLAYER));
-        return "Yaku " + std::to_string(base) + "  |  Shobu " + std::to_string(award.award) + " points";
+        std::snprintf(output, size, "Yaku %d  |  Shobu %d points", base, award.award);
+    } else if (game_.GetPhase() == Phase::AWAIT_DRAW_CHOICE && stockReady_ && game_.CurrentPlayer() == Player::PLAYER) {
+        std::snprintf(output, size, "Choose a matching field card");
+    } else {
+        std::snprintf(output, size, "%s", game_.CurrentPlayer() == Player::PLAYER ? "Your turn" : "CPU turn");
     }
-    if (game_.GetPhase() == Phase::AWAIT_DRAW_CHOICE && stockReady_ && game_.CurrentPlayer() == Player::PLAYER)
-        return "Choose a matching field card";
-    return game_.CurrentPlayer() == Player::PLAYER ? "Your turn" : "CPU turn";
+}
+
+std::string TableGame::Status() const {
+    char status[128];
+    FormatStatus(status, sizeof(status));
+    return status;
 }

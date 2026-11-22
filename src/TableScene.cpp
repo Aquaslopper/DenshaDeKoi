@@ -6,7 +6,9 @@
 #include <rlgl.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstdio>
 #include <stdexcept>
 #include <string>
 
@@ -29,7 +31,7 @@ void Quad(Rect r, float u0, float v0, float u1, float v1, Color color, float ele
     Vertex(r.x + r.width, r.y, u1, v0, elevation);
 }
 
-void DrawCards(Texture2D atlas, const std::vector<TableCard>& cards) {
+void DrawCards(Texture2D atlas, const TableCardList& cards) {
     for (const auto& card : cards) {
         Rect r = card.rect;
         r.x += r.width * (1.0f - card.flip) * 0.5f;
@@ -43,6 +45,38 @@ void DrawCards(Texture2D atlas, const std::vector<TableCard>& cards) {
              back ? 1.0f : v0 + 1.0f / 4.0f, back ? BLACK : WHITE, card.elevation);
         rlEnd();
     }
+    rlSetTexture(0);
+}
+
+// Warp the flat photograph onto the moving table plane. Two fixed-size rows
+// avoid per-frame allocations; the sky is blended back to the original image.
+void DrawBackdrop(Texture2D texture, const Camera3D& camera, const TableCameraController& controller) {
+    constexpr int columns = 64, rows = 48;
+    constexpr float width = static_cast<float>(TableLayout::ImageWidth);
+    constexpr float height = static_cast<float>(TableLayout::ImageHeight);
+    std::array<Vector2, columns + 1> upper{}, lower{};
+    const auto fill = [&](std::array<Vector2, columns + 1>& row, float y) {
+        for (int x = 0; x <= columns; ++x)
+            row[static_cast<std::size_t>(x)] = controller.BackgroundUv(camera, {width * x / columns, y});
+    };
+    rlSetTexture(texture.id);
+    rlBegin(RL_QUADS);
+    rlColor4ub(255, 255, 255, 255);
+    fill(upper, 0);
+    for (int y = 0; y < rows; ++y) {
+        const float y0 = height * y / rows, y1 = height * (y + 1) / rows;
+        fill(lower, y1);
+        for (int x = 0; x < columns; ++x) {
+            const float x0 = width * x / columns, x1 = width * (x + 1) / columns;
+            const auto vertex = [](float vx, float vy, Vector2 uv) { rlTexCoord2f(uv.x, uv.y); rlVertex2f(vx, vy); };
+            vertex(x0, y0, upper[static_cast<std::size_t>(x)]);
+            vertex(x0, y1, lower[static_cast<std::size_t>(x)]);
+            vertex(x1, y1, lower[static_cast<std::size_t>(x + 1)]);
+            vertex(x1, y0, upper[static_cast<std::size_t>(x + 1)]);
+        }
+        upper = lower;
+    }
+    rlEnd();
     rlSetTexture(0);
 }
 
@@ -81,26 +115,26 @@ TableScene::~TableScene() {
     UnloadTexture(background_);
 }
 
-void TableScene::Draw(const TableGame& game) const {
+void TableScene::Draw(const TableGame& game, const Camera3D& camera,
+                      const TableCameraController& controller, const CameraSettings& settings) const {
     BeginTextureMode(canvas_);
     ClearBackground(BLACK);
-    DrawTexturePro(background_, {0, 0, static_cast<float>(background_.width), static_cast<float>(background_.height)},
-                   {0, 0, static_cast<float>(TableLayout::ImageWidth), static_cast<float>(TableLayout::ImageHeight)},
-                   {0, 0}, 0, WHITE);
-    const Camera3D camera{{0, TableLayout::CameraHeight, 0},
-                          {0, TableLayout::CameraHeight - std::sin(TableLayout::PitchRadians),
-                           -std::cos(TableLayout::PitchRadians)},
-                          {0, 1, 0}, TableLayout::FovDegrees, CAMERA_PERSPECTIVE};
+    DrawBackdrop(background_, camera, controller);
     BeginMode3D(camera);
-    DrawCards(atlas_, game.Cards());
+    DrawCards(atlas_, game.CardVisuals());
     EndMode3D();
-    DrawRectangle(8, 8, 500, 102, Color{15, 20, 27, 220});
-    const std::string label = "ROUND " + std::to_string(game.Round()) + " / " + std::to_string(TableLayout::MatchRounds) +
-        "    YOU " + std::to_string(game.Scores()[PlayerIndex(Player::PLAYER)]) +
-        "  -  CPU " + std::to_string(game.Scores()[PlayerIndex(Player::OPPONENT)]);
-    DrawText(label.c_str(), 20, 18, 22, WHITE);
-    DrawText(game.Status().c_str(), 20, 51, 19, WHITE);
+    DrawRectangle(8, 8, 540, 126, Color{15, 20, 27, 220});
+    char label[128], status[128];
+    std::snprintf(label, sizeof(label), "ROUND %d / %d    YOU %d  -  CPU %d", game.Round(), TableLayout::MatchRounds,
+                  game.Scores()[PlayerIndex(Player::PLAYER)], game.Scores()[PlayerIndex(Player::OPPONENT)]);
+    game.FormatStatus(status, sizeof(status));
+    DrawText(label, 20, 18, 22, WHITE);
+    DrawText(status, 20, 51, 19, WHITE);
     DrawText("Drag a card to a match; right-click to cancel", 20, 80, 15, LIGHTGRAY);
+    const char* cameraInfo = !settings.enableDynamicZoom ? "Camera OFF (Z)  |  Parallax (P)  |  Dolly [ / ]" :
+                             !settings.enableParallax ? "Camera ON (Z)  |  Parallax OFF (P)  |  Dolly [ / ]" :
+                             "Camera ON (Z)  |  Parallax ON (P)  |  Dolly [ / ]";
+    DrawText(cameraInfo, 20, 108, 15, LIGHTGRAY);
     if (game.Rules().GetPhase() == Phase::AWAIT_DECISION && game.Rules().CurrentPlayer() == Player::PLAYER && !game.Busy()) {
         DrawRectangle(1010, 20, 145, 40, Color{31, 75, 58, 245});
         DrawRectangle(1165, 20, 145, 40, Color{100, 50, 38, 245});
@@ -114,12 +148,8 @@ void TableScene::Draw(const TableGame& game) const {
     }
     EndTextureMode();
 
-    const float scale = std::min(static_cast<float>(GetScreenWidth()) / TableLayout::ImageWidth,
-                                 static_cast<float>(GetScreenHeight()) / TableLayout::ImageHeight);
-    const float width = TableLayout::ImageWidth * scale;
-    const float height = TableLayout::ImageHeight * scale;
-    const Rectangle destination{(GetScreenWidth() - width) / 2.0f, (GetScreenHeight() - height) / 2.0f,
-                                width, height};
+    const Rectangle destination = TableCameraController::CanvasViewport(static_cast<float>(GetScreenWidth()),
+                                                                          static_cast<float>(GetScreenHeight()));
     BeginDrawing();
     ClearBackground(BLACK);
     // A render texture is vertically inverted in Raylib.

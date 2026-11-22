@@ -26,10 +26,16 @@ inline constexpr float PlaneHalfWidth = 0.93f;
 inline constexpr float NearDepth = 1.09f;
 inline constexpr float FarDepth = 2.51f;
 inline constexpr float CardElevation = 0.002f;
+inline constexpr float DragCardElevation = 0.008f;
 
 [[nodiscard]] inline Point3 OnPlane(float x, float y, float elevation = 0.0f) {
     return {-PlaneHalfWidth + 2.0f * PlaneHalfWidth * x / PlanWidth,
             elevation, -(FarDepth - (FarDepth - NearDepth) * y / PlanHeight)};
+}
+
+[[nodiscard]] inline Point2 FromPlane(Point3 point) {
+    return {(point.x + PlaneHalfWidth) * PlanWidth / (2.0f * PlaneHalfWidth),
+            (FarDepth + point.z) * PlanHeight / (FarDepth - NearDepth)};
 }
 
 // Equivalent perspective projection, used by headless geometry tests.

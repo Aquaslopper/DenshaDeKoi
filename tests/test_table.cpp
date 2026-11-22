@@ -22,14 +22,15 @@ Color color{};
 float u = 0, v = 0;
 unsigned int textureId = 0;
 int width = 1600, height = 900;
-int loads = 0, renderUnloads = 0;
+int loads = 0, renderUnloads = 0, backdropVertices = 0;
+bool invalidBackdrop = false;
 bool failAtlas = false, invalidAtlas = false, failCanvas = false;
 
 void Check(bool condition, const char* text) { if (!condition) throw std::runtime_error(text); }
 bool Near(float a, float b, float tolerance = 0.01f) { return std::abs(a - b) < tolerance; }
 void Reset() {
     vertices.clear(); unloaded.clear(); destinations.clear(); sources.clear();
-    loads = renderUnloads = 0; failAtlas = invalidAtlas = failCanvas = false;
+    loads = renderUnloads = backdropVertices = 0; invalidBackdrop = false; failAtlas = invalidAtlas = failCanvas = false;
 }
 void TestGeometry() {
     using namespace TableLayout;
@@ -53,8 +54,11 @@ void TestDraw() {
     {
         TableScene scene("city", "atlas");
         TableGame game(42);
-        scene.Draw(game);
+        Camera3D cameraView = TableCameraController::DefaultOverview();
+        TableCameraController controller(cameraView);
+        scene.Draw(game, cameraView, controller, CameraSettings{});
         const auto cards = game.Cards();
+        Check(backdropVertices == 64 * 48 * 4 && !invalidBackdrop, "Backdrop mesh or UVs invalid");
         Check(vertices.size() == cards.size() * 4, "Card render count differs from game state");
         for (std::size_t i = 0; i < cards.size(); ++i) {
             const auto& card = cards[i];
@@ -83,8 +87,8 @@ void TestDraw() {
             }
         }
         Check(camera.projection == CAMERA_PERSPECTIVE && Near(camera.fovy, 45), "Wrong 3D camera");
-        Check(destinations.size() == 2 && Near(destinations[1].height, 900) &&
-              Near(destinations[1].width, 1360.0f * 900.0f / 768.0f) && sources[1].height < 0,
+        Check(destinations.size() == 1 && Near(destinations[0].height, 900) &&
+              Near(destinations[0].width, 1360.0f * 900.0f / 768.0f) && sources[0].height < 0,
               "Window resize must preserve aspect ratio and flip render target");
     }
     Check(renderUnloads == 1 && unloaded == std::vector<unsigned int>({2, 1}), "Resources not released");
@@ -134,6 +138,11 @@ void rlEnd() {}
 void rlColor4ub(unsigned char r, unsigned char g, unsigned char b, unsigned char a) { color = {r,g,b,a}; }
 void rlTexCoord2f(float x, float y) { u = x; v = y; }
 void rlVertex3f(float x, float y, float z) { vertices.push_back({x,y,z,u,v,color,textureId}); }
+void rlVertex2f(float x, float y) {
+    ++backdropVertices;
+    if (textureId != 1 || !std::isfinite(x) || !std::isfinite(y) || !std::isfinite(u) || !std::isfinite(v) ||
+        u < 0 || u > 1 || v < 0 || v > 1) invalidBackdrop = true;
+}
 
 int main() {
     try { TestGeometry(); TestDraw(); TestFailures(); std::cout << "Table layout and rendering commands passed.\n"; return 0; }

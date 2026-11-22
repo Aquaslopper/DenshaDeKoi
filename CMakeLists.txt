@@ -40,7 +40,7 @@ if(BUILD_DESKTOP_APP)
     )
     FetchContent_MakeAvailable(raylib)
 
-    add_executable(denshadekoi src/TableMain.cpp src/TableScene.cpp)
+    add_executable(denshadekoi src/TableMain.cpp src/TableScene.cpp src/TableCameraController.cpp)
     configure_project_target(denshadekoi)
     target_link_libraries(denshadekoi PRIVATE raylib hanafuda_core)
 
@@ -84,11 +84,17 @@ endif()
 
 if(BUILD_TESTING)
     # Exercise the actual table rendering commands with a Raylib test double.
-    add_executable(test_table tests/test_table.cpp src/TableScene.cpp)
+    add_executable(test_table tests/test_table.cpp src/TableScene.cpp src/TableCameraController.cpp)
     configure_project_target(test_table)
     target_include_directories(test_table PRIVATE tests/fake_raylib src)
     target_link_libraries(test_table PRIVATE hanafuda_core)
     add_test(NAME table COMMAND test_table)
+
+    add_executable(test_camera tests/test_camera.cpp src/TableCameraController.cpp)
+    configure_project_target(test_camera)
+    target_include_directories(test_camera PRIVATE tests/fake_raylib src)
+    target_link_libraries(test_camera PRIVATE hanafuda_core)
+    add_test(NAME camera COMMAND test_camera)
 
     add_executable(test_table_game tests/test_table_game.cpp)
     configure_project_target(test_table_game)

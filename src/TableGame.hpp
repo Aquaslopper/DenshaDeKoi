@@ -5,6 +5,8 @@
 
 #include <array>
 #include <optional>
+#include <cstddef>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -13,6 +15,22 @@ struct TableCard {
     TableLayout::Rect rect{};
     float flip = 1.0f; // Horizontal width factor for a card flip.
     float elevation = TableLayout::CardElevation;
+};
+
+// At most 48 physical cards plus a handful of simultaneous presentation
+// overlays. Kept inline so rendering does not allocate a vector every frame.
+struct TableCardList {
+    std::array<TableCard, 64> items{};
+    std::size_t count = 0;
+    void push_back(TableCard card) {
+        if (count == items.size()) throw std::length_error("Too many table card visuals");
+        items[count++] = card;
+    }
+    [[nodiscard]] std::size_t size() const noexcept { return count; }
+    [[nodiscard]] const TableCard& operator[](std::size_t i) const { return items[i]; }
+    [[nodiscard]] const TableCard& back() const { return items[count - 1]; }
+    [[nodiscard]] const TableCard* begin() const noexcept { return items.data(); }
+    [[nodiscard]] const TableCard* end() const noexcept { return items.data() + count; }
 };
 
 // Match coordinator and presentation state; independent of Raylib and the clock.
@@ -24,19 +42,23 @@ public:
     void Update(float seconds);
     void PointerDown(TableLayout::Point2 p);
     void PointerMove(TableLayout::Point2 p);
+    // Re-anchor the grabbed point when a presentation layer raises the card.
+    void ReanchorDrag(TableLayout::Point2 p);
     void PointerUp(TableLayout::Point2 p);
     void CancelDrag();
     void Choose(Decision decision);
     void NextRound();
 
-    [[nodiscard]] std::vector<TableCard> Cards() const;
+    [[nodiscard]] TableCardList CardVisuals() const; // Allocation-free render snapshot.
+    [[nodiscard]] std::vector<TableCard> Cards() const; // Compatibility convenience copy.
     [[nodiscard]] const KoiKoiStateMachine& Rules() const { return game_; }
     [[nodiscard]] const std::array<int, 2>& Scores() const { return scores_; }
     [[nodiscard]] int Round() const { return round_; }
     [[nodiscard]] bool MatchFinished() const { return finished_; }
     [[nodiscard]] bool Busy() const { return animation_ != Animation::NONE; }
     [[nodiscard]] bool Dragging() const { return dragged_.has_value(); }
-    [[nodiscard]] std::string Status() const;
+    void FormatStatus(char* output, std::size_t size) const;
+    [[nodiscard]] std::string Status() const; // Compatibility convenience copy.
     [[nodiscard]] TableLayout::Rect FieldRect(CardId id) const;
 
     // Xeno-koi-style drop target: edge gap <=10 plan pixels, with a guard
