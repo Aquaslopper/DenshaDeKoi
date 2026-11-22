@@ -23,13 +23,16 @@ float u = 0, v = 0;
 unsigned int textureId = 0;
 int width = 1600, height = 900;
 int loads = 0, renderUnloads = 0;
+int draws = 0;
+std::vector<std::string> drawnTexts;
 bool failAtlas = false, invalidAtlas = false, failCanvas = false;
 
 void Check(bool condition, const char* text) { if (!condition) throw std::runtime_error(text); }
 bool Near(float a, float b, float tolerance = 0.01f) { return std::abs(a - b) < tolerance; }
 void Reset() {
     vertices.clear(); unloaded.clear(); destinations.clear(); sources.clear();
-    loads = renderUnloads = 0; failAtlas = invalidAtlas = failCanvas = false;
+    drawnTexts.clear();
+    loads = renderUnloads = draws = 0; failAtlas = invalidAtlas = failCanvas = false;
 }
 void TestGeometry() {
     using namespace TableLayout;
@@ -130,6 +133,40 @@ void TestDraw() {
         Check(destinations.size() == 2 && Near(destinations[1].height, 900) &&
               Near(destinations[1].width, 1360.0f * 900.0f / 768.0f) && sources[1].height < 0,
               "Window resize must preserve aspect ratio and flip render target");
+
+        // Verify right-side pause button stays clear of decision banners and renders pause menu radio presets.
+        const auto noOverlap = [](TableLayout::Rect a, TableLayout::Rect b) {
+            return a.x + a.width <= b.x || b.x + b.width <= a.x ||
+                   a.y + a.height <= b.y || b.y + b.height <= a.y;
+        };
+        Check(TableHud::PauseButton.x >= 1200.0f &&
+              noOverlap(TableHud::PauseButton, TableHud::KoiKoiButton) &&
+              noOverlap(TableHud::PauseButton, TableHud::ShobuButton) &&
+              noOverlap(TableHud::PauseButton, TableHud::RoundEndButton),
+              "Right-side pause button must not overlap top-right decision banners");
+
+        drawnTexts.clear();
+        TableHudState pausedHud{};
+        pausedHud.paused = true;
+        pausedHud.radio.enabled = true;
+        pausedHud.radio.state = RadioState::PLAYING;
+        pausedHud.radio.stationIndex = 0;
+        pausedHud.radio.stationName = "J-Pop Powerplay";
+        pausedHud.radio.statusText = "Live";
+        pausedHud.radio.volume = 0.75f;
+        pausedHud.radio.bufferedSec = 2.8f;
+        scene.Draw(game, pausedHud);
+        const auto hasText = [&](const std::string& needle) {
+            return std::any_of(drawnTexts.begin(), drawnTexts.end(),
+                               [&](const std::string& s) { return s.find(needle) != std::string::npos; });
+        };
+        Check(hasText("PAUSED") && hasText("J-Pop Powerplay") && hasText("75%") &&
+              hasText("Live") && hasText("buffered 2.8s") && hasText("J-Pop Sakura"),
+              "Pause menu must render the radio state, station presets, volume and buffer readout");
+        Check(noOverlap(TableHud::VolumeHitBox, TableHud::StationButton(0)) &&
+              noOverlap(TableHud::RadioPowerButton, TableHud::RadioMuteButton) &&
+              noOverlap(TableHud::VolumeHitBox, TableHud::RadioMuteButton),
+              "Radio controls must not overlap each other or the station grid");
     }
     Check(renderUnloads == 1 && unloaded == std::vector<unsigned int>({4, 2, 1}), "Resources not released");
 }
@@ -168,8 +205,9 @@ void EndTextureMode() {}
 void BeginMode3D(Camera3D c) { camera = c; }
 void EndMode3D() {}
 void ClearBackground(Color) {}
-void DrawText(const char*, int, int, int, Color) {}
+void DrawText(const char* text, int, int, int, Color) { if (text) drawnTexts.emplace_back(text); }
 void DrawRectangle(int, int, int, int, Color) {}
+void DrawRectangleLinesEx(Rectangle, float, Color) {}
 int GetScreenWidth() { return width; }
 int GetScreenHeight() { return height; }
 void BeginDrawing() {}

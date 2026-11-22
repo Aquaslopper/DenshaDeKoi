@@ -252,11 +252,98 @@ struct ScreenMap {
     [[nodiscard]] int W(float w) const { return std::max(1, static_cast<int>(std::lround(w * scale))); }
     [[nodiscard]] int H(float h) const { return std::max(1, static_cast<int>(std::lround(h * scale))); }
     [[nodiscard]] int Font(float size) const { return W(size); }
+    [[nodiscard]] Rectangle Rec(TableLayout::Rect r) const {
+        return {box.x + r.x * scale, box.y + r.y * scale, r.width * scale, r.height * scale};
+    }
 };
+
+void DrawBox(const ScreenMap& map, TableLayout::Rect r, Color fill, Color border, float borderPx = 1.5f) {
+    DrawRectangle(map.X(r.x), map.Y(r.y), map.W(r.width), map.H(r.height), fill);
+    DrawRectangleLinesEx(map.Rec(r), std::max(1.0f, borderPx * map.scale), border);
+}
+
+std::string FormatTenths(float seconds) {
+    const int tenths = std::max(0, static_cast<int>(std::lround(seconds * 10.0f)));
+    return std::to_string(tenths / 10) + "." + std::to_string(tenths % 10) + "s";
+}
+
+void DrawPauseMenu(const ScreenMap& map, const TableHudState& hud) {
+    DrawRectangle(map.X(0), map.Y(0), map.W(TableLayout::ImageWidth), map.H(TableLayout::ImageHeight),
+                  Color{8, 12, 18, 175});
+    DrawBox(map, TableHud::PausePanel, Color{17, 23, 32, 246}, Color{98, 124, 148, 255}, 2.0f);
+
+    DrawText("PAUSED", map.X(336), map.Y(100), map.Font(28), WHITE);
+    DrawText("J-Pop Internet Radio (.pls)", map.X(462), map.Y(108), map.Font(18), Color{172, 206, 224, 255});
+    DrawBox(map, TableHud::ResumeTopButton, Color{38, 78, 64, 245}, Color{102, 174, 144, 255});
+    DrawText("RESUME", map.X(912), map.Y(113), map.Font(19), WHITE);
+
+    const bool radioOn = hud.radio.enabled;
+    const Color powerFill = radioOn ? Color{31, 86, 66, 245} : Color{46, 54, 66, 245};
+    const Color powerBorder = radioOn ? Color{96, 184, 146, 255} : Color{96, 110, 126, 255};
+    DrawBox(map, TableHud::RadioPowerButton, powerFill, powerBorder);
+    DrawText(radioOn ? "RADIO: ON" : "RADIO: OFF", map.X(349), map.Y(175), map.Font(18), WHITE);
+
+    const Color muteFill = hud.radio.muted ? Color{112, 54, 46, 245} : Color{40, 49, 60, 245};
+    const Color muteBorder = hud.radio.muted ? Color{206, 114, 102, 255} : Color{96, 110, 126, 255};
+    DrawBox(map, TableHud::RadioMuteButton, muteFill, muteBorder);
+    DrawText(hud.radio.muted ? "MUTED" : "MUTE", map.X(496), map.Y(175), map.Font(17), WHITE);
+
+    // Volume slider
+    DrawBox(map, TableHud::VolumeBar, Color{26, 33, 44, 255}, Color{84, 104, 124, 255}, 1.0f);
+    const float vol = std::clamp(hud.radio.volume, 0.0f, 1.0f);
+    if (vol > 0.0f) {
+        const Color fillCol = hud.radio.muted ? Color{108, 114, 122, 220} : Color{98, 178, 152, 255};
+        DrawRectangle(map.X(TableHud::VolumeBar.x + 2.0f), map.Y(TableHud::VolumeBar.y + 2.0f),
+                      map.W(std::max(2.0f, (TableHud::VolumeBar.width - 4.0f) * vol)),
+                      map.H(TableHud::VolumeBar.height - 4.0f), fillCol);
+    }
+    const float knobX = TableHud::VolumeBar.x + vol * (TableHud::VolumeBar.width - 10.0f);
+    DrawRectangle(map.X(knobX), map.Y(TableHud::VolumeBar.y - 3.0f), map.W(10.0f), map.H(26.0f), WHITE);
+    const int volPct = static_cast<int>(std::lround(vol * 100.0f));
+    DrawText((std::to_string(volPct) + "%").c_str(), map.X(974), map.Y(175), map.Font(18), WHITE);
+
+    // Live station & stream metadata readout
+    const std::string stationLabel = hud.radio.stationName.empty() ? "J-Pop Powerplay" : hud.radio.stationName;
+    const std::string statusBadge = hud.radio.statusText.empty() ? "Radio off" : hud.radio.statusText;
+    Color badgeColor = LIGHTGRAY;
+    if (hud.radio.state == RadioState::PLAYING) badgeColor = Color{130, 228, 182, 255};
+    else if (hud.radio.state == RadioState::CONNECTING || hud.radio.state == RadioState::BUFFERING)
+        badgeColor = Color{240, 206, 126, 255};
+    else if (hud.radio.state == RadioState::FAILED) badgeColor = Color{236, 122, 112, 255};
+
+    DrawText(("Station: " + stationLabel).c_str(), map.X(338), map.Y(230), map.Font(18), WHITE);
+    DrawText(("[" + statusBadge + "]").c_str(), map.X(338), map.Y(258), map.Font(15), badgeColor);
+    if (radioOn) {
+        DrawText(("buffered " + FormatTenths(hud.radio.bufferedSec)).c_str(), map.X(880), map.Y(258),
+                 map.Font(15), Color{172, 194, 214, 255});
+    }
+
+    // 2x3 preset .pls station grid
+    const auto& stations = DefaultRadioStations();
+    for (std::size_t i = 0; i < stations.size() && i < TableHud::StationSlotCount; ++i) {
+        const auto box = TableHud::StationButton(i);
+        const bool selected = (hud.radio.stationIndex == static_cast<int>(i));
+        const Color fill = selected
+            ? (radioOn ? Color{31, 70, 62, 245} : Color{42, 54, 70, 245})
+            : Color{28, 35, 46, 240};
+        const Color border = selected ? Color{122, 198, 170, 255} : Color{72, 88, 108, 220};
+        DrawBox(map, box, fill, border);
+        DrawText(stations[i].name.c_str(), map.X(box.x + 14.0f), map.Y(box.y + 12.0f), map.Font(18), WHITE);
+        DrawText((stations[i].subtitle + "  [.pls]").c_str(),
+                 map.X(box.x + 14.0f), map.Y(box.y + 37.0f), map.Font(14),
+                 selected ? Color{196, 232, 216, 255} : LIGHTGRAY);
+    }
+
+    DrawBox(map, TableHud::NewMatchButton, Color{94, 48, 42, 245}, Color{168, 96, 86, 255});
+    DrawText("NEW MATCH", map.X(364), map.Y(625), map.Font(18), WHITE);
+    DrawText("ESC / P: Pause   M: Mute", map.X(546), map.Y(627), map.Font(15), LIGHTGRAY);
+    DrawBox(map, TableHud::ResumeBottomButton, Color{31, 75, 58, 245}, Color{96, 174, 144, 255});
+    DrawText("RESUME GAME", map.X(872), map.Y(625), map.Font(18), WHITE);
+}
 
 // The HUD belongs to the screen, not the world canvas: it is drawn after the
 // world blit, in the same 1360x768 design space as the click rectangles.
-void DrawHud(const TableGame& game, Rectangle destination, float scale) {
+void DrawHud(const TableGame& game, const TableHudState& hud, Rectangle destination, float scale) {
     const ScreenMap map{destination, scale};
     DrawRectangle(map.X(8), map.Y(8), map.W(500), map.H(102), Color{15, 20, 27, 220});
     const std::string label = "ROUND " + std::to_string(game.Round()) + " / " +
@@ -267,15 +354,42 @@ void DrawHud(const TableGame& game, Rectangle destination, float scale) {
     DrawText(game.Status().c_str(), map.X(20), map.Y(51), map.Font(19), WHITE);
     DrawText("Drag a card to a match; right-click to cancel", map.X(20), map.Y(80), map.Font(15), LIGHTGRAY);
     if (game.Rules().GetPhase() == Phase::AWAIT_DECISION && game.Rules().CurrentPlayer() == Player::PLAYER && !game.Busy()) {
-        DrawRectangle(map.X(1010), map.Y(20), map.W(145), map.H(40), Color{31, 75, 58, 245});
-        DrawRectangle(map.X(1165), map.Y(20), map.W(145), map.H(40), Color{100, 50, 38, 245});
+        DrawRectangle(map.X(TableHud::KoiKoiButton.x), map.Y(TableHud::KoiKoiButton.y),
+                      map.W(TableHud::KoiKoiButton.width), map.H(TableHud::KoiKoiButton.height), Color{31, 75, 58, 245});
+        DrawRectangle(map.X(TableHud::ShobuButton.x), map.Y(TableHud::ShobuButton.y),
+                      map.W(TableHud::ShobuButton.width), map.H(TableHud::ShobuButton.height), Color{100, 50, 38, 245});
         DrawText("KOI-KOI", map.X(1030), map.Y(30), map.Font(20), WHITE);
         DrawText("SHOBU", map.X(1190), map.Y(30), map.Font(20), WHITE);
     }
     if (game.Rules().GetPhase() == Phase::ROUND_END) {
-        DrawRectangle(map.X(1000), map.Y(20), map.W(310), map.H(66), Color{15, 20, 27, 235});
+        DrawRectangle(map.X(TableHud::RoundEndButton.x), map.Y(TableHud::RoundEndButton.y),
+                      map.W(TableHud::RoundEndButton.width), map.H(TableHud::RoundEndButton.height), Color{15, 20, 27, 235});
         DrawText(game.MatchFinished() ? "MATCH OVER" : "NEXT ROUND", map.X(1020), map.Y(27), map.Font(20), WHITE);
         DrawText(game.MatchFinished() ? "Click to restart" : "Click to continue", map.X(1020), map.Y(55), map.Font(16), LIGHTGRAY);
+    }
+
+    // Right-side Pause / Radio Menu button
+    const bool liveRadio = hud.radio.enabled && !hud.radio.muted;
+    const Color pauseFill = hud.paused ? Color{34, 62, 56, 240} : Color{15, 20, 27, 230};
+    const Color pauseBorder = liveRadio ? Color{102, 186, 152, 240} : Color{95, 118, 138, 220};
+    DrawBox(map, TableHud::PauseButton, pauseFill, pauseBorder, 1.5f);
+    // Twin pause bars icon
+    DrawRectangle(map.X(TableHud::PauseButton.x + 14.0f), map.Y(TableHud::PauseButton.y + 14.0f),
+                  map.W(5.0f), map.H(18.0f), WHITE);
+    DrawRectangle(map.X(TableHud::PauseButton.x + 23.0f), map.Y(TableHud::PauseButton.y + 14.0f),
+                  map.W(5.0f), map.H(18.0f), WHITE);
+    DrawText(hud.paused ? "RESUME" : "MENU",
+             map.X(TableHud::PauseButton.x + 36.0f), map.Y(TableHud::PauseButton.y + 14.0f),
+             map.Font(19), WHITE);
+    const char* subLabel = hud.radio.enabled
+        ? (hud.radio.muted ? "RADIO MUTED" : (hud.radio.state == RadioState::PLAYING ? "J-POP LIVE" : "RADIO ..."))
+        : "J-POP RADIO";
+    const Color subColor = liveRadio ? Color{130, 228, 182, 255} : LIGHTGRAY;
+    DrawText(subLabel, map.X(TableHud::PauseButton.x + 14.0f), map.Y(TableHud::PauseButton.y + 40.0f),
+             map.Font(14), subColor);
+
+    if (hud.paused) {
+        DrawPauseMenu(map, hud);
     }
 }
 
@@ -317,7 +431,7 @@ TableScene::~TableScene() {
     UnloadTexture(background_);
 }
 
-void TableScene::Draw(const TableGame& game) const {
+void TableScene::Draw(const TableGame& game, const TableHudState& hud) const {
     BeginTextureMode(canvas_);
     ClearBackground(BLACK);
     DrawTexturePro(background_, {0, 0, static_cast<float>(background_.width), static_cast<float>(background_.height)},
@@ -345,6 +459,6 @@ void TableScene::Draw(const TableGame& game) const {
     DrawTexturePro(canvas_.texture, {0, 0, static_cast<float>(canvas_.texture.width),
                                     -static_cast<float>(canvas_.texture.height)},
                    destination, {0, 0}, 0, WHITE);
-    DrawHud(game, destination, scale);
+    DrawHud(game, hud, destination, scale);
     EndDrawing();
 }

@@ -43,6 +43,12 @@ The CPU currently uses a simple first-available-match strategy and always banks 
 
 The separate `denshadekoi_inspector` uses columns for months 1–12 and rows for card indices 0–3. Hover a card to see its identifiers; the white outline is drawn outside the card so its original black frame remains visible.
 
+## Internet radio
+
+The **MENU** button (or `ESC` / `P`) pauses the game and opens the J-Pop radio panel: six Asia DREAM Radio stations, a volume slider, and `M` to mute. Playback runs through Raylib's own `AudioStream`, so `InitAudioDevice()` must succeed; the console prints `[radio]` lines (state changes, connection errors, stream format) that make it obvious where a failure happens.
+
+The stream stack is deliberately small: a background thread resolves the station's `.pls`, reads the SHOUTcast MP3 stream over WinHTTP (Windows, including HTTPS) or a plain HTTP/1.0 socket (Linux/macOS, HTTP only), decodes with the vendored `dr_mp3.h`, and pushes PCM into a mutex-protected queue. Playback starts once 1.5 s are buffered; if the connection drops, the engine reconnects and keeps playing from what is still buffered.
+
 ## Atlas
 
 The supplied source image had headings, margins, and gutters rather than a tightly packed grid. The included `cards_atlas.png` has been normalized by cropping each complete 179×264-pixel card, including its original black border, from that image and packing the crops directly into a 12×4 grid, without resizing. This makes the uniform source rectangle calculation accurate. Replacement atlases should likewise be tightly packed, with equal-sized cells and no gutters. The loader rejects dimensions that are not divisible by 12 columns and 4 rows; this catches the original unnormalized image but cannot detect gutters in every possible image.
