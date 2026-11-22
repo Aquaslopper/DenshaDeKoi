@@ -13,34 +13,139 @@
 namespace {
 using TableLayout::Rect;
 
-void Vertex(float x, float y, float u, float v, float elevation) {
-    const auto point = TableLayout::OnPlane(x, y, elevation);
-    rlTexCoord2f(u, v);
-    rlVertex3f(point.x, point.y, point.z);
+struct CardTransform {
+    float cx, cy, cz;
+    float hx, hy, hz;
+    float cosZ, sinZ, cosX, sinX;
+};
+
+CardTransform MakeCardTransform(const TableCard& card) {
+    const auto p00 = TableLayout::OnPlane(card.rect.x, card.rect.y, 0.0f);
+    const auto p11 = TableLayout::OnPlane(card.rect.x + card.rect.width,
+                                          card.rect.y + card.rect.height, 0.0f);
+    const float hx = 0.5f * (p11.x - p00.x);
+    const float hz = 0.5f * (p11.z - p00.z);
+    const float hy = 0.5f * card.thickness;
+    const float rz = card.flipAngle + card.roll;
+    const float rx = card.pitch;
+    const float cosZ = std::cos(rz), sinZ = std::sin(rz);
+    const float cosX = std::cos(rx), sinX = std::sin(rx);
+    const float extentY = std::abs(hx * sinZ * cosX) +
+                          std::abs(hy * cosZ * cosX) +
+                          std::abs(hz * sinX);
+    return {0.5f * (p00.x + p11.x), card.elevation + extentY, 0.5f * (p00.z + p11.z),
+            hx, hy, hz, cosZ, sinZ, cosX, sinX};
 }
 
-// CCW from above: top-left, bottom-left, bottom-right, top-right. The quad is
-// on the 3D plane, so OpenGL performs perspective-correct texture interpolation.
-void Quad(Rect r, float u0, float v0, float u1, float v1, Color color, float elevation) {
+void LocalVertex(const CardTransform& t, float lx, float ly, float lz, float u, float v) {
+    const float x1 = lx * t.cosZ - ly * t.sinZ;
+    const float y1 = lx * t.sinZ + ly * t.cosZ;
+    const float y2 = y1 * t.cosX - lz * t.sinX;
+    const float z2 = y1 * t.sinX + lz * t.cosX;
+    rlTexCoord2f(u, v);
+    rlVertex3f(t.cx + x1, t.cy + y2, t.cz + z2);
+}
+
+void EmitQuad(const CardTransform& t,
+              float x0, float y0, float z0, float u0, float v0,
+              float x1, float y1, float z1, float u1, float v1,
+              float x2, float y2, float z2, float u2, float v2,
+              float x3, float y3, float z3, float u3, float v3,
+              Color color) {
     rlColor4ub(color.r, color.g, color.b, color.a);
-    Vertex(r.x, r.y, u0, v0, elevation);
-    Vertex(r.x, r.y + r.height, u0, v1, elevation);
-    Vertex(r.x + r.width, r.y + r.height, u1, v1, elevation);
-    Vertex(r.x + r.width, r.y, u1, v0, elevation);
+    LocalVertex(t, x0, y0, z0, u0, v0);
+    LocalVertex(t, x1, y1, z1, u1, v1);
+    LocalVertex(t, x2, y2, z2, u2, v2);
+    LocalVertex(t, x3, y3, z3, u3, v3);
+}
+
+void DrawShadows(const std::vector<TableCard>& cards) {
+    rlSetTexture(rlGetTextureIdDefault());
+    rlBegin(RL_QUADS);
+    for (const auto& card : cards) {
+        if (!card.shadow) continue;
+        const auto p00 = TableLayout::OnPlane(card.rect.x, card.rect.y, 0.0f);
+        const auto p11 = TableLayout::OnPlane(card.rect.x + card.rect.width,
+                                              card.rect.y + card.rect.height, 0.0f);
+        const float hx = 0.5f * (p11.x - p00.x);
+        const float hz = 0.5f * (p11.z - p00.z);
+        const float h = std::max(0.0f, card.elevation - TableLayout::CardElevation);
+        const float cx = 0.5f * (p00.x + p11.x) + 0.004f + h * 0.45f;
+        const float cz = 0.5f * (p00.z + p11.z) + 0.005f + h * 0.45f;
+        const float flipScale = 0.25f + 0.75f * std::abs(std::cos(card.flipAngle));
+        const float shx = hx * flipScale + 0.002f + h * 0.12f;
+        const float shz = hz + 0.002f + h * 0.12f;
+        const unsigned char alpha = static_cast<unsigned char>(std::clamp(58.0f - h * 260.0f, 22.0f, 64.0f));
+        constexpr float shadowY = 0.0005f;
+        rlColor4ub(0, 0, 0, alpha);
+        rlTexCoord2f(0.0f, 0.0f); rlVertex3f(cx - shx, shadowY, cz - shz);
+        rlTexCoord2f(0.0f, 1.0f); rlVertex3f(cx - shx, shadowY, cz + shz);
+        rlTexCoord2f(1.0f, 1.0f); rlVertex3f(cx + shx, shadowY, cz + shz);
+        rlTexCoord2f(1.0f, 0.0f); rlVertex3f(cx + shx, shadowY, cz - shz);
+    }
+    rlEnd();
 }
 
 void DrawCards(Texture2D atlas, const std::vector<TableCard>& cards) {
+    DrawShadows(cards);
+    const unsigned int defaultTex = rlGetTextureIdDefault();
     for (const auto& card : cards) {
-        Rect r = card.rect;
-        r.x += r.width * (1.0f - card.flip) * 0.5f;
-        r.width *= card.flip;
-        const bool back = card.id < 0;
-        rlSetTexture(back ? rlGetTextureIdDefault() : atlas.id);
+        const CardTransform t = MakeCardTransform(card);
+        const bool backOnly = card.id < 0;
+        const bool isStack = card.thickness > TableLayout::CardThickness * 1.5f;
+        const Color frontSide = isStack ? Color{76, 72, 70, 255} : Color{54, 52, 58, 255};
+        const Color leftSide  = isStack ? Color{62, 58, 56, 255} : Color{42, 40, 46, 255};
+        const Color rightSide = isStack ? Color{44, 42, 42, 255} : Color{30, 29, 34, 255};
+        const Color farSide   = isStack ? Color{32, 30, 32, 255} : Color{22, 22, 26, 255};
+
+        // Top face (+Y): artwork or solid black back.
+        rlSetTexture(backOnly ? defaultTex : atlas.id);
         rlBegin(RL_QUADS);
-        const float u0 = back ? 0.0f : static_cast<float>(card.id / 4) / 12.0f;
-        const float v0 = back ? 0.0f : static_cast<float>(card.id % 4) / 4.0f;
-        Quad(r, u0, v0, back ? 1.0f : u0 + 1.0f / 12.0f,
-             back ? 1.0f : v0 + 1.0f / 4.0f, back ? BLACK : WHITE, card.elevation);
+        const float u0 = backOnly ? 0.0f : static_cast<float>(card.id / 4) / 12.0f;
+        const float v0 = backOnly ? 0.0f : static_cast<float>(card.id % 4) / 4.0f;
+        const float u1 = backOnly ? 1.0f : u0 + 1.0f / 12.0f;
+        const float v1 = backOnly ? 1.0f : v0 + 1.0f / 4.0f;
+        EmitQuad(t,
+                 -t.hx, t.hy, -t.hz, u0, v0,
+                 -t.hx, t.hy,  t.hz, u0, v1,
+                  t.hx, t.hy,  t.hz, u1, v1,
+                  t.hx, t.hy, -t.hz, u1, v0,
+                 backOnly ? BLACK : WHITE);
+        rlEnd();
+
+        // Bottom face (-Y) and four 3D side edges.
+        rlSetTexture(defaultTex);
+        rlBegin(RL_QUADS);
+        EmitQuad(t,
+                  t.hx, -t.hy, -t.hz, 0.0f, 0.0f,
+                  t.hx, -t.hy,  t.hz, 0.0f, 1.0f,
+                 -t.hx, -t.hy,  t.hz, 1.0f, 1.0f,
+                 -t.hx, -t.hy, -t.hz, 1.0f, 0.0f,
+                 BLACK);
+        EmitQuad(t,
+                 -t.hx,  t.hy, t.hz, 0.0f, 0.0f,
+                 -t.hx, -t.hy, t.hz, 0.0f, 1.0f,
+                  t.hx, -t.hy, t.hz, 1.0f, 1.0f,
+                  t.hx,  t.hy, t.hz, 1.0f, 0.0f,
+                 frontSide);
+        EmitQuad(t,
+                  t.hx,  t.hy, -t.hz, 0.0f, 0.0f,
+                  t.hx, -t.hy, -t.hz, 0.0f, 1.0f,
+                 -t.hx, -t.hy, -t.hz, 1.0f, 1.0f,
+                 -t.hx,  t.hy, -t.hz, 1.0f, 0.0f,
+                 farSide);
+        EmitQuad(t,
+                 -t.hx,  t.hy, -t.hz, 0.0f, 0.0f,
+                 -t.hx, -t.hy, -t.hz, 0.0f, 1.0f,
+                 -t.hx, -t.hy,  t.hz, 1.0f, 1.0f,
+                 -t.hx,  t.hy,  t.hz, 1.0f, 0.0f,
+                 leftSide);
+        EmitQuad(t,
+                  t.hx,  t.hy,  t.hz, 0.0f, 0.0f,
+                  t.hx, -t.hy,  t.hz, 0.0f, 1.0f,
+                  t.hx, -t.hy, -t.hz, 1.0f, 1.0f,
+                  t.hx,  t.hy, -t.hz, 1.0f, 0.0f,
+                 rightSide);
         rlEnd();
     }
     rlSetTexture(0);

@@ -29,6 +29,12 @@ Rect Interpolate(Rect a, Rect b, float t) {
     t = std::clamp(t, 0.0f, 1.0f); t = t * t * (3.0f - 2.0f * t);
     return {a.x+(b.x-a.x)*t, a.y+(b.y-a.y)*t, a.width+(b.width-a.width)*t, a.height+(b.height-a.height)*t};
 }
+Rect InterpolateSnap(Rect a, Rect b, float t) {
+    t = std::clamp(t, 0.0f, 1.0f);
+    const float inv = 1.0f - t;
+    t = 1.0f - inv * inv * inv;
+    return {a.x+(b.x-a.x)*t, a.y+(b.y-a.y)*t, a.width+(b.width-a.width)*t, a.height+(b.height-a.height)*t};
+}
 Player DrawDealer(Deck& deck) {
     deck.Shuffle();
     for (;;) {
@@ -60,6 +66,19 @@ Rect TableGame::HandRect(Player player, std::size_t i) const {
 }
 Rect TableGame::CaptureRect(Player player) const {
     return player == Player::PLAYER ? TableLayout::PlayerCapture : TableLayout::OpponentCapture;
+}
+float TableGame::StockHeight() const {
+    const std::size_t count = game_.StockRemaining();
+    if (count == 0) return 0.0f;
+    return TableLayout::CardThickness +
+           static_cast<float>(std::min<std::size_t>(count, 24) - 1) * TableLayout::StackStep;
+}
+float TableGame::CaptureHeight(Player player, std::size_t countOffset) const {
+    const std::size_t raw = game_.Captured(player).size();
+    const std::size_t count = raw > countOffset ? raw - countOffset : 0;
+    if (count == 0) return 0.0f;
+    return TableLayout::CardThickness +
+           static_cast<float>(std::min<std::size_t>(count, 24) - 1) * (TableLayout::StackStep * 0.85f);
 }
 Rect TableGame::FieldRect(CardId id) const {
     if (id < 0 || id >= 48 || slots_[static_cast<std::size_t>(id)] < 0) throw std::out_of_range("Card not on field");
@@ -122,21 +141,33 @@ void TableGame::PointerDown(Point2 p) {
     const auto& hand = game_.Hand(Player::PLAYER);
     for (std::size_t i = hand.size(); i-- > 0;) if (Contains(HandRect(Player::PLAYER, i), p)) {
         dragged_ = hand[i]; dragRect_ = HandRect(Player::PLAYER, i);
-        dragOffset_ = {p.x - dragRect_.x, p.y - dragRect_.y}; return;
+        dragOffset_ = {p.x - dragRect_.x, p.y - dragRect_.y};
+        dragDeltaX_ = dragDeltaY_ = dragVelX_ = dragVelY_ = dragPitch_ = dragRoll_ = 0.0f;
+        return;
     }
 }
 void TableGame::PointerMove(Point2 p) {
-    if (dragged_) { dragRect_.x = p.x - dragOffset_.x; dragRect_.y = p.y - dragOffset_.y; }
+    if (dragged_) {
+        const float nx = p.x - dragOffset_.x;
+        const float ny = p.y - dragOffset_.y;
+        dragDeltaX_ += nx - dragRect_.x;
+        dragDeltaY_ += ny - dragRect_.y;
+        dragRect_.x = nx;
+        dragRect_.y = ny;
+    }
 }
 void TableGame::CancelDrag() {
     if (!dragged_) return;
     const auto& hand = game_.Hand(Player::PLAYER);
     auto it = std::find(hand.begin(), hand.end(), *dragged_);
     if (it != hand.end()) {
-        moving_ = {{*dragged_, dragRect_, HandRect(Player::PLAYER, static_cast<std::size_t>(it - hand.begin()))}};
-        BeginAnimation(Animation::RETURN, 0.4f);
+        playerSnap_ = false;
+        moving_ = {{*dragged_, dragRect_, HandRect(Player::PLAYER, static_cast<std::size_t>(it - hand.begin())),
+                    TableLayout::CardElevation + 0.042f, TableLayout::CardElevation}};
+        BeginAnimation(Animation::RETURN, 0.28f);
     }
     dragged_.reset();
+    dragDeltaX_ = dragDeltaY_ = dragVelX_ = dragVelY_ = dragPitch_ = dragRoll_ = 0.0f;
 }
 void TableGame::PointerUp(Point2 p) {
     if (!dragged_) return;
@@ -151,6 +182,7 @@ void TableGame::PointerUp(Point2 p) {
     }
     const Rect from = dragRect_;
     dragged_.reset();
+    dragDeltaX_ = dragDeltaY_ = dragVelX_ = dragVelY_ = dragPitch_ = dragRoll_ = 0.0f;
     StartHand(id, from, target);
 }
 void TableGame::StartHand(CardId id, Rect from, std::optional<CardId> target) {
@@ -162,18 +194,28 @@ void TableGame::StartHand(CardId id, Rect from, std::optional<CardId> target) {
     matched_ = target.has_value();
     pendingSlot_ = matched_ ? -1 : FindFreeSlot(Center(from));
     const Rect dest = target ? FieldRect(*target) : TableLayout::FieldSlot(static_cast<std::size_t>(pendingSlot_), compactField_ || game_.Field().size() >= 16);
-    moving_ = {{id, from, dest}};
-    if (game_.CurrentPlayer() == Player::OPPONENT) BeginAnimation(Animation::CPU_FLIP, 0.30f);
-    else BeginAnimation(Animation::HAND_MOVE, 0.40f);
+    const float toElev = TableLayout::CardElevation + (matched_ ? TableLayout::CardThickness + 0.001f : 0.0f);
+    if (game_.CurrentPlayer() == Player::OPPONENT) {
+        playerSnap_ = false;
+        moving_ = {{id, from, dest, TableLayout::CardElevation, toElev}};
+        BeginAnimation(Animation::CPU_FLIP, 0.30f);
+    } else {
+        playerSnap_ = true;
+        moving_ = {{id, from, dest, TableLayout::CardElevation + 0.042f, toElev}};
+        BeginAnimation(Animation::HAND_MOVE, matched_ ? 0.065f : 0.11f);
+    }
 }
 void TableGame::StartStockMove(std::optional<CardId> target) {
     const int id = *game_.PendingCard();
     matched_ = target.has_value();
     pendingSlot_ = matched_ ? -1 : FindFreeSlot({431.0f, 355.0f});
     const Rect dest = target ? FieldRect(*target) : TableLayout::FieldSlot(static_cast<std::size_t>(pendingSlot_), compactField_ || game_.Field().size() >= 16);
-    moving_ = {{id, TableLayout::Stock, dest}};
+    const float fromElev = TableLayout::CardElevation + StockHeight();
+    const float toElev = TableLayout::CardElevation + (matched_ ? TableLayout::CardThickness + 0.001f : 0.0f);
+    playerSnap_ = false;
+    moving_ = {{id, TableLayout::Stock, dest, fromElev, toElev}};
     stockReady_ = false;
-    BeginAnimation(Animation::STOCK_MOVE, 0.50f);
+    BeginAnimation(Animation::STOCK_MOVE, 0.36f);
 }
 void TableGame::ResolveMove() {
     const int incoming = moving_.front().id;
@@ -189,19 +231,21 @@ void TableGame::ResolveMove() {
     }
     moving_.clear();
     const auto& captured = game_.Captured(player);
+    const float toElev = TableLayout::CardElevation + CaptureHeight(player);
     for (std::size_t i = previousCount; i < captured.size(); ++i) {
         int id = captured[i];
-        moving_.push_back({id, id == incoming ? arrived : previousField[static_cast<std::size_t>(id)], CaptureRect(player)});
+        const float fromElev = TableLayout::CardElevation + (id == incoming ? TableLayout::CardThickness + 0.001f : 0.0f);
+        moving_.push_back({id, id == incoming ? arrived : previousField[static_cast<std::size_t>(id)], CaptureRect(player), fromElev, toElev});
     }
     SyncField();
-    if (!moving_.empty()) BeginAnimation(Animation::CAPTURE, 0.50f);
+    if (!moving_.empty()) BeginAnimation(Animation::CAPTURE, 0.38f);
     else animation_ = Animation::NONE;
 }
 void TableGame::FinishAnimation() {
     switch (animation_) {
         case Animation::RETURN: case Animation::CAPTURE:
             animation_ = Animation::NONE; moving_.clear(); break;
-        case Animation::CPU_FLIP: BeginAnimation(Animation::HAND_MOVE, 0.40f); break;
+        case Animation::CPU_FLIP: BeginAnimation(Animation::HAND_MOVE, 0.34f); break;
         case Animation::HAND_MOVE: case Animation::STOCK_MOVE:
             if (matched_) BeginAnimation(Animation::HIT_FREEZE, 0.05f);
             else ResolveMove();
@@ -226,12 +270,28 @@ void TableGame::Update(float seconds) {
         if (elapsed_ >= duration_) FinishAnimation();
         return;
     }
-    if (dragged_ || finished_) return;
+    if (dragged_) {
+        if (seconds > 0.0f) {
+            const float dt = std::max(seconds, 1.0f / 120.0f);
+            const float vx = dragDeltaX_ / dt;
+            const float vy = dragDeltaY_ / dt;
+            const float blend = 1.0f - std::exp(-18.0f * seconds);
+            dragVelX_ += (vx - dragVelX_) * blend;
+            dragVelY_ += (vy - dragVelY_) * blend;
+            dragRoll_ = std::clamp(dragVelX_ * 0.00022f, -0.24f, 0.24f);
+            dragPitch_ = std::clamp(-dragVelY_ * 0.00020f, -0.20f, 0.20f);
+            dragDeltaX_ = dragDeltaY_ = 0.0f;
+        }
+        return;
+    }
+    if (finished_) return;
     switch (game_.GetPhase()) {
-        case Phase::REVEAL_DRAW:
+        case Phase::REVEAL_DRAW: {
             game_.Advance();
-            moving_ = {{*game_.PendingCard(), TableLayout::Stock, TableLayout::Stock}};
+            const float stockTop = TableLayout::CardElevation + StockHeight();
+            moving_ = {{*game_.PendingCard(), TableLayout::Stock, TableLayout::Stock, stockTop, stockTop}};
             BeginAnimation(Animation::STOCK_FLIP, 0.50f); break;
+        }
         case Phase::AWAIT_DRAW_CHOICE:
             if (stockReady_ && game_.CurrentPlayer() == Player::OPPONENT) {
                 const int id = game_.Choices().front(); game_.ChooseFieldCard(id); StartStockMove(id);
@@ -291,23 +351,75 @@ std::vector<TableCard> TableGame::Cards() const {
             cards.push_back({p == Player::PLAYER ? id : -1, HandRect(p, i)});
         }
     }
-    if (game_.StockRemaining() > 0) cards.push_back({-1, TableLayout::Stock});
+    if (game_.StockRemaining() > 0) {
+        TableCard stockCard{-1, TableLayout::Stock};
+        stockCard.thickness = StockHeight();
+        cards.push_back(stockCard);
+    }
     for (int id : game_.Field()) cards.push_back({id, FieldRect(id)});
     for (Player p : {Player::OPPONENT, Player::PLAYER}) {
         const auto& pile = game_.Captured(p);
-        if (!pile.empty() && !isMoving(pile.back())) cards.push_back({pile.back(), CaptureRect(p)});
-    }
-    if (dragged_) cards.push_back({*dragged_, dragRect_, 1, 0.008f});
-    if (stockReady_ && game_.GetPhase() == Phase::AWAIT_DRAW_CHOICE) cards.push_back({*game_.PendingCard(), TableLayout::Stock, 1, 0.008f});
-    for (const auto& m : moving_) {
-        float t = duration_ > 0 ? std::min(1.0f, elapsed_ / duration_) : 1;
-        int id = m.id; float flip = 1;
-        Rect r = (animation_ == Animation::HIT_FREEZE) ? m.to :
-                 (animation_ == Animation::CPU_FLIP ? m.from : Interpolate(m.from, m.to, t));
-        if (animation_ == Animation::STOCK_FLIP || animation_ == Animation::CPU_FLIP) {
-            flip = std::max(0.01f, std::abs(std::cos(t * 3.14159265f))); if (t < 0.5f) id = -1;
+        if (pile.empty()) continue;
+        if (!isMoving(pile.back())) {
+            TableCard capCard{pile.back(), CaptureRect(p)};
+            capCard.thickness = CaptureHeight(p);
+            cards.push_back(capCard);
+        } else if (animation_ == Animation::CAPTURE && pile.size() > moving_.size()) {
+            const std::size_t prevIdx = pile.size() - moving_.size() - 1;
+            TableCard capCard{pile[prevIdx], CaptureRect(p)};
+            capCard.thickness = CaptureHeight(p, moving_.size());
+            cards.push_back(capCard);
         }
-        cards.push_back({id, r, flip, 0.009f});
+    }
+    if (dragged_) {
+        TableCard draggedCard{*dragged_, dragRect_};
+        draggedCard.elevation = TableLayout::CardElevation + 0.042f;
+        draggedCard.pitch = dragPitch_;
+        draggedCard.roll = dragRoll_;
+        cards.push_back(draggedCard);
+    }
+    if (stockReady_ && game_.GetPhase() == Phase::AWAIT_DRAW_CHOICE) {
+        TableCard pending{*game_.PendingCard(), TableLayout::Stock};
+        pending.elevation = TableLayout::CardElevation + StockHeight() + 0.002f;
+        cards.push_back(pending);
+    }
+    constexpr float Pi = 3.14159265f;
+    for (const auto& m : moving_) {
+        const float t = duration_ > 0 ? std::min(1.0f, elapsed_ / duration_) : 1.0f;
+        int id = m.id;
+        float flip = 1.0f;
+        float flipAngle = 0.0f;
+        float pitch = 0.0f;
+        float roll = 0.0f;
+        float elev = m.toElev;
+        Rect r = m.to;
+
+        if (animation_ == Animation::HIT_FREEZE) {
+            r = m.to;
+            elev = m.toElev;
+        } else if (animation_ == Animation::STOCK_FLIP || animation_ == Animation::CPU_FLIP) {
+            r = m.from;
+            const float eased = t * t * (3.0f - 2.0f * t);
+            flipAngle = Pi * (1.0f - eased);
+            flip = std::max(0.01f, std::abs(std::cos(flipAngle)));
+            if (t < 0.5f) id = -1;
+            elev = m.fromElev + 0.022f * std::sin(Pi * t);
+        } else {
+            const bool snap = (animation_ == Animation::HAND_MOVE && playerSnap_);
+            r = snap ? InterpolateSnap(m.from, m.to, t) : Interpolate(m.from, m.to, t);
+            const float easeT = snap ? (1.0f - (1.0f - t) * (1.0f - t) * (1.0f - t))
+                                     : (t * t * (3.0f - 2.0f * t));
+            const float arc = snap ? 0.0f : (animation_ == Animation::RETURN ? 0.018f : 0.052f) * std::sin(Pi * t);
+            elev = m.fromElev + (m.toElev - m.fromElev) * easeT + arc;
+            const float dx = m.to.x - m.from.x;
+            const float dy = m.to.y - m.from.y;
+            const float tiltEnv = std::sin(Pi * t);
+            roll = std::clamp(dx * 0.00045f, -0.18f, 0.18f) * tiltEnv;
+            pitch = std::clamp(-dy * 0.00045f, -0.18f, 0.18f) * tiltEnv;
+        }
+
+        TableCard movingCard{id, r, flip, elev, flipAngle, pitch, roll, TableLayout::CardThickness, true};
+        cards.push_back(movingCard);
     }
     return cards;
 }

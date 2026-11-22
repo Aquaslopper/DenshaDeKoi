@@ -40,13 +40,23 @@ void TestReturnAndFreeze() {
         auto match = std::find_if(field.begin(), field.end(), [id](int f){ return f/4 == id/4; });
         if (match == field.end()) continue;
         game.PointerDown(Center(TableLayout::PlayerHand[0]));
+        Check(game.Cards().back().elevation > TableLayout::CardElevation + 0.03f, "Dragged card must lift above table");
+        game.PointerMove({Center(TableLayout::PlayerHand[0]).x + 60.0f, Center(TableLayout::PlayerHand[0]).y - 80.0f});
+        game.Update(0.016f);
+        Check(std::abs(game.Cards().back().roll) > 0.01f && std::abs(game.Cards().back().pitch) > 0.01f,
+              "Dragged card must tilt with pointer motion");
+        game.Update(0.5f);
+        Check(std::abs(game.Cards().back().roll) < 0.01f && std::abs(game.Cards().back().pitch) < 0.01f,
+              "Dragged card must level out when stationary");
         game.PointerUp({0, 0});
         Check(game.Busy() && game.Rules().Hand(Player::PLAYER).size() == 8, "Invalid drop must return without playing");
         game.Update(0.4f);
         Check(!game.Busy() && game.Rules().Hand(Player::PLAYER).size() == 8, "Return animation changed state");
         PlayFirst(game);
-        game.Update(0.4f); // flight ends, hit freeze begins
+        game.Update(0.07f); // snap ends, 50 ms hit freeze begins
         Check(game.Busy() && game.Rules().Hand(Player::PLAYER).size() == 8, "Capture committed before hit freeze");
+        Check(game.Cards().back().elevation > TableLayout::CardElevation + TableLayout::CardThickness * 0.9f,
+              "Snapped card must rest on top of matched field card during hit freeze");
         game.Update(0.049f);
         Check(game.Rules().Hand(Player::PLAYER).size() == 8, "Hit freeze shorter than 50 ms");
         game.Update(0.002f);
@@ -62,20 +72,33 @@ void TestFlips() {
         if (game.Rules().GetPhase() != Phase::AWAIT_HAND_PLAY) continue;
         if (!cpuChecked && game.Rules().CurrentPlayer() == Player::OPPONENT) {
             game.Update(0.4f);
-            Check(game.Busy() && game.Cards().back().id == -1, "CPU flip must start on black back");
+            Check(game.Busy() && game.Cards().back().id == -1 && game.Cards().back().flipAngle > 3.0f,
+                  "CPU flip must start on black back");
             game.Update(0.15f);
-            Check(game.Cards().back().flip < 0.02f && game.Cards().back().id >= 0, "CPU flip midpoint incorrect");
+            Check(game.Cards().back().flip < 0.02f && game.Cards().back().id >= 0 &&
+                  std::abs(game.Cards().back().flipAngle - 1.5707963f) < 0.05f &&
+                  game.Cards().back().elevation > TableLayout::CardElevation + 0.01f,
+                  "CPU flip midpoint incorrect");
             cpuChecked = true;
         }
         if (!stockChecked && game.Rules().CurrentPlayer() == Player::PLAYER) {
+            float initialStockThickness = 0.0f;
+            for (const auto& c : game.Cards()) if (c.id == -1 && c.rect.x == TableLayout::Stock.x) initialStockThickness = c.thickness;
+            Check(initialStockThickness > TableLayout::CardThickness * 2.0f, "Stock pile must have 3D stack thickness");
             PlayFirst(game);
             for (int i = 0; i < 30 && game.Rules().GetPhase() != Phase::REVEAL_DRAW; ++i) game.Update(0.1f);
             Check(game.Rules().GetPhase() == Phase::REVEAL_DRAW, "No mandatory draw after hand play");
             while (game.Busy()) game.Update(0.1f);
             game.Update(0);
-            Check(game.Busy() && game.Cards().back().id == -1, "Stock flip must start on black back");
+            Check(game.Busy() && game.Cards().back().id == -1 && game.Cards().back().flipAngle > 3.0f,
+                  "Stock flip must start on black back");
             game.Update(0.25f);
-            Check(game.Cards().back().flip < 0.02f && game.Cards().back().id >= 0, "Stock flip midpoint incorrect");
+            Check(game.Cards().back().flip < 0.02f && game.Cards().back().id >= 0 &&
+                  std::abs(game.Cards().back().flipAngle - 1.5707963f) < 0.05f,
+                  "Stock flip midpoint incorrect");
+            float nextStockThickness = 0.0f;
+            for (const auto& c : game.Cards()) if (c.id == -1 && c.rect.x == TableLayout::Stock.x) nextStockThickness = c.thickness;
+            Check(nextStockThickness < initialStockThickness, "Stock stack thickness must shrink as cards are drawn");
             stockChecked = true;
         }
     }
