@@ -68,30 +68,30 @@ inline constexpr float CardElevation = 0.002f;
     return result;
 }
 
-inline constexpr auto OpponentHand = MakeHand(132.5f, 28.0f, 73.0f, 64.0f, 148.0f);
-inline constexpr auto PlayerHand = MakeHand(171.0f, 576.0f, 63.0f, 57.0f, 132.0f);
-inline constexpr Rect Stock{46.0f, 304.0f, 68.0f, 156.0f};
-inline constexpr Rect OpponentCapture{46.0f, 156.0f, 68.0f, 114.0f};
-inline constexpr Rect PlayerCapture{46.0f, 478.0f, 68.0f, 108.0f};
-inline constexpr Rect FieldDropZone{116.0f, 190.0f, 632.0f, 380.0f};
+inline constexpr auto OpponentHand = MakeHand(132.5f, 26.0f, 73.0f, 64.0f, 146.0f);
+inline constexpr auto PlayerHand = MakeHand(132.5f, 562.0f, 73.0f, 64.0f, 146.0f);
+inline constexpr Rect Stock{52.0f, 286.0f, 64.0f, 146.0f};
+inline constexpr Rect OpponentCapture{52.0f, 136.0f, 64.0f, 126.0f};
+inline constexpr Rect PlayerCapture{52.0f, 456.0f, 64.0f, 126.0f};
+inline constexpr Rect FieldDropZone{124.0f, 184.0f, 616.0f, 368.0f};
 
 // The first sixteen field positions use two rows of eight as in the plan.
 [[nodiscard]] constexpr std::array<Rect, 16> MakeField() {
     std::array<Rect, 16> result{};
     for (std::size_t row = 0; row < 2; ++row)
         for (std::size_t col = 0; col < 8; ++col)
-            result[row * 8 + col] = {136.0f + static_cast<float>(col) * 75.0f,
-                                     212.0f + static_cast<float>(row) * 166.0f,
-                                     66.0f, 152.0f};
+            result[row * 8 + col] = {140.0f + static_cast<float>(col) * 74.0f,
+                                     200.0f + static_cast<float>(row) * 164.0f,
+                                     64.0f, 146.0f};
     return result;
 }
 inline constexpr auto Field = MakeField();
 // Overflow rows use a compact five-row layout if the field becomes crowded.
 [[nodiscard]] constexpr Rect FieldSlot(std::size_t index, bool compact = false) {
-    if (compact) return {136.0f + static_cast<float>(index % 8) * 75.0f,
-                         196.0f + static_cast<float>(index / 8) * 74.0f, 66.0f, 70.0f};
+    if (compact) return {140.0f + static_cast<float>(index % 8) * 74.0f,
+                         192.0f + static_cast<float>(index / 8) * 72.0f, 64.0f, 66.0f};
     return index < Field.size() ? Field[index]
-        : Rect{136.0f + static_cast<float>(index - 16) * 75.0f, 534.0f, 66.0f, 38.0f};
+        : Rect{140.0f + static_cast<float>(index - 16) * 74.0f, 520.0f, 64.0f, 34.0f};
 }
 inline constexpr std::size_t FieldSlotCount = 36;
 } // namespace TableLayout

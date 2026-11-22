@@ -48,6 +48,18 @@ void TestGeometry() {
     for (auto r : PlayerHand) Check(within(r), "Player hand outside plane");
     for (auto r : Field) Check(within(r), "Field slot outside plane");
     for (std::size_t i = 0; i < FieldSlotCount; ++i) Check(within(FieldSlot(i, true)), "Compact field slot outside plane");
+
+    std::vector<Rect> allSlots{Stock, OpponentCapture, PlayerCapture};
+    allSlots.insert(allSlots.end(), OpponentHand.begin(), OpponentHand.end());
+    allSlots.insert(allSlots.end(), PlayerHand.begin(), PlayerHand.end());
+    allSlots.insert(allSlots.end(), Field.begin(), Field.end());
+    const auto separated = [](Rect x, Rect y) {
+        return x.x + x.width + 5.0f <= y.x || y.x + y.width + 5.0f <= x.x ||
+               x.y + x.height + 5.0f <= y.y || y.y + y.height + 5.0f <= x.y;
+    };
+    for (std::size_t i = 0; i < allSlots.size(); ++i)
+        for (std::size_t j = i + 1; j < allSlots.size(); ++j)
+            Check(separated(allSlots[i], allSlots[j]), "Card slots must not touch or overlap");
 }
 void TestDraw() {
     Reset();
