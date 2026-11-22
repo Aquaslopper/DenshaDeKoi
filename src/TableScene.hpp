@@ -1,8 +1,9 @@
 #pragma once
 
+#include "TableGame.hpp" // Parse card enums before Raylib defines its BLUE color macro.
 #include <raylib.h>
 
-// Static perspective table preview. This class owns all of its GPU resources;
+// Perspective table renderer. This class owns all of its GPU resources;
 // construct and destroy it while a Raylib window/context is alive.
 class TableScene {
 public:
@@ -13,7 +14,7 @@ public:
     TableScene(TableScene&&) = delete;
     TableScene& operator=(TableScene&&) = delete;
 
-    void Draw() const;
+    void Draw(const TableGame& game) const;
 
 private:
     Texture2D background_{};

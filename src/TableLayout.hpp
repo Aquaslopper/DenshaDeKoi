@@ -44,6 +44,20 @@ inline constexpr float CardElevation = 0.002f;
             ImageHeight * 0.5f + focal * vertical / forward};
 }
 
+// Inverse of Project() for pointer hit testing on the elevated card plane.
+[[nodiscard]] inline Point2 Unproject(Point2 screen, float elevation = CardElevation) {
+    const float s = std::sin(PitchRadians), c = std::cos(PitchRadians);
+    const float f = ImageHeight * 0.5f / std::tan(FovDegrees * 0.5f * 0.017453292519943295f);
+    const float h = CameraHeight - elevation;
+    const float sy = screen.y - ImageHeight * 0.5f;
+    const float denominator = sy * c + f * s;
+    if (denominator <= 0.001f) return {-10000.0f, -10000.0f};
+    const float depth = (f * h * c - sy * h * s) / denominator;
+    const float worldX = (screen.x - ImageWidth * 0.5f) * (h * s + depth * c) / f;
+    return {(worldX + PlaneHalfWidth) * PlanWidth / (2.0f * PlaneHalfWidth),
+            (FarDepth - depth) * PlanHeight / (FarDepth - NearDepth)};
+}
+
 [[nodiscard]] constexpr std::array<Rect, 8> MakeHand(float x, float y, float step,
                                                      float width, float height) {
     std::array<Rect, 8> result{};
@@ -56,7 +70,7 @@ inline constexpr auto OpponentHand = MakeHand(185.0f, 12.0f, 62.0f, 56.0f, 91.0f
 inline constexpr auto PlayerHand = MakeHand(49.0f, 567.0f, 96.0f, 88.0f, 142.0f);
 inline constexpr Rect Stock{49.0f, 261.0f, 76.0f, 126.0f};
 
-// Sixteen field positions for later gameplay, two rows of eight as in the plan.
+// The first sixteen field positions use two rows of eight as in the plan.
 [[nodiscard]] constexpr std::array<Rect, 16> MakeField() {
     std::array<Rect, 16> result{};
     for (std::size_t row = 0; row < 2; ++row)
@@ -67,8 +81,12 @@ inline constexpr Rect Stock{49.0f, 261.0f, 76.0f, 126.0f};
     return result;
 }
 inline constexpr auto Field = MakeField();
-// Static example only: the central four slots of each row contain example cards.
-inline constexpr std::array<std::size_t, 8> PreviewFieldSlots{2, 3, 4, 5, 10, 11, 12, 13};
-inline constexpr std::array<int, 8> PreviewFieldCards{0, 5, 8, 16, 20, 28, 32, 40};
-inline constexpr std::array<int, 8> PreviewHandCards{1, 4, 12, 21, 24, 29, 36, 44};
+// Overflow rows use a compact five-row layout if the field becomes crowded.
+[[nodiscard]] constexpr Rect FieldSlot(std::size_t index, bool compact = false) {
+    if (compact) return {156.0f + static_cast<float>(index % 8) * 81.0f,
+                         165.0f + static_cast<float>(index / 8) * 77.0f, 75.0f, 72.0f};
+    return index < Field.size() ? Field[index]
+        : Rect{156.0f + static_cast<float>(index - 16) * 81.0f, 455.0f, 75.0f, 96.0f};
+}
+inline constexpr std::size_t FieldSlotCount = 36;
 } // namespace TableLayout

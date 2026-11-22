@@ -1,6 +1,6 @@
 # DenshaDeKoi
 
-A C++20 / Raylib perspective table preview with a GUI-independent Hanafuda database, deck, and Koi-Koi rules engine. A playable UI and AI are not implemented yet.
+A C++20 / Raylib Koi-Koi table with a GUI-independent Hanafuda database, deck, rules engine, and match controller.
 
 ## Build and run
 
@@ -31,11 +31,15 @@ When Python 3 is available, CTest also checks the black frame pixels on every ca
 
 `.github/workflows/build.yml` builds and tests every push to `main` and every pull request on Windows with both MSVC and MinGW-w64, and uploads the compiled `denshadekoi.exe` as a build artifact.
 
-## Table preview
+## Table and controls
 
-`denshadekoi` opens a static preview of the supplied city background and table. The card layout is mapped to a horizontal 3D plane under a perspective camera, calibrated to the supplied mockup. The 840×720 placement plan defines two rows of eight field slots, the stock at left, an eight-card opponent hand, and an eight-card player hand. Eight example field cards and eight example player cards use the original atlas; the opponent hand and stock use solid-black backs. Resizing preserves the scene's aspect ratio. Close the window or press Escape to exit.
+`denshadekoi` starts a **three-round match** against a basic CPU. A card draw chooses the first dealer; the prior round winner deals next, and a draw retains the dealer. The game automatically deals, handles lucky hands and misdeals, scores rounds, and shows match totals. Click **Next Round** between rounds, or **Match Over** to start a new match.
 
-The preview is configured and labelled for **three rounds**, but there is not yet a match controller: no rounds are dealt, advanced, or scored in the preview. The example cards are static rather than an actual deal. Drag-and-drop, card flips, movement, magnetic snapping, matching/hit effects and playable gameplay are intentionally deferred until after the table is ready.
+Drag a hand card onto a same-month field card; when two cards match, drop onto the desired one. If there is no match, drop it in the field. A far or invalid drop glides back to the hand; right-click cancels a drag. Matching accepts overlap or an edge gap of up to 10 pixels in the 840×720 table-plan coordinate system, with Xeno-koi's protection against mostly overlapping a non-matching card. After a hand play, the stock card flips and resolves; click the desired field card if the stock has two possible matches. When a yaku appears or grows, use the **Koi-Koi** or **Shobu** button. Matches pause briefly for a 50 ms hit freeze before cards move to the capture pile.
+
+The supplied city image remains the fixed background. Cards occupy a horizontal 3D plane under a perspective camera; opponent cards and the stock have solid-black backs, while card faces use the complete original atlas cells. Resizing preserves the scene's aspect ratio. A crowded field uses a compact layout. Close the window or press Escape to exit.
+
+The CPU currently uses a simple first-available-match strategy and always banks a yaku, rather than Xeno-koi's full AI. Camera zoom and turn-sensitive camera movement are not implemented yet.
 
 The separate `denshadekoi_inspector` uses columns for months 1–12 and rows for card indices 0–3. Hover a card to see its identifiers; the white outline is drawn outside the card so its original black frame remains visible.
 
@@ -61,4 +65,4 @@ The sake cup counts as both an animal and one phantom plain. Ino-shika-cho stack
 
 Xeno-koi's speed minigame and match-end speed bonus are intentionally excluded from DenshaDeKoi.
 
-The existing `std::mt19937` shuffle remains instead of Xeno-koi's xorshift32, so seeds and replay sequences are not interchangeable. The caller chooses or draws the initial dealer; there is no automatic dealer-selection UI, match ledger, match-total integration, AI, persistence, or graphical gameplay yet. The table preview is not connected to this engine yet.
+The existing `std::mt19937` shuffle remains instead of Xeno-koi's xorshift32, so seeds and replay sequences are not interchangeable. The table controller draws the initial dealer automatically and tracks three-round match totals. It does not include Xeno-koi's dealer-selection screen, advanced AI, persistence, or match history.

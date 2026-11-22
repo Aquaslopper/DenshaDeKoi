@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
 project(DenshaDeKoi VERSION 0.1.0 LANGUAGES CXX)
 
-option(BUILD_DESKTOP_APP "Build the Raylib table preview and atlas inspector" ON)
+option(BUILD_DESKTOP_APP "Build the Raylib game and atlas inspector" ON)
 include(CTest)
 
 function(configure_project_target target)
@@ -25,6 +25,7 @@ add_library(hanafuda_core STATIC
     src/Deck.cpp
     src/KoiKoiRules.cpp
     src/KoiKoiStateMachine.cpp
+    src/TableGame.cpp
 )
 configure_project_target(hanafuda_core)
 target_compile_features(hanafuda_core PUBLIC cxx_std_20)
@@ -86,7 +87,13 @@ if(BUILD_TESTING)
     add_executable(test_table tests/test_table.cpp src/TableScene.cpp)
     configure_project_target(test_table)
     target_include_directories(test_table PRIVATE tests/fake_raylib src)
+    target_link_libraries(test_table PRIVATE hanafuda_core)
     add_test(NAME table COMMAND test_table)
+
+    add_executable(test_table_game tests/test_table_game.cpp)
+    configure_project_target(test_table_game)
+    target_link_libraries(test_table_game PRIVATE hanafuda_core)
+    add_test(NAME table_game COMMAND test_table_game)
 
     add_executable(test_rules tests/test_rules.cpp)
     configure_project_target(test_rules)

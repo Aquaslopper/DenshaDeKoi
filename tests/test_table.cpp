@@ -1,4 +1,5 @@
 #include "TableLayout.hpp"
+#include "TableGame.hpp"
 #include "TableScene.hpp"
 #include <raylib.h>
 
@@ -45,42 +46,41 @@ void TestGeometry() {
     for (auto r : OpponentHand) Check(within(r), "Opponent hand outside plane");
     for (auto r : PlayerHand) Check(within(r), "Player hand outside plane");
     for (auto r : Field) Check(within(r), "Field slot outside plane");
-    for (auto i : PreviewFieldSlots) Check(i < Field.size(), "Invalid preview slot");
-    std::array<bool, 48> seen{};
-    for (int id : PreviewFieldCards) { Check(id >= 0 && id < 48 && !seen[id], "Duplicate field card"); seen[id] = true; }
-    for (int id : PreviewHandCards) { Check(id >= 0 && id < 48 && !seen[id], "Duplicate hand card"); seen[id] = true; }
+
 }
 void TestDraw() {
     Reset();
     {
         TableScene scene("city", "atlas");
-        scene.Draw();
-        Check(vertices.size() == (8 + 1 + 8 + 8) * 4, "Expected 8 opponent, stock, 8 field, 8 hand cards");
-        for (std::size_t i = 0; i < vertices.size(); ++i) {
-            const auto& vert = vertices[i];
-            Check(Near(vert.y, TableLayout::CardElevation) && vert.color.a == 255, "Card is not on the table plane");
-            if (i < 36) Check(vert.texture == 99 && vert.color.r == 0 && vert.color.g == 0 && vert.color.b == 0,
-                              "Card backs must be solid black using the white texture");
-            else Check(vert.texture == 2 && vert.color.r == 255 && vert.color.g == 255 && vert.color.b == 255,
-                       "Card faces must use the atlas untinted");
-        }
-        std::array<int, 16> ids{};
-        std::copy(TableLayout::PreviewFieldCards.begin(), TableLayout::PreviewFieldCards.end(), ids.begin());
-        std::copy(TableLayout::PreviewHandCards.begin(), TableLayout::PreviewHandCards.end(), ids.begin() + 8);
-        for (std::size_t i = 0; i < ids.size(); ++i) {
-            const auto& topLeft = vertices[36 + i * 4];
-            const auto& bottomLeft = vertices[37 + i * 4];
-            const auto& bottomRight = vertices[38 + i * 4];
-            const auto& topRight = vertices[39 + i * 4];
-            const float expectedU = static_cast<float>(ids[i] / 4) / 12.0f;
-            const float expectedV = static_cast<float>(ids[i] % 4) / 4.0f;
-            Check(Near(topLeft.u, expectedU) && Near(topLeft.v, expectedV) &&
-                  Near(bottomLeft.u, expectedU) && Near(bottomLeft.v, expectedV + 0.25f) &&
-                  Near(bottomRight.u, expectedU + 1.0f / 12.0f) && Near(bottomRight.v, expectedV + 0.25f) &&
-                  Near(topRight.u, expectedU + 1.0f / 12.0f) && Near(topRight.v, expectedV),
-                  "Card face UVs must use the complete original atlas cell");
-            Check(bottomLeft.z > topLeft.z && bottomRight.x > bottomLeft.x && topRight.x > topLeft.x,
-                  "Card quad winding or orientation is wrong");
+        TableGame game(42);
+        scene.Draw(game);
+        const auto cards = game.Cards();
+        Check(vertices.size() == cards.size() * 4, "Card render count differs from game state");
+        for (std::size_t i = 0; i < cards.size(); ++i) {
+            const auto& card = cards[i];
+            for (std::size_t j = 0; j < 4; ++j) {
+                const auto& vert = vertices[i * 4 + j];
+                Check(Near(vert.y, card.elevation) && vert.color.a == 255, "Card is not on its plane");
+                if (card.id < 0) Check(vert.texture == 99 && vert.color.r == 0 && vert.color.g == 0 && vert.color.b == 0,
+                                       "Card backs must be solid black");
+                else Check(vert.texture == 2 && vert.color.r == 255 && vert.color.g == 255 && vert.color.b == 255,
+                           "Card faces must use the atlas untinted");
+            }
+            if (card.id >= 0) {
+                const auto& topLeft = vertices[i * 4];
+                const auto& bottomLeft = vertices[i * 4 + 1];
+                const auto& bottomRight = vertices[i * 4 + 2];
+                const auto& topRight = vertices[i * 4 + 3];
+                const float expectedU = static_cast<float>(card.id / 4) / 12.0f;
+                const float expectedV = static_cast<float>(card.id % 4) / 4.0f;
+                Check(Near(topLeft.u, expectedU) && Near(topLeft.v, expectedV) &&
+                      Near(bottomLeft.u, expectedU) && Near(bottomLeft.v, expectedV + 0.25f) &&
+                      Near(bottomRight.u, expectedU + 1.0f / 12.0f) && Near(bottomRight.v, expectedV + 0.25f) &&
+                      Near(topRight.u, expectedU + 1.0f / 12.0f) && Near(topRight.v, expectedV),
+                      "Card face UVs must use the complete original atlas cell");
+                Check(bottomLeft.z > topLeft.z && bottomRight.x > bottomLeft.x && topRight.x > topLeft.x,
+                      "Card quad winding or orientation is wrong");
+            }
         }
         Check(camera.projection == CAMERA_PERSPECTIVE && Near(camera.fovy, 45), "Wrong 3D camera");
         Check(destinations.size() == 2 && Near(destinations[1].height, 900) &&
@@ -121,6 +121,7 @@ void BeginMode3D(Camera3D c) { camera = c; }
 void EndMode3D() {}
 void ClearBackground(Color) {}
 void DrawText(const char*, int, int, int, Color) {}
+void DrawRectangle(int, int, int, int, Color) {}
 int GetScreenWidth() { return width; }
 int GetScreenHeight() { return height; }
 void BeginDrawing() {}

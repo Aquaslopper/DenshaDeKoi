@@ -47,3 +47,5 @@ void BeginTextureMode(RenderTexture2D target);
 void EndTextureMode();
 void BeginMode3D(Camera3D camera);
 void EndMode3D();
+
+void DrawRectangle(int x, int y, int width, int height, Color color);
