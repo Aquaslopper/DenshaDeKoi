@@ -19,6 +19,7 @@ public:
 private:
     Texture2D background_{};
     Texture2D atlas_{};
+    Texture2D cardBack_{};
     // Fixed 1360x768 world canvas. It only provides aspect-preserving
     // letterboxing when the window is resized; it is never cropped or zoomed.
     RenderTexture2D canvas_{};

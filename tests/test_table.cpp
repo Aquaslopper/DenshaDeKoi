@@ -68,10 +68,12 @@ void TestDraw() {
         TableGame game(42);
         scene.Draw(game);
         const auto cards = game.Cards();
-        const std::size_t shadowVertices = cards.size() * 4;
+        std::size_t expectedShadows = 0;
+        for (const auto& card : cards) if (card.shadow) ++expectedShadows;
+        const std::size_t shadowVertices = expectedShadows * 4;
         const std::size_t cardVertices = cards.size() * 24;
         Check(vertices.size() == shadowVertices + cardVertices, "Card render count differs from game state");
-        for (std::size_t i = 0; i < cards.size(); ++i) {
+        for (std::size_t i = 0; i < expectedShadows; ++i) {
             for (std::size_t j = 0; j < 4; ++j) {
                 const auto& shadowVert = vertices[i * 4 + j];
                 Check(shadowVert.texture == 99 && shadowVert.y < TableLayout::CardElevation &&
@@ -79,23 +81,25 @@ void TestDraw() {
                       shadowVert.color.a > 0 && shadowVert.color.a < 255,
                       "Card shadow must sit below the card plane");
             }
+        }
+        for (std::size_t i = 0; i < cards.size(); ++i) {
             const auto& card = cards[i];
             const std::size_t base = shadowVertices + i * 24;
             for (std::size_t j = 0; j < 4; ++j) {
                 const auto& vert = vertices[base + j];
                 Check(Near(vert.y, card.elevation + card.thickness) && vert.color.a == 255,
                       "Card top face is not at card thickness height");
-                if (card.id < 0) Check(vert.texture == 99 && vert.color.r == 0 && vert.color.g == 0 && vert.color.b == 0,
-                                       "Card backs must be solid black");
+                if (card.id < 0) Check(vert.texture == 4 && vert.color.r == 255 && vert.color.g == 255 && vert.color.b == 255,
+                                       "Card backs must use the matte-black back texture untinted");
                 else Check(vert.texture == 2 && vert.color.r == 255 && vert.color.g == 255 && vert.color.b == 255,
                            "Card faces must use the atlas untinted");
             }
             for (std::size_t j = 4; j < 8; ++j) {
                 const auto& bottomVert = vertices[base + j];
-                Check(Near(bottomVert.y, card.elevation) && bottomVert.texture == 99 &&
-                      bottomVert.color.r == 0 && bottomVert.color.g == 0 && bottomVert.color.b == 0 &&
+                Check(Near(bottomVert.y, card.elevation) && bottomVert.texture == 4 &&
+                      bottomVert.color.r == 255 && bottomVert.color.g == 255 && bottomVert.color.b == 255 &&
                       bottomVert.color.a == 255,
-                      "Card bottom face must rest on card elevation");
+                      "Card bottom face must use the matte-black back texture");
             }
             for (std::size_t j = 8; j < 24; ++j) {
                 const auto& sideVert = vertices[base + j];
@@ -116,8 +120,10 @@ void TestDraw() {
                       Near(bottomRight.u, expectedU + 1.0f / 12.0f) && Near(bottomRight.v, expectedV + 0.25f) &&
                       Near(topRight.u, expectedU + 1.0f / 12.0f) && Near(topRight.v, expectedV),
                       "Card face UVs must use the complete original atlas cell");
-                Check(bottomLeft.z > topLeft.z && bottomRight.x > bottomLeft.x && topRight.x > topLeft.x,
-                      "Card quad winding or orientation is wrong");
+                if (Near(card.yaw, 0.0f)) {
+                    Check(bottomLeft.z > topLeft.z && bottomRight.x > bottomLeft.x && topRight.x > topLeft.x,
+                          "Card quad winding or orientation is wrong");
+                }
             }
         }
         Check(camera.projection == CAMERA_PERSPECTIVE && Near(camera.fovy, 45), "Wrong 3D camera");
@@ -125,7 +131,7 @@ void TestDraw() {
               Near(destinations[1].width, 1360.0f * 900.0f / 768.0f) && sources[1].height < 0,
               "Window resize must preserve aspect ratio and flip render target");
     }
-    Check(renderUnloads == 1 && unloaded == std::vector<unsigned int>({2, 1}), "Resources not released");
+    Check(renderUnloads == 1 && unloaded == std::vector<unsigned int>({4, 2, 1}), "Resources not released");
 }
 void TestFailures() {
     Reset(); failAtlas = true;
@@ -139,7 +145,7 @@ void TestFailures() {
     Reset(); failCanvas = true;
     threw = false;
     try { TableScene scene("city", "atlas"); } catch (const std::runtime_error&) { threw = true; }
-    Check(threw && unloaded == std::vector<unsigned int>({2, 1}) && renderUnloads == 0, "Canvas failure or texture cleanup failed");
+    Check(threw && unloaded == std::vector<unsigned int>({4, 2, 1}) && renderUnloads == 0, "Canvas failure or texture cleanup failed");
 }
 } // namespace
 
@@ -148,6 +154,10 @@ Texture2D LoadTexture(const char*) {
     if (loads == 2 && failAtlas) return {};
     if (loads == 1) return {1, 1360, 768, 1, 0};
     return {2, invalidAtlas ? 2147 : 2148, 1056, 1, 0};
+}
+Texture2D LoadTextureFromImage(Image img) {
+    Check(img.data != nullptr && img.width == 179 && img.height == 264, "Invalid matte back image");
+    return {4, img.width, img.height, 1, img.format};
 }
 void UnloadTexture(Texture2D t) { unloaded.push_back(t.id); }
 void SetTextureFilter(Texture2D, int) {}

@@ -9,13 +9,14 @@
 #include <vector>
 
 struct TableCard {
-    int id = -1; // -1 means a solid black back.
+    int id = -1; // -1 means matte-black card back.
     TableLayout::Rect rect{};
     float flip = 1.0f; // Horizontal width factor for a card flip.
     float elevation = TableLayout::CardElevation;
     float flipAngle = 0.0f; // 3D roll flip angle in radians (0 = face up, pi = back up).
     float pitch = 0.0f;     // Local X tilt in radians.
     float roll = 0.0f;      // Local Z bank in radians.
+    float yaw = 0.0f;       // In-plane Y rotation in radians (for lifelike crooked stacks).
     float thickness = TableLayout::CardThickness;
     bool shadow = true;
 };
@@ -50,7 +51,12 @@ public:
 
 private:
     enum class Animation { NONE, RETURN, CPU_FLIP, HAND_MOVE, STOCK_FLIP, STOCK_MOVE, HIT_FREEZE, CAPTURE };
-    struct Moving { int id; TableLayout::Rect from, to; float fromElev = TableLayout::CardElevation, toElev = TableLayout::CardElevation; };
+    struct Moving {
+        int id;
+        TableLayout::Rect from, to;
+        float fromElev = TableLayout::CardElevation, toElev = TableLayout::CardElevation;
+        float fromYaw = 0.0f, toYaw = 0.0f;
+    };
     void Start();
     void SyncField();
     [[nodiscard]] int FindFreeSlot(TableLayout::Point2 near) const;
