@@ -79,7 +79,7 @@ inline constexpr Rect Stock{49.0f, 262.0f, 77.0f, 125.0f};
     for (std::size_t row = 0; row < 2; ++row)
         for (std::size_t col = 0; col < 8; ++col)
             result[row * 8 + col] = {185.0f + static_cast<float>(col) * 62.0f,
-                                     row == 0 ? 176.0f : 278.0f,
+                                     row == 0 ? 176.0f : 317.0f,
                                      55.0f, 90.0f};
     return result;
 }
