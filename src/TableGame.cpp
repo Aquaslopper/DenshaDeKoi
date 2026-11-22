@@ -83,7 +83,7 @@ void TableGame::SyncField() {
     for (std::size_t id = 0; id < slots_.size(); ++id)
         if (slots_[id] >= 0 && std::find(game_.Field().begin(), game_.Field().end(), static_cast<int>(id)) == game_.Field().end()) slots_[id] = -1;
     for (int id : game_.Field()) if (slots_[static_cast<std::size_t>(id)] < 0)
-        slots_[static_cast<std::size_t>(id)] = FindFreeSlot({431.5f, 371.0f});
+        slots_[static_cast<std::size_t>(id)] = FindFreeSlot({431.0f, 355.0f});
 }
 
 std::optional<CardId> TableGame::FindDropTarget(CardId card, Rect drop) const {
@@ -169,7 +169,7 @@ void TableGame::StartHand(CardId id, Rect from, std::optional<CardId> target) {
 void TableGame::StartStockMove(std::optional<CardId> target) {
     const int id = *game_.PendingCard();
     matched_ = target.has_value();
-    pendingSlot_ = matched_ ? -1 : FindFreeSlot({431.5f, 371.0f});
+    pendingSlot_ = matched_ ? -1 : FindFreeSlot({431.0f, 355.0f});
     const Rect dest = target ? FieldRect(*target) : TableLayout::FieldSlot(static_cast<std::size_t>(pendingSlot_), compactField_ || game_.Field().size() >= 16);
     moving_ = {{id, TableLayout::Stock, dest}};
     stockReady_ = false;
