@@ -38,7 +38,7 @@ void VerifyAtlas(const std::filesystem::path& path) {
     const auto height = ReadBigEndian32(header.data() + 20);
     Check(width > 0 && height > 0 && width % AtlasLayout::MonthCount == 0 &&
           height % AtlasLayout::CardsPerMonth == 0, "Atlas is not an even 12x4 grid");
-    Check(width == 1956 && height == 996, "Unexpected normalized atlas dimensions");
+    Check(width == 2148 && height == 1056, "Unexpected normalized atlas dimensions");
 
     for (int month = 1; month <= AtlasLayout::MonthCount; ++month) {
         for (int index = 0; index < AtlasLayout::CardsPerMonth; ++index) {
@@ -50,8 +50,8 @@ void VerifyAtlas(const std::filesystem::path& path) {
             const float v1 = (rect.y + rect.height) / height;
             Check(u0 >= 0.0f && v0 >= 0.0f && u1 <= 1.0f && v1 <= 1.0f &&
                   u0 < u1 && v0 < v1, "Card UV bounds are invalid");
-            Check(rect.x == (month - 1) * 163.0f && rect.y == index * 249.0f &&
-                  rect.width == 163.0f && rect.height == 249.0f,
+            Check(rect.x == (month - 1) * 179.0f && rect.y == index * 264.0f &&
+                  rect.width == 179.0f && rect.height == 264.0f,
                   "Card source rectangle does not match its grid cell");
         }
     }
