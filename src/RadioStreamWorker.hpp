@@ -63,12 +63,13 @@ private:
 // Thread-safe PCM ring buffer connecting the network/decoder thread to the main audio thread.
 class PcmRingBuffer {
 public:
-    explicit PcmRingBuffer(std::size_t maxFrames = 192000);
+    explicit PcmRingBuffer(std::size_t maxFrames = 768000);
 
     void Clear(int sampleRate = 0, int channels = 0);
     void Push(const std::int16_t* interleaved, std::size_t frames, int sampleRate, int channels);
     std::size_t Pop(std::int16_t* out, std::size_t exactFrames, int& outSampleRate, int& outChannels);
     void FormatAndAvailable(int& outSampleRate, int& outChannels, std::size_t& outFrames) const;
+    [[nodiscard]] std::size_t AvailableFrames() const;
 
 private:
     mutable std::mutex mutex_;

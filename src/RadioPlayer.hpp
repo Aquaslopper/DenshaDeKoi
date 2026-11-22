@@ -49,6 +49,7 @@ private:
     bool ownsAudioDevice_ = false;
     bool audioDeviceReady_ = false;
     bool streamActive_ = false;
+    bool rebuffering_ = false;
     int streamSampleRate_ = 0;
     int streamChannels_ = 0;
     struct AudioImpl;

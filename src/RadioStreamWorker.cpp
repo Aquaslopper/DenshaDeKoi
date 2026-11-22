@@ -46,8 +46,9 @@
 #endif
 
 namespace {
-constexpr std::size_t kBufferReadyFrames = 16384; // ~0.37s at 44.1 kHz
-constexpr std::size_t kMp3LookaheadBytes = 4096;
+constexpr std::size_t kBufferReadyFrames = 88200; // ~2.0s at 44.1 kHz
+constexpr std::size_t kHighWaterBufferFrames = 529200; // ~12.0s at 44.1 kHz
+constexpr std::size_t kMp3LookaheadBytes = 2048;
 constexpr std::size_t kMaxPlaylistBytes = 65536;
 
 std::string ToLowerAscii(std::string_view sv) {
@@ -675,6 +676,11 @@ void PcmRingBuffer::FormatAndAvailable(int& outSampleRate, int& outChannels, std
     outFrames = countFrames_;
 }
 
+std::size_t PcmRingBuffer::AvailableFrames() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return countFrames_;
+}
+
 RadioStreamWorker::~RadioStreamWorker() {
     Stop();
 }
@@ -805,6 +811,10 @@ void RadioStreamWorker::Run(std::string stationName, std::vector<std::string> ca
                             }
                         },
                         [&](const std::string& title) { SetNowPlaying(title); });
+                    // Apply TCP backpressure once ~12s of decoded audio is buffered so we never drop frames.
+                    while (!stopRequested_.load() && ring_.AvailableFrames() >= kHighWaterBufferFrames) {
+                        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+                    }
                     return !abortNonMp3 && !stopRequested_.load();
                 });
 

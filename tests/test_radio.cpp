@@ -104,7 +104,7 @@ void TestIcyDemuxerAndRingBuffer() {
     int sr = 0, ch = 0;
     std::size_t avail = 0;
     ring.FormatAndAvailable(sr, ch, avail);
-    Check(sr == 44100 && ch == 2 && avail == 8, "Ring buffer count/format mismatch");
+    Check(sr == 44100 && ch == 2 && avail == 8 && ring.AvailableFrames() == 8, "Ring buffer count/format mismatch");
     std::int16_t popped[16]{};
     Check(ring.Pop(popped, 8, sr, ch) == 8 && popped[0] == 3 && popped[1] == -3 &&
           popped[14] == 10 && popped[15] == -10,

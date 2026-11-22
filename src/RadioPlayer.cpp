@@ -7,8 +7,7 @@
 #include <vector>
 
 namespace {
-constexpr int kRaylibStreamFrames = 4096;
-constexpr std::size_t kStartPlayThresholdFrames = 12288;
+constexpr int kRaylibStreamFrames = 8192;
 } // namespace
 
 struct RadioPlayer::AudioImpl {
@@ -37,6 +36,7 @@ void RadioPlayer::ResetAudioStream() {
         }
         audio_->stream = AudioStream{};
         streamActive_ = false;
+        rebuffering_ = false;
         streamSampleRate_ = 0;
         streamChannels_ = 0;
     }
@@ -129,23 +129,52 @@ void RadioPlayer::Update() {
         if (!audioDeviceReady_) return;
     }
 
+    const std::size_t startThreshold = std::max<std::size_t>(
+        static_cast<std::size_t>(kRaylibStreamFrames) * 3,
+        static_cast<std::size_t>(sr) * 2);
+
     if (!streamActive_ || streamSampleRate_ != sr || streamChannels_ != ch) {
-        if (avail < kStartPlayThresholdFrames) return;
+        if (avail < startThreshold) return;
         ResetAudioStream();
         SetAudioStreamBufferSizeDefault(kRaylibStreamFrames);
         audio_->stream = LoadAudioStream(static_cast<unsigned int>(sr), 16, static_cast<unsigned int>(ch));
         if (!IsAudioStreamValid(audio_->stream)) return;
         streamActive_ = true;
+        rebuffering_ = false;
         streamSampleRate_ = sr;
         streamChannels_ = ch;
         SetAudioStreamVolume(audio_->stream, muted_ ? 0.0f : volume_);
         PlayAudioStream(audio_->stream);
     }
 
+    if (rebuffering_) {
+        const std::size_t resumeThreshold = std::max<std::size_t>(
+            static_cast<std::size_t>(kRaylibStreamFrames) * 2,
+            static_cast<std::size_t>(sr) * 3 / 2);
+        if (avail < resumeThreshold) return;
+        while (IsAudioStreamProcessed(audio_->stream)) {
+            int popSr = 0;
+            int popCh = 0;
+            if (worker_.Ring().Pop(audio_->scratch.data(), kRaylibStreamFrames, popSr, popCh) != kRaylibStreamFrames) {
+                return;
+            }
+            if (popSr != streamSampleRate_ || popCh != streamChannels_) {
+                ResetAudioStream();
+                return;
+            }
+            UpdateAudioStream(audio_->stream, audio_->scratch.data(), kRaylibStreamFrames);
+        }
+        ResumeAudioStream(audio_->stream);
+        rebuffering_ = false;
+        return;
+    }
+
     while (IsAudioStreamProcessed(audio_->stream)) {
         int popSr = 0;
         int popCh = 0;
         if (worker_.Ring().Pop(audio_->scratch.data(), kRaylibStreamFrames, popSr, popCh) != kRaylibStreamFrames) {
+            PauseAudioStream(audio_->stream);
+            rebuffering_ = true;
             break;
         }
         if (popSr != streamSampleRate_ || popCh != streamChannels_) {
