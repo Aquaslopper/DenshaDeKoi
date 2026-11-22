@@ -19,14 +19,14 @@ struct Point3 { float x, y, z; };
 struct Point2 { float x, y; };
 
 // Camera and table plane calibrated against the baked table backdrop. The
-// height, pitch, and plane bounds are a perspective fit to the eight hand and
-// eight opponent card slots plus the stock in the supplied table image.
+// height, pitch, and plane bounds are a perspective fit to the tiled playing
+// surface and mockup card layout in the supplied table image.
 inline constexpr float CameraHeight = 0.992949f;
-inline constexpr float PitchRadians = 0.528482f;
+inline constexpr float PitchRadians = 0.538000f;
 inline constexpr float FovDegrees = 45.0f;
-inline constexpr float PlaneHalfWidth = 0.759738f;
-inline constexpr float NearDepth = 0.836865f;
-inline constexpr float FarDepth = 2.256865f;
+inline constexpr float PlaneHalfWidth = 1.045020f;
+inline constexpr float NearDepth = 0.772955f;
+inline constexpr float FarDepth = 2.161951f;
 inline constexpr float CardElevation = 0.002f;
 
 [[nodiscard]] inline Point3 OnPlane(float x, float y, float elevation = 0.0f) {
@@ -68,27 +68,30 @@ inline constexpr float CardElevation = 0.002f;
     return result;
 }
 
-inline constexpr auto OpponentHand = MakeHand(185.0f, 12.0f, 62.0f, 56.0f, 91.0f);
-inline constexpr auto PlayerHand = MakeHand(40.218f, 567.0f, 96.0f, 88.0f, 142.0f);
-inline constexpr Rect Stock{49.0f, 261.0f, 76.0f, 126.0f};
+inline constexpr auto OpponentHand = MakeHand(132.5f, 28.0f, 73.0f, 64.0f, 148.0f);
+inline constexpr auto PlayerHand = MakeHand(171.0f, 576.0f, 63.0f, 57.0f, 132.0f);
+inline constexpr Rect Stock{46.0f, 304.0f, 68.0f, 156.0f};
+inline constexpr Rect OpponentCapture{46.0f, 156.0f, 68.0f, 114.0f};
+inline constexpr Rect PlayerCapture{46.0f, 478.0f, 68.0f, 108.0f};
+inline constexpr Rect FieldDropZone{116.0f, 190.0f, 632.0f, 380.0f};
 
 // The first sixteen field positions use two rows of eight as in the plan.
 [[nodiscard]] constexpr std::array<Rect, 16> MakeField() {
     std::array<Rect, 16> result{};
     for (std::size_t row = 0; row < 2; ++row)
         for (std::size_t col = 0; col < 8; ++col)
-            result[row * 8 + col] = {156.0f + static_cast<float>(col) * 81.0f,
-                                     184.0f + static_cast<float>(row) * 139.0f,
-                                     75.0f, 125.0f};
+            result[row * 8 + col] = {136.0f + static_cast<float>(col) * 75.0f,
+                                     212.0f + static_cast<float>(row) * 166.0f,
+                                     66.0f, 152.0f};
     return result;
 }
 inline constexpr auto Field = MakeField();
 // Overflow rows use a compact five-row layout if the field becomes crowded.
 [[nodiscard]] constexpr Rect FieldSlot(std::size_t index, bool compact = false) {
-    if (compact) return {156.0f + static_cast<float>(index % 8) * 81.0f,
-                         165.0f + static_cast<float>(index / 8) * 77.0f, 75.0f, 72.0f};
+    if (compact) return {136.0f + static_cast<float>(index % 8) * 75.0f,
+                         196.0f + static_cast<float>(index / 8) * 74.0f, 66.0f, 70.0f};
     return index < Field.size() ? Field[index]
-        : Rect{156.0f + static_cast<float>(index - 16) * 81.0f, 455.0f, 75.0f, 96.0f};
+        : Rect{136.0f + static_cast<float>(index - 16) * 75.0f, 534.0f, 66.0f, 38.0f};
 }
 inline constexpr std::size_t FieldSlotCount = 36;
 } // namespace TableLayout
