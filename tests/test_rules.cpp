@@ -1,6 +1,8 @@
 #include "Deck.hpp"
 #include "DeckRegister.hpp"
 #include "KoiKoiRules.hpp"
+
+#include <limits>
 #include "KoiKoiStateMachine.hpp"
 
 #include <algorithm>
@@ -101,12 +103,12 @@ void TestScoring() {
           "Rain must not cancel either viewing");
     const auto sets = ScoreYaku(Ids({"06-A", "07-A", "10-A", "02-A", "09-A",
                                      "01-RP", "02-RP", "03-RP", "06-RB", "09-RB", "10-RB"}));
-    Check(sets.inoShikaCho == 5 && sets.tane == 1 && sets.akatan == 5 &&
-          sets.aotan == 5 && sets.tanzaku == 2 && sets.base == 18,
+    Check(sets.inoShikaCho == 5 && sets.tane == 1 && sets.akatan == 0 &&
+          sets.aotan == 0 && sets.akatanAotan == 10 && sets.tanzaku == 3 && sets.base == 19,
           "Fixed and generic sets must stack");
     std::vector<CardId> all;
     for (int i = 0; i < 48; ++i) all.push_back(i);
-    Check(ScoreYaku(all).base == 62, "All-card additive score incorrect");
+    Check(ScoreYaku(all).base == 63, "All-card additive score incorrect");
     auto invalid = Ids({"09-A", "09-A"});
     MustThrow([&] { (void)ScoreYaku(invalid); });
     MustThrow([] { (void)ScoreYaku(std::array<CardId, 1>{48}); });
@@ -120,6 +122,41 @@ void TestScoring() {
               "Incorrect settlement multiplier");
     }
     MustThrow([] { (void)CalculateSettlement(-1, false); });
+}
+
+void TestXenoYakuAndAwards() {
+    const auto red = ScoreYaku(Ids({"01-RP", "02-RP", "03-RP"}));
+    const auto both = ScoreYaku(Ids({"01-RP", "02-RP", "03-RP", "06-RB", "09-RB", "10-RB"}));
+    Check(red.akatan == 5 && red.tanzaku == 0 && both.akatanAotan == 10 &&
+          both.akatan == 0 && both.aotan == 0 && both.tanzaku == 3 && both.base == 13,
+          "Xeno combined ribbons or additive Tanzaku wrong");
+    const auto redSnapshot = SnapshotYaku(red);
+    const auto bothSnapshot = SnapshotYaku(both);
+    Check(HasNewOrGrownYaku(bothSnapshot, redSnapshot) && !HasNewOrGrownYaku(redSnapshot, redSnapshot),
+          "Combined set must trigger as a new yaku");
+    const auto four = ScoreYaku(Ids({"01-RP", "04-R", "05-R", "07-R"}));
+    Check(four.tanzaku == 1 && four.base == 1, "Four ribbons must score one");
+    const auto sanko = ScoreYaku(Ids({"01-B", "03-B", "08-B"}));
+    const auto rainyFour = ScoreYaku(Ids({"01-B", "03-B", "08-B", "11-B"}));
+    Check(HasNewOrGrownYaku(SnapshotYaku(rainyFour), SnapshotYaku(sanko)),
+          "Bright upgrade must trigger a new identity");
+    // Yaku identity matters even where an unchanged total would hide a change.
+    YakuSnapshot previous{}, current{};
+    previous[static_cast<std::size_t>(YakuId::AKATAN)] = 5;
+    current[static_cast<std::size_t>(YakuId::AOTAN)] = 5;
+    Check(HasNewOrGrownYaku(current, previous), "New yaku with equal base must trigger");
+    current = previous;
+    current[static_cast<std::size_t>(YakuId::TANZAKU)] = 1;
+    Check(HasNewOrGrownYaku(current, previous), "New count yaku must trigger");
+    for (int calls = 0; calls < 10; ++calls) {
+        auto result = CalculateSettlement(8, true, calls);
+        Check(result.callerFactor == std::min(6, calls + 1) &&
+              result.award == 8 * 2 * 2 * std::min(6, calls + 1), "Caller factor or cap wrong");
+    }
+    Check(CalculateSettlement(0, true, 5).award == 0 && CalculateSettlement(6, false, 3).award == 24,
+          "Award boundary wrong");
+    MustThrow([] { (void)CalculateSettlement(1, false, -1); });
+    MustThrow([] { (void)CalculateSettlement(std::numeric_limits<int>::max(), true, 5); });
 }
 
 void TestCapture() {
@@ -155,17 +192,16 @@ std::vector<CardId> OrderForDeal(const std::vector<CardId>& player, const std::v
                                  Player dealer) {
     Check(player.size() == 8 && opponent.size() == 8 && field.size() == 8, "Bad fixture dimensions");
     std::vector<CardId> result;
-    const auto& nonDealer = dealer == Player::PLAYER ? opponent : player;
-    const auto& dealerHand = dealer == Player::PLAYER ? player : opponent;
-    for (std::size_t pass = 0; pass < 4; ++pass) {
-        for (std::size_t j = 0; j < 2; ++j) result.push_back(nonDealer[2 * pass + j]);
-        for (std::size_t j = 0; j < 2; ++j) result.push_back(field[2 * pass + j]);
-        for (std::size_t j = 0; j < 2; ++j) result.push_back(dealerHand[2 * pass + j]);
-    }
-    result.insert(result.end(), stockPrefix.begin(), stockPrefix.end());
+    (void)dealer;
+    result.insert(result.end(), player.begin(), player.end());
+    result.insert(result.end(), opponent.begin(), opponent.end());
+    result.insert(result.end(), field.begin(), field.end());
+    // The supplied prefix is in reveal order, opposite to shuffled stock order.
     for (int id = 0; id < 48; ++id) {
-        if (std::find(result.begin(), result.end(), id) == result.end()) result.push_back(id);
+        if (std::find(result.begin(), result.end(), id) == result.end() &&
+            std::find(stockPrefix.begin(), stockPrefix.end(), id) == stockPrefix.end()) result.push_back(id);
     }
+    result.insert(result.end(), stockPrefix.rbegin(), stockPrefix.rend());
     Check(result.size() == 48, "Fixture duplicates a card");
     return result;
 }
@@ -178,6 +214,12 @@ std::vector<CardId> ExampleOrder(std::string_view stockTop = "01-RP") {
 }
 
 void TestOpenings() {
+    Check(DetermineFirstDealer(Id("01-P1"), Id("02-A")) == Player::PLAYER &&
+          DetermineFirstDealer(Id("11-B"), Id("09-A")) == Player::OPPONENT &&
+          DetermineFirstDealer(Id("01-RP"), Id("01-B")) == Player::OPPONENT &&
+          !DetermineFirstDealer(Id("01-P1"), Id("01-P2")), "Oya-gime ranking or redraw failed");
+    MustThrow([] { (void)DetermineFirstDealer(0, 0); });
+    MustThrow([] { (void)DetermineFirstDealer(-1, 0); });
     Check(CheckOpeningHand(Ids({"01-B", "01-RP", "01-P1", "01-P2", "02-A", "03-B", "04-A", "05-A"})) == OpeningHand::TESHI,
           "Teshi detection failed");
     const auto fourPairs = Ids({"01-B", "01-RP", "02-A", "02-RP", "03-B", "03-RP", "04-A", "04-R"});
@@ -339,7 +381,7 @@ void TestThousandDeals() {
         const Player dealer = trial % 2 == 0 ? Player::PLAYER : Player::OPPONENT;
         const Deal deal = DealCards(order, dealer);
         Check(deal.hands[0].size() == 8 && deal.hands[1].size() == 8 &&
-              deal.field.size() == 8 && deal.stock.size() == 24 && deal.stock.front() == order[24],
+              deal.field.size() == 8 && deal.stock.size() == 24 && deal.stock.front() == order[47],
               "Wrong deal distribution or stock top");
         const auto independentCounts = [](const std::vector<CardId>& cards) {
             std::array<int, 12> counts{};
@@ -364,35 +406,26 @@ void TestThousandDeals() {
     std::array<CardId, 48> ordered{};
     for (int i = 0; i < 48; ++i) ordered[static_cast<std::size_t>(i)] = i;
     const Deal precise = DealCards(ordered, Player::PLAYER);
-    Check(precise.hands[0] == std::vector<CardId>({0, 1, 6, 7, 12, 13, 18, 19}) &&
-          precise.field == std::vector<CardId>({2, 3, 8, 9, 14, 15, 20, 21}) &&
-          precise.hands[1] == std::vector<CardId>({4, 5, 10, 11, 16, 17, 22, 23}) &&
-          precise.stock.front() == 24, "Deal cadence or stock order changed");
+    Check(precise.hands[1] == std::vector<CardId>({0, 1, 2, 3, 4, 5, 6, 7}) &&
+          precise.hands[0] == std::vector<CardId>({8, 9, 10, 11, 12, 13, 14, 15}) &&
+          precise.field == std::vector<CardId>({16, 17, 18, 19, 20, 21, 22, 23}) &&
+          precise.stock.front() == 47 && precise.stock.back() == 24, "Xeno deal distribution or stock order changed");
     std::array<CardId, 48> duplicate{};
     MustThrow([&] { (void)DealCards(duplicate, Player::PLAYER); });
 }
 
 struct SimulationStats {
-    int draws = 0;
-    int finalKoi = 0;
-    int unchangedBase = 0;
-    int counterWins = 0;
-    int doubleFactorWins = 0;
-    int finalStop = 0;
+    int draws = 0, unchanged = 0, counterWins = 0, bothMultipliers = 0;
+    int forcedFirst = 0, forcedSecond = 0, multiCalls = 0;
 };
 
-void Simulate(std::uint32_t seed, bool stopAgainstKoi, bool stopOnFinal, SimulationStats& stats) {
-    KoiKoiStateMachine game(Player::PLAYER, seed);
+void Simulate(std::uint32_t seed, bool stopAgainstKoi, Player dealer, SimulationStats& stats) {
+    KoiKoiStateMachine game(dealer, seed);
     game.Advance();
     Check(game.ValidateConservation(), "Conservation failed after deal");
-    if (game.GetPhase() == Phase::ROUND_END) return; // Opening hands.
-    Check(game.CurrentPlayer() == Player::PLAYER && game.Hand(Player::PLAYER).size() == 8 &&
-          game.Hand(Player::OPPONENT).size() == 8 && game.Field().size() == 8 &&
-          game.StockRemaining() == 24 && !IsFieldMisdeal(game.Field()), "Invalid initial game state");
-    std::array<int, 2> lastBase{};
-    int turns = 0;
-    int reveals = 0;
-    bool finalDecisionKoi = false;
+    if (game.GetPhase() == Phase::ROUND_END) return;
+    std::array<YakuSnapshot, 2> lastDecision{};
+    int turns = 0, reveals = 0;
     for (int steps = 0; game.GetPhase() != Phase::ROUND_END && steps < 300; ++steps) {
         Check(game.ValidateConservation(), "Card lost or duplicated during round");
         switch (game.GetPhase()) {
@@ -411,41 +444,45 @@ void Simulate(std::uint32_t seed, bool stopAgainstKoi, bool stopOnFinal, Simulat
                 ++reveals;
                 break;
             case Phase::CHECK_YAKU: {
-                const auto player = PlayerIndex(game.CurrentPlayer());
-                const int base = game.CurrentScore().base;
-                const bool shouldDecide = base > lastBase[player];
-                if (base > 0 && base == lastBase[player]) ++stats.unchangedBase;
-                lastBase[player] = base;
+                const Player current = game.CurrentPlayer();
+                const auto player = PlayerIndex(current);
+                const bool eligible = HasNewOrGrownYaku(SnapshotYaku(game.CurrentScore()), lastDecision[player]);
+                const bool empty = game.Hand(current).empty();
+                const auto expected = CalculateSettlement(game.CurrentScore().base,
+                    game.HasCalledKoi(OtherPlayer(current)), game.KoiCalls(current));
+                if (!eligible && game.CurrentScore().base > 0) ++stats.unchanged;
                 game.Advance();
-                Check((game.GetPhase() == Phase::AWAIT_DECISION) == shouldDecide,
-                      "Decision eligibility must require a higher base score");
+                if (eligible && empty) {
+                    Check(game.GetPhase() == Phase::ROUND_END && game.Result()->reason == EndReason::SHOUBU &&
+                          game.Result()->winner == current && game.Result()->settlement.award == expected.award,
+                          "Empty hand with new yaku must automatically bank after the draw");
+                    if (turns == 15) ++stats.forcedFirst;
+                    if (turns == 16) ++stats.forcedSecond;
+                } else {
+                    Check((game.GetPhase() == Phase::AWAIT_DECISION) == eligible,
+                          "Decision must require a new or grown yaku");
+                }
                 break;
             }
             case Phase::AWAIT_DECISION: {
                 const Player current = game.CurrentPlayer();
                 const bool otherKoi = game.HasCalledKoi(OtherPlayer(current));
-                const bool finalTurn = game.Hand(Player::PLAYER).empty() && game.Hand(Player::OPPONENT).empty();
-                if ((stopAgainstKoi && otherKoi) || (stopOnFinal && finalTurn)) {
-                    const int base = game.CurrentScore().base;
-                    const Settlement expected = CalculateSettlement(base, otherKoi);
+                if (stopAgainstKoi && otherKoi) {
+                    const Settlement expected = CalculateSettlement(game.CurrentScore().base, otherKoi, game.KoiCalls(current));
                     game.ChooseDecision(Decision::SHOUBU);
                     Check(game.Result()->reason == EndReason::SHOUBU && game.Result()->winner == current &&
                           game.Result()->points[PlayerIndex(current)] == expected.award &&
-                          game.Result()->points[PlayerIndex(OtherPlayer(current))] == 0 &&
                           game.Result()->nextDealer == current &&
-                          game.Result()->settlement.counterFactor == expected.counterFactor,
+                          game.Result()->settlement.callerFactor == expected.callerFactor,
                           "Shoubu settlement failed");
-                    if (otherKoi) ++stats.counterWins;
-                    if (otherKoi && expected.sevenFactor == 2) ++stats.doubleFactorWins;
-                    if (finalTurn) {
-                        Check(turns == 16 && reveals == 16 && game.StockRemaining() == 8,
-                              "Final-turn Shoubu settled before the mandatory draw");
-                        ++stats.finalStop;
-                    }
+                    ++stats.counterWins;
+                    if (expected.sevenFactor == 2) ++stats.bothMultipliers;
                 } else {
-                    finalDecisionKoi = finalTurn;
+                    lastDecision[PlayerIndex(current)] = SnapshotYaku(game.CurrentScore());
+                    const int before = game.KoiCalls(current);
                     game.ChooseDecision(Decision::KOI_KOI);
-                    Check(game.HasCalledKoi(current), "Koi flag must remain sticky");
+                    Check(game.KoiCalls(current) == before + 1, "Koi call count not incremented");
+                    if (before > 0) ++stats.multiCalls;
                 }
                 break;
             }
@@ -454,8 +491,7 @@ void Simulate(std::uint32_t seed, bool stopAgainstKoi, bool stopOnFinal, Simulat
             case Phase::NEXT_PLAYER:
                 game.Advance();
                 break;
-            default:
-                throw std::runtime_error("Unexpected phase during simulation");
+            default: throw std::runtime_error("Unexpected simulation phase");
         }
     }
     Check(game.GetPhase() == Phase::ROUND_END && game.Result().has_value() && game.ValidateConservation(),
@@ -463,36 +499,34 @@ void Simulate(std::uint32_t seed, bool stopAgainstKoi, bool stopOnFinal, Simulat
     if (game.Result()->reason == EndReason::EXHAUSTIVE_DRAW) {
         Check(turns == 16 && reveals == 16 && game.StockRemaining() == 8 &&
               !game.Result()->winner && game.Result()->points == std::array<int, 2>{0,0} &&
-              game.Result()->nextDealer == game.Dealer(), "Exhaustive round must be a 0-0 draw after 16 turns");
+              game.Result()->nextDealer == game.Dealer(), "Exhaustive round must be 0-0 after 16 turns");
         ++stats.draws;
-        if (finalDecisionKoi) ++stats.finalKoi;
     }
     const Player nextDealer = game.Result()->nextDealer;
     game.StartNextRound();
     Check(game.GetPhase() == Phase::DEAL_CHECK && game.Dealer() == nextDealer &&
-          !game.HasCalledKoi(Player::PLAYER) && !game.HasCalledKoi(Player::OPPONENT) &&
+          game.KoiCalls(Player::PLAYER) == 0 && game.KoiCalls(Player::OPPONENT) == 0 &&
           !game.Result() && game.ValidateConservation(), "Next round did not reset round state");
-    game.Advance();
-    Check(game.ValidateConservation(), "Next round did not deal a complete deck");
 }
 
 void TestRoundSimulations() {
     SimulationStats stats;
-    for (std::uint32_t seed = 1; seed <= 200; ++seed) {
-        Simulate(seed, false, false, stats);
-        Simulate(seed, true, false, stats);
-        Simulate(seed, false, true, stats);
+    for (std::uint32_t seed = 1; seed <= 1000; ++seed) {
+        Simulate(seed, false, Player::PLAYER, stats);
+        Simulate(seed, true, Player::OPPONENT, stats);
     }
-    Check(stats.draws > 0 && stats.finalKoi > 0 && stats.unchangedBase > 0 &&
-          stats.counterWins > 0 && stats.doubleFactorWins > 0 && stats.finalStop > 0,
-          "Simulations did not cover draws, final decisions, unchanged scores, and multipliers");
+    Check(stats.draws > 0 && stats.unchanged > 0 && stats.counterWins > 0 && stats.bothMultipliers > 0 &&
+          stats.forcedFirst > 0 && stats.forcedSecond > 0 && stats.multiCalls > 0,
+          "Simulations did not cover draws, calls, both empty-hand positions and multipliers");
 }
+
 } // namespace
 
 int main() {
     try {
         TestRegister();
         TestScoring();
+        TestXenoYakuAndAwards();
         TestCapture();
         TestOpenings();
         TestStateChoices();

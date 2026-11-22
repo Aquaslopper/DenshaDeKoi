@@ -51,6 +51,16 @@ Player OtherPlayer(Player player) {
     return PlayerIndex(player) == 0 ? Player::PLAYER : Player::OPPONENT;
 }
 
+std::optional<Player> DetermineFirstDealer(CardId playerCard, CardId opponentCard) {
+    const Card& player = DeckRegister::At(playerCard);
+    const Card& opponent = DeckRegister::At(opponentCard);
+    if (playerCard == opponentCard) throw std::invalid_argument("Dealer draw cards must be distinct");
+    if (player.month != opponent.month) return player.month < opponent.month ? Player::PLAYER : Player::OPPONENT;
+    // CardType's register order is bright, animal, ribbon, plain.
+    if (player.type != opponent.type) return player.type < opponent.type ? Player::PLAYER : Player::OPPONENT;
+    return std::nullopt;
+}
+
 bool IsFieldMisdeal(std::span<const CardId> field) {
     const auto counts = MonthCounts(field);
     return std::find(counts.begin(), counts.end(), 4) != counts.end() || FourPairs(counts);
@@ -66,16 +76,13 @@ OpeningHand CheckOpeningHand(std::span<const CardId> hand) {
 Deal DealCards(std::span<const CardId> shuffled, Player dealer) {
     if (shuffled.size() != TotalCards) throw std::invalid_argument("Deal needs 48 cards");
     (void)ValidateCards(shuffled);
-    const auto dealerIndex = PlayerIndex(dealer);
-    const auto nonDealerIndex = PlayerIndex(OtherPlayer(dealer));
+    (void)PlayerIndex(dealer); // Dealer affects who plays first, not the deal order.
     Deal deal;
-    std::size_t next = 0;
-    for (int pass = 0; pass < 4; ++pass) {
-        for (int i = 0; i < 2; ++i) deal.hands[nonDealerIndex].push_back(shuffled[next++]);
-        for (int i = 0; i < 2; ++i) deal.field.push_back(shuffled[next++]);
-        for (int i = 0; i < 2; ++i) deal.hands[dealerIndex].push_back(shuffled[next++]);
-    }
-    deal.stock.assign(shuffled.begin() + static_cast<std::ptrdiff_t>(next), shuffled.end());
+    deal.hands[PlayerIndex(Player::PLAYER)].assign(shuffled.begin(), shuffled.begin() + 8);
+    deal.hands[PlayerIndex(Player::OPPONENT)].assign(shuffled.begin() + 8, shuffled.begin() + 16);
+    deal.field.assign(shuffled.begin() + 16, shuffled.begin() + 24);
+    // Xeno-koi pops from the back of the stock; expose the top first here.
+    deal.stock.assign(shuffled.rbegin(), shuffled.rend() - 24);
     return deal;
 }
 
@@ -148,22 +155,55 @@ YakuScore ScoreYaku(std::span<const CardId> captured) {
     result.hanami = has("03-B") && cup ? KoiKoiProfile::FixedSet : 0;
     result.tsukimi = has("08-B") && cup ? KoiKoiProfile::FixedSet : 0;
     result.inoShikaCho = has("06-A") && has("07-A") && has("10-A") ? KoiKoiProfile::FixedSet : 0;
-    result.akatan = has("01-RP") && has("02-RP") && has("03-RP") ? KoiKoiProfile::FixedSet : 0;
-    result.aotan = has("06-RB") && has("09-RB") && has("10-RB") ? KoiKoiProfile::FixedSet : 0;
+    const bool hasAkatan = has("01-RP") && has("02-RP") && has("03-RP");
+    const bool hasAotan = has("06-RB") && has("09-RB") && has("10-RB");
+    if (hasAkatan && hasAotan) result.akatanAotan = 2 * KoiKoiProfile::FixedSet;
+    else if (hasAkatan) result.akatan = KoiKoiProfile::FixedSet;
+    else if (hasAotan) result.aotan = KoiKoiProfile::FixedSet;
     result.tane = std::max(0, result.animals - (KoiKoiProfile::AnimalThreshold - 1));
     result.tanzaku = std::max(0, result.ribbons - (KoiKoiProfile::RibbonThreshold - 1));
     result.kasuUnits = result.physicalPlains + (cup ? 1 : 0);
     result.kasu = std::max(0, result.kasuUnits - (KoiKoiProfile::PlainThreshold - 1));
     result.base = result.bright + result.hanami + result.tsukimi + result.inoShikaCho +
-                  result.tane + result.akatan + result.aotan + result.tanzaku + result.kasu;
+                  result.tane + result.akatan + result.aotan + result.akatanAotan + result.tanzaku + result.kasu;
     return result;
 }
 
-Settlement CalculateSettlement(int base, bool opponentCalledKoi) {
-    if (base < 0) throw std::invalid_argument("Negative base score");
-    // Ensure the largest possible multiplier cannot overflow.
-    if (base > std::numeric_limits<int>::max() / 4) throw std::invalid_argument("Base score out of range");
+YakuSnapshot SnapshotYaku(const YakuScore& score) noexcept {
+    YakuSnapshot snapshot{};
+    const auto set = [&snapshot](YakuId id, int value) { snapshot[static_cast<std::size_t>(id)] = value; };
+    switch (score.brightYaku) {
+        case BrightYaku::GOKO: set(YakuId::GOKO, score.bright); break;
+        case BrightYaku::SHIKO: set(YakuId::SHIKO, score.bright); break;
+        case BrightYaku::AME_SHIKO: set(YakuId::AME_SHIKO, score.bright); break;
+        case BrightYaku::SANKO: set(YakuId::SANKO, score.bright); break;
+        case BrightYaku::NONE: break;
+    }
+    set(YakuId::HANAMI, score.hanami);
+    set(YakuId::TSUKIMI, score.tsukimi);
+    set(YakuId::INO_SHIKA_CHO, score.inoShikaCho);
+    set(YakuId::AKATAN, score.akatan);
+    set(YakuId::AOTAN, score.aotan);
+    set(YakuId::AKATAN_AOTAN, score.akatanAotan);
+    set(YakuId::TANE, score.tane);
+    set(YakuId::TANZAKU, score.tanzaku);
+    set(YakuId::KASU, score.kasu);
+    return snapshot;
+}
+
+bool HasNewOrGrownYaku(const YakuSnapshot& current, const YakuSnapshot& previous) noexcept {
+    for (std::size_t i = 0; i < current.size(); ++i) {
+        if (current[i] > previous[i]) return true;
+    }
+    return false;
+}
+
+Settlement CalculateSettlement(int base, bool opponentCalledKoi, int selfKoiCalls) {
+    if (base < 0 || selfKoiCalls < 0) throw std::invalid_argument("Negative score or Koi-Koi calls");
     const int seven = base >= KoiKoiProfile::SevenThreshold ? 2 : 1;
     const int counter = opponentCalledKoi ? 2 : 1;
-    return {base, seven, counter, base * seven * counter};
+    const int caller = 1 + std::min(selfKoiCalls, KoiKoiProfile::MaxCallerFactor - 1);
+    const int multiplier = seven * counter * caller;
+    if (base > std::numeric_limits<int>::max() / multiplier) throw std::invalid_argument("Base score out of range");
+    return {base, seven, counter, caller, base * multiplier};
 }

@@ -13,6 +13,10 @@ enum class Player { OPPONENT = 0, PLAYER = 1 };
 [[nodiscard]] Player OtherPlayer(Player player);
 [[nodiscard]] std::size_t PlayerIndex(Player player);
 
+// Oya-gime: earlier month wins, then higher card category. Equal month and
+// category requires a redraw. The caller supplies two distinct drawn cards.
+[[nodiscard]] std::optional<Player> DetermineFirstDealer(CardId playerCard, CardId opponentCard);
+
 enum class OpeningHand { NONE, TESHI, KUTTSUKI };
 
 struct Deal {
@@ -25,7 +29,8 @@ struct Deal {
 // Inputs must contain distinct, valid register IDs; malformed input throws.
 [[nodiscard]] bool IsFieldMisdeal(std::span<const CardId> field);
 [[nodiscard]] OpeningHand CheckOpeningHand(std::span<const CardId> hand);
-// 48 cards in shuffled order; 2 to non-dealer, field, dealer, repeated four times.
+// Xeno-koi deal: player 8, opponent 8, field 8, then 24 stock cards.
+// The last shuffled card is the first stock card revealed; dealer plays first.
 [[nodiscard]] Deal DealCards(std::span<const CardId> shuffled, Player dealer);
 
 struct CaptureResult {
@@ -49,6 +54,7 @@ struct YakuScore {
     int tane = 0;
     int akatan = 0;
     int aotan = 0;
+    int akatanAotan = 0; // Replaces the individual fixed sets when both are present.
     int tanzaku = 0;
     int kasu = 0;
     int animals = 0;
@@ -59,10 +65,20 @@ struct YakuScore {
 };
 [[nodiscard]] YakuScore ScoreYaku(std::span<const CardId> captured);
 
+enum class YakuId {
+    GOKO, SHIKO, AME_SHIKO, SANKO, HANAMI, TSUKIMI, INO_SHIKA_CHO,
+    AKATAN, AOTAN, AKATAN_AOTAN, TANE, TANZAKU, KASU, COUNT
+};
+using YakuSnapshot = std::array<int, static_cast<std::size_t>(YakuId::COUNT)>;
+[[nodiscard]] YakuSnapshot SnapshotYaku(const YakuScore& score) noexcept;
+[[nodiscard]] bool HasNewOrGrownYaku(const YakuSnapshot& current, const YakuSnapshot& previous) noexcept;
+
 struct Settlement {
     int base = 0;
     int sevenFactor = 1;
     int counterFactor = 1;
+    int callerFactor = 1;
     int award = 0;
 };
-[[nodiscard]] Settlement CalculateSettlement(int base, bool opponentCalledKoi);
+// Each caller's own Koi-Koi increases their factor by one, up to x6.
+[[nodiscard]] Settlement CalculateSettlement(int base, bool opponentCalledKoi, int selfKoiCalls = 0);

@@ -40,6 +40,7 @@ public:
     [[nodiscard]] std::optional<CardId> PendingCard() const noexcept { return pending_; }
     [[nodiscard]] const std::vector<CardId>& Choices() const noexcept { return choices_; }
     [[nodiscard]] bool HasCalledKoi(Player player) const;
+    [[nodiscard]] int KoiCalls(Player player) const;
     [[nodiscard]] const std::optional<RoundResult>& Result() const noexcept { return result_; }
     [[nodiscard]] std::size_t Misdeals() const noexcept { return misdeals_; }
     [[nodiscard]] YakuScore CurrentScore() const;
@@ -61,6 +62,7 @@ public:
 
 private:
     void EndDraw(EndReason reason);
+    void SettleShoubu();
     void ResolvePending(bool fromStock);
     [[nodiscard]] bool BothHandsEmpty() const noexcept;
 
@@ -76,8 +78,8 @@ private:
     bool pendingIsStock_ = false;
     std::optional<CardId> selection_;
     std::vector<CardId> choices_;
-    std::array<bool, 2> calledKoi_{};
-    std::array<int, 2> lastEvaluatedBase_{};
+    std::array<int, 2> koiCalls_{};
+    std::array<YakuSnapshot, 2> lastDecisionYaku_{};
     std::optional<RoundResult> result_;
     std::size_t misdeals_ = 0;
 };

@@ -33,7 +33,11 @@ const std::vector<CardId>& KoiKoiStateMachine::Captured(Player player) const {
 }
 
 bool KoiKoiStateMachine::HasCalledKoi(Player player) const {
-    return calledKoi_[PlayerIndex(player)];
+    return KoiCalls(player) > 0;
+}
+
+int KoiKoiStateMachine::KoiCalls(Player player) const {
+    return koiCalls_[PlayerIndex(player)];
 }
 
 YakuScore KoiKoiStateMachine::CurrentScore() const {
@@ -103,10 +107,12 @@ void KoiKoiStateMachine::Advance() {
             break;
         case Phase::CHECK_YAKU: {
             const auto index = PlayerIndex(current_);
-            const int base = CurrentScore().base;
-            const bool eligible = base > lastEvaluatedBase_[index];
-            lastEvaluatedBase_[index] = base;
-            if (eligible) phase_ = Phase::AWAIT_DECISION;
+            const YakuSnapshot currentYaku = SnapshotYaku(CurrentScore());
+            const bool eligible = HasNewOrGrownYaku(currentYaku, lastDecisionYaku_[index]);
+            // Xeno-koi automatically banks an eligible yaku when the current
+            // player's hand is empty, even if the other player has one card left.
+            if (eligible && hands_[index].empty()) SettleShoubu();
+            else if (eligible) phase_ = Phase::AWAIT_DECISION;
             else if (BothHandsEmpty()) EndDraw(EndReason::EXHAUSTIVE_DRAW);
             else phase_ = Phase::NEXT_PLAYER;
             break;
@@ -181,18 +187,24 @@ void KoiKoiStateMachine::ResolvePending(bool fromStock) {
 void KoiKoiStateMachine::ChooseDecision(Decision decision) {
     Require(phase_ == Phase::AWAIT_DECISION, "Not awaiting a Koi-Koi decision");
     if (decision == Decision::KOI_KOI) {
-        calledKoi_[PlayerIndex(current_)] = true;
-        if (BothHandsEmpty()) EndDraw(EndReason::EXHAUSTIVE_DRAW);
-        else phase_ = Phase::NEXT_PLAYER;
+        const auto index = PlayerIndex(current_);
+        lastDecisionYaku_[index] = SnapshotYaku(CurrentScore());
+        ++koiCalls_[index];
+        phase_ = Phase::NEXT_PLAYER;
     } else if (decision == Decision::SHOUBU) {
-        const Settlement settlement = CalculateSettlement(CurrentScore().base, HasCalledKoi(OtherPlayer(current_)));
-        RoundResult result{EndReason::SHOUBU, current_, {}, current_, settlement};
-        result.points[PlayerIndex(current_)] = settlement.award;
-        result_ = result;
-        phase_ = Phase::ROUND_END;
+        SettleShoubu();
     } else {
         throw std::invalid_argument("Invalid decision");
     }
+}
+
+void KoiKoiStateMachine::SettleShoubu() {
+    const Settlement settlement = CalculateSettlement(CurrentScore().base, HasCalledKoi(OtherPlayer(current_)),
+                                                       KoiCalls(current_));
+    RoundResult result{EndReason::SHOUBU, current_, {}, current_, settlement};
+    result.points[PlayerIndex(current_)] = settlement.award;
+    result_ = result;
+    phase_ = Phase::ROUND_END;
 }
 
 void KoiKoiStateMachine::EndDraw(EndReason reason) {
@@ -216,8 +228,8 @@ void KoiKoiStateMachine::StartNextRound() {
     pendingIsStock_ = false;
     selection_.reset();
     choices_.clear();
-    calledKoi_ = {};
-    lastEvaluatedBase_ = {};
+    koiCalls_ = {};
+    lastDecisionYaku_ = {};
     result_.reset();
     misdeals_ = 0;
     phase_ = Phase::DEAL_CHECK;
