@@ -79,7 +79,7 @@ inline constexpr Rect Stock{49.0f, 262.0f, 77.0f, 125.0f};
     for (std::size_t row = 0; row < 2; ++row)
         for (std::size_t col = 0; col < 8; ++col)
             result[row * 8 + col] = {185.0f + static_cast<float>(col) * 62.0f,
-                                     row == 0 ? 176.0f : 406.0f,
+                                     row == 0 ? 176.0f : 278.0f,
                                      55.0f, 90.0f};
     return result;
 }
@@ -89,7 +89,7 @@ inline constexpr auto Field = MakeField();
     if (compact) return {185.0f + static_cast<float>(index % 8) * 62.0f,
                          176.0f + static_cast<float>(index / 8) * 68.0f, 55.0f, 64.0f};
     return index < Field.size() ? Field[index]
-        : Rect{185.0f + static_cast<float>(index - 16) * 62.0f, 291.0f, 55.0f, 90.0f};
+        : Rect{185.0f + static_cast<float>(index - 16) * 62.0f, 380.0f, 55.0f, 90.0f};
 }
 inline constexpr std::size_t FieldSlotCount = 36;
 } // namespace TableLayout
