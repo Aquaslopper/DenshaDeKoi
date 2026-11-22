@@ -22,11 +22,18 @@ jobs:
       - name: Test
         run: ctest --test-dir build -C Release --output-on-failure
 
+      # The atlas must sit next to the executable; the game loads it at startup.
+      - name: Stage game
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item build/Release/denshadekoi.exe dist/
+          Copy-Item cards_atlas.png dist/
+
       - name: Upload game
         uses: actions/upload-artifact@v4
         with:
           name: denshadekoi-windows-msvc
-          path: build/Release/denshadekoi.exe
+          path: dist/
           if-no-files-found: error
 
   mingw:
@@ -52,9 +59,15 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure
 
+      - name: Stage game
+        run: |
+          mkdir -p dist
+          cp build/denshadekoi.exe dist/
+          cp cards_atlas.png dist/
+
       - name: Upload game
         uses: actions/upload-artifact@v4
         with:
           name: denshadekoi-windows-mingw
-          path: build/denshadekoi.exe
+          path: dist/
           if-no-files-found: error

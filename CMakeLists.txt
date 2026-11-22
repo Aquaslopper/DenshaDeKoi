@@ -12,6 +12,11 @@ function(configure_project_target target)
     else()
         target_compile_options(${target} PRIVATE -Wall -Wextra)
     endif()
+    if(MINGW)
+        # Link the GCC runtime statically so the .exe also runs on PCs without MSYS2
+        # (otherwise it needs libstdc++-6.dll, libgcc_s_seh-1.dll, libwinpthread-1.dll).
+        target_link_options(${target} PRIVATE -static)
+    endif()
 endfunction()
 
 if(BUILD_DESKTOP_APP)
