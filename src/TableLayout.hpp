@@ -28,6 +28,8 @@ inline constexpr float PlaneHalfWidth = 1.045020f;
 inline constexpr float NearDepth = 0.772955f;
 inline constexpr float FarDepth = 2.161951f;
 inline constexpr float CardElevation = 0.002f;
+inline constexpr float CardThickness = 0.006f;
+inline constexpr float StackStep = 0.0011f;
 
 [[nodiscard]] inline Point3 OnPlane(float x, float y, float elevation = 0.0f) {
     return {-PlaneHalfWidth + 2.0f * PlaneHalfWidth * x / PlanWidth,

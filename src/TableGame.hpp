@@ -13,6 +13,11 @@ struct TableCard {
     TableLayout::Rect rect{};
     float flip = 1.0f; // Horizontal width factor for a card flip.
     float elevation = TableLayout::CardElevation;
+    float flipAngle = 0.0f; // 3D roll flip angle in radians (0 = face up, pi = back up).
+    float pitch = 0.0f;     // Local X tilt in radians.
+    float roll = 0.0f;      // Local Z bank in radians.
+    float thickness = TableLayout::CardThickness;
+    bool shadow = true;
 };
 
 // Match coordinator and presentation state; independent of Raylib and the clock.
@@ -45,7 +50,7 @@ public:
 
 private:
     enum class Animation { NONE, RETURN, CPU_FLIP, HAND_MOVE, STOCK_FLIP, STOCK_MOVE, HIT_FREEZE, CAPTURE };
-    struct Moving { int id; TableLayout::Rect from, to; };
+    struct Moving { int id; TableLayout::Rect from, to; float fromElev = TableLayout::CardElevation, toElev = TableLayout::CardElevation; };
     void Start();
     void SyncField();
     [[nodiscard]] int FindFreeSlot(TableLayout::Point2 near) const;
@@ -57,6 +62,8 @@ private:
     void RecordResult();
     [[nodiscard]] TableLayout::Rect HandRect(Player player, std::size_t i) const;
     [[nodiscard]] TableLayout::Rect CaptureRect(Player player) const;
+    [[nodiscard]] float StockHeight() const;
+    [[nodiscard]] float CaptureHeight(Player player, std::size_t countOffset = 0) const;
 
     KoiKoiStateMachine game_;
     std::array<int, 48> slots_{};
@@ -68,9 +75,13 @@ private:
     std::optional<int> dragged_;
     TableLayout::Rect dragRect_{};
     TableLayout::Point2 dragOffset_{};
+    float dragDeltaX_ = 0, dragDeltaY_ = 0;
+    float dragVelX_ = 0, dragVelY_ = 0;
+    float dragPitch_ = 0, dragRoll_ = 0;
     Animation animation_ = Animation::NONE;
     float elapsed_ = 0, duration_ = 0;
     bool matched_ = false;
+    bool playerSnap_ = false;
     bool stockReady_ = false;
     bool compactField_ = false;
     int pendingSlot_ = -1;

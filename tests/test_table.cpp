@@ -68,22 +68,47 @@ void TestDraw() {
         TableGame game(42);
         scene.Draw(game);
         const auto cards = game.Cards();
-        Check(vertices.size() == cards.size() * 4, "Card render count differs from game state");
+        const std::size_t shadowVertices = cards.size() * 4;
+        const std::size_t cardVertices = cards.size() * 24;
+        Check(vertices.size() == shadowVertices + cardVertices, "Card render count differs from game state");
         for (std::size_t i = 0; i < cards.size(); ++i) {
-            const auto& card = cards[i];
             for (std::size_t j = 0; j < 4; ++j) {
-                const auto& vert = vertices[i * 4 + j];
-                Check(Near(vert.y, card.elevation) && vert.color.a == 255, "Card is not on its plane");
+                const auto& shadowVert = vertices[i * 4 + j];
+                Check(shadowVert.texture == 99 && shadowVert.y < TableLayout::CardElevation &&
+                      shadowVert.color.r == 0 && shadowVert.color.g == 0 && shadowVert.color.b == 0 &&
+                      shadowVert.color.a > 0 && shadowVert.color.a < 255,
+                      "Card shadow must sit below the card plane");
+            }
+            const auto& card = cards[i];
+            const std::size_t base = shadowVertices + i * 24;
+            for (std::size_t j = 0; j < 4; ++j) {
+                const auto& vert = vertices[base + j];
+                Check(Near(vert.y, card.elevation + card.thickness) && vert.color.a == 255,
+                      "Card top face is not at card thickness height");
                 if (card.id < 0) Check(vert.texture == 99 && vert.color.r == 0 && vert.color.g == 0 && vert.color.b == 0,
                                        "Card backs must be solid black");
                 else Check(vert.texture == 2 && vert.color.r == 255 && vert.color.g == 255 && vert.color.b == 255,
                            "Card faces must use the atlas untinted");
             }
+            for (std::size_t j = 4; j < 8; ++j) {
+                const auto& bottomVert = vertices[base + j];
+                Check(Near(bottomVert.y, card.elevation) && bottomVert.texture == 99 &&
+                      bottomVert.color.r == 0 && bottomVert.color.g == 0 && bottomVert.color.b == 0 &&
+                      bottomVert.color.a == 255,
+                      "Card bottom face must rest on card elevation");
+            }
+            for (std::size_t j = 8; j < 24; ++j) {
+                const auto& sideVert = vertices[base + j];
+                Check(sideVert.texture == 99 && sideVert.color.a == 255 &&
+                      sideVert.y >= card.elevation - 0.0001f &&
+                      sideVert.y <= card.elevation + card.thickness + 0.0001f,
+                      "Card 3D side edge vertices out of bounds");
+            }
             if (card.id >= 0) {
-                const auto& topLeft = vertices[i * 4];
-                const auto& bottomLeft = vertices[i * 4 + 1];
-                const auto& bottomRight = vertices[i * 4 + 2];
-                const auto& topRight = vertices[i * 4 + 3];
+                const auto& topLeft = vertices[base];
+                const auto& bottomLeft = vertices[base + 1];
+                const auto& bottomRight = vertices[base + 2];
+                const auto& topRight = vertices[base + 3];
                 const float expectedU = static_cast<float>(card.id / 4) / 12.0f;
                 const float expectedV = static_cast<float>(card.id % 4) / 4.0f;
                 Check(Near(topLeft.u, expectedU) && Near(topLeft.v, expectedV) &&
