@@ -61,6 +61,18 @@ void TestReturnAndFreeze() {
         Check(game.Rules().Hand(Player::PLAYER).size() == 8, "Hit freeze shorter than 50 ms");
         game.Update(0.002f);
         Check(game.Rules().Hand(Player::PLAYER).size() == 7 && game.Rules().ValidateConservation(), "Capture did not commit after freeze");
+        game.Update(0.5f);
+        int captureLayers = 0;
+        bool captureCrooked = false;
+        for (const auto& c : game.Cards()) {
+            if (c.id >= 0 && std::abs(c.rect.x - TableLayout::PlayerCapture.x) < 10.0f &&
+                std::abs(c.rect.y - TableLayout::PlayerCapture.y) < 10.0f) {
+                ++captureLayers;
+                if (std::abs(c.yaw) > 0.005f || std::abs(c.rect.x - TableLayout::PlayerCapture.x) > 0.1f)
+                    captureCrooked = true;
+            }
+        }
+        Check(captureLayers >= 2 && captureCrooked, "Capture pile must stack crookedly");
         return;
     }
     throw std::runtime_error("Did not find matching fixture");
@@ -82,9 +94,19 @@ void TestFlips() {
             cpuChecked = true;
         }
         if (!stockChecked && game.Rules().CurrentPlayer() == Player::PLAYER) {
-            float initialStockThickness = 0.0f;
-            for (const auto& c : game.Cards()) if (c.id == -1 && c.rect.x == TableLayout::Stock.x) initialStockThickness = c.thickness;
-            Check(initialStockThickness > TableLayout::CardThickness * 2.0f, "Stock pile must have 3D stack thickness");
+            float initialStockTop = 0.0f;
+            int stockLayers = 0;
+            bool hasYawVariation = false;
+            for (const auto& c : game.Cards()) {
+                if (c.id == -1 && std::abs(c.rect.x - TableLayout::Stock.x) < 10.0f &&
+                    std::abs(c.rect.y - TableLayout::Stock.y) < 10.0f) {
+                    initialStockTop = std::max(initialStockTop, c.elevation + c.thickness);
+                    ++stockLayers;
+                    if (std::abs(c.yaw) > 0.005f) hasYawVariation = true;
+                }
+            }
+            Check(stockLayers > 2 && hasYawVariation && initialStockTop > TableLayout::CardElevation + TableLayout::CardThickness * 2.0f,
+                  "Stock pile must have lifelike crooked 3D stack layers");
             PlayFirst(game);
             for (int i = 0; i < 30 && game.Rules().GetPhase() != Phase::REVEAL_DRAW; ++i) game.Update(0.1f);
             Check(game.Rules().GetPhase() == Phase::REVEAL_DRAW, "No mandatory draw after hand play");
@@ -96,9 +118,14 @@ void TestFlips() {
             Check(game.Cards().back().flip < 0.02f && game.Cards().back().id >= 0 &&
                   std::abs(game.Cards().back().flipAngle - 1.5707963f) < 0.05f,
                   "Stock flip midpoint incorrect");
-            float nextStockThickness = 0.0f;
-            for (const auto& c : game.Cards()) if (c.id == -1 && c.rect.x == TableLayout::Stock.x) nextStockThickness = c.thickness;
-            Check(nextStockThickness < initialStockThickness, "Stock stack thickness must shrink as cards are drawn");
+            float nextStockTop = 0.0f;
+            for (const auto& c : game.Cards()) {
+                if (c.id == -1 && std::abs(c.rect.x - TableLayout::Stock.x) < 10.0f &&
+                    std::abs(c.rect.y - TableLayout::Stock.y) < 10.0f) {
+                    nextStockTop = std::max(nextStockTop, c.elevation + c.thickness);
+                }
+            }
+            Check(nextStockTop < initialStockTop, "Stock stack height must shrink as cards are drawn");
             stockChecked = true;
         }
     }

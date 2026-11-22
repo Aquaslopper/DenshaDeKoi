@@ -35,6 +35,20 @@ Rect InterpolateSnap(Rect a, Rect b, float t) {
     t = 1.0f - inv * inv * inv;
     return {a.x+(b.x-a.x)*t, a.y+(b.y-a.y)*t, a.width+(b.width-a.width)*t, a.height+(b.height-a.height)*t};
 }
+struct StackOffset { float dx, dy, yaw; };
+StackOffset StackJitter(int key, float xyScale = 1.0f, float yawScale = 1.0f) {
+    std::uint32_t h = static_cast<std::uint32_t>(key) * 2654435761u;
+    h ^= h >> 16;
+    h *= 2246822519u;
+    h ^= h >> 13;
+    const float u = static_cast<float>(h & 0xFFu) / 255.0f - 0.5f;
+    const float v = static_cast<float>((h >> 8) & 0xFFu) / 255.0f - 0.5f;
+    const float w = static_cast<float>((h >> 16) & 0xFFu) / 255.0f - 0.5f;
+    return {u * 3.8f * xyScale, v * 5.0f * xyScale, w * 0.13f * yawScale};
+}
+Rect JitteredRect(Rect base, StackOffset j) {
+    return {base.x + j.dx, base.y + j.dy, base.width, base.height};
+}
 Player DrawDealer(Deck& deck) {
     deck.Shuffle();
     for (;;) {
@@ -212,8 +226,9 @@ void TableGame::StartStockMove(std::optional<CardId> target) {
     const Rect dest = target ? FieldRect(*target) : TableLayout::FieldSlot(static_cast<std::size_t>(pendingSlot_), compactField_ || game_.Field().size() >= 16);
     const float fromElev = TableLayout::CardElevation + StockHeight();
     const float toElev = TableLayout::CardElevation + (matched_ ? TableLayout::CardThickness + 0.001f : 0.0f);
+    const auto j = StackJitter(100 + static_cast<int>(game_.StockRemaining()), 0.9f, 0.9f);
     playerSnap_ = false;
-    moving_ = {{id, TableLayout::Stock, dest, fromElev, toElev}};
+    moving_ = {{id, JitteredRect(TableLayout::Stock, j), dest, fromElev, toElev, j.yaw, 0.0f}};
     stockReady_ = false;
     BeginAnimation(Animation::STOCK_MOVE, 0.36f);
 }
@@ -231,11 +246,14 @@ void TableGame::ResolveMove() {
     }
     moving_.clear();
     const auto& captured = game_.Captured(player);
-    const float toElev = TableLayout::CardElevation + CaptureHeight(player);
+    constexpr float capStep = TableLayout::StackStep * 0.85f;
     for (std::size_t i = previousCount; i < captured.size(); ++i) {
         int id = captured[i];
         const float fromElev = TableLayout::CardElevation + (id == incoming ? TableLayout::CardThickness + 0.001f : 0.0f);
-        moving_.push_back({id, id == incoming ? arrived : previousField[static_cast<std::size_t>(id)], CaptureRect(player), fromElev, toElev});
+        const float toElev = TableLayout::CardElevation + static_cast<float>(std::min<std::size_t>(i, 23)) * capStep;
+        const auto j = StackJitter(id, 1.25f, 1.45f);
+        moving_.push_back({id, id == incoming ? arrived : previousField[static_cast<std::size_t>(id)],
+                           JitteredRect(CaptureRect(player), j), fromElev, toElev, 0.0f, j.yaw});
     }
     SyncField();
     if (!moving_.empty()) BeginAnimation(Animation::CAPTURE, 0.38f);
@@ -289,7 +307,9 @@ void TableGame::Update(float seconds) {
         case Phase::REVEAL_DRAW: {
             game_.Advance();
             const float stockTop = TableLayout::CardElevation + StockHeight();
-            moving_ = {{*game_.PendingCard(), TableLayout::Stock, TableLayout::Stock, stockTop, stockTop}};
+            const auto j = StackJitter(100 + static_cast<int>(game_.StockRemaining()), 0.9f, 0.9f);
+            const Rect r = JitteredRect(TableLayout::Stock, j);
+            moving_ = {{*game_.PendingCard(), r, r, stockTop, stockTop, j.yaw, j.yaw}};
             BeginAnimation(Animation::STOCK_FLIP, 0.50f); break;
         }
         case Phase::AWAIT_DRAW_CHOICE:
@@ -351,24 +371,63 @@ std::vector<TableCard> TableGame::Cards() const {
             cards.push_back({p == Player::PLAYER ? id : -1, HandRect(p, i)});
         }
     }
-    if (game_.StockRemaining() > 0) {
-        TableCard stockCard{-1, TableLayout::Stock};
-        stockCard.thickness = StockHeight();
-        cards.push_back(stockCard);
+    if (const std::size_t stockCount = game_.StockRemaining(); stockCount > 0) {
+        constexpr std::size_t maxLayers = 10;
+        const std::size_t visible = std::min(stockCount, maxLayers);
+        const std::size_t start = stockCount - visible;
+        if (start > 0) {
+            const auto baseJ = StackJitter(100, 0.9f, 0.9f);
+            TableCard baseBlock{-1, JitteredRect(TableLayout::Stock, baseJ)};
+            baseBlock.elevation = TableLayout::CardElevation;
+            baseBlock.thickness = static_cast<float>(start) * TableLayout::StackStep - 0.0001f;
+            baseBlock.yaw = baseJ.yaw;
+            baseBlock.shadow = true;
+            cards.push_back(baseBlock);
+        }
+        for (std::size_t k = start; k < stockCount; ++k) {
+            const auto j = StackJitter(100 + static_cast<int>(k), 0.9f, 0.9f);
+            const bool isTop = (k + 1 == stockCount);
+            TableCard layer{-1, JitteredRect(TableLayout::Stock, j)};
+            layer.elevation = TableLayout::CardElevation + static_cast<float>(k) * TableLayout::StackStep;
+            layer.thickness = isTop ? TableLayout::CardThickness : (TableLayout::StackStep - 0.0001f);
+            layer.yaw = j.yaw;
+            layer.shadow = (k == 0 || isTop);
+            cards.push_back(layer);
+        }
     }
     for (int id : game_.Field()) cards.push_back({id, FieldRect(id)});
     for (Player p : {Player::OPPONENT, Player::PLAYER}) {
         const auto& pile = game_.Captured(p);
-        if (pile.empty()) continue;
-        if (!isMoving(pile.back())) {
-            TableCard capCard{pile.back(), CaptureRect(p)};
-            capCard.thickness = CaptureHeight(p);
-            cards.push_back(capCard);
-        } else if (animation_ == Animation::CAPTURE && pile.size() > moving_.size()) {
-            const std::size_t prevIdx = pile.size() - moving_.size() - 1;
-            TableCard capCard{pile[prevIdx], CaptureRect(p)};
-            capCard.thickness = CaptureHeight(p, moving_.size());
-            cards.push_back(capCard);
+        std::vector<int> settled;
+        settled.reserve(pile.size());
+        for (int cid : pile) if (!isMoving(cid)) settled.push_back(cid);
+        if (settled.empty()) continue;
+
+        constexpr float capStep = TableLayout::StackStep * 0.85f;
+        constexpr std::size_t maxCapLayers = 8;
+        const std::size_t count = settled.size();
+        const std::size_t visible = std::min(count, maxCapLayers);
+        const std::size_t start = count - visible;
+        const Rect baseRect = CaptureRect(p);
+        if (start > 0) {
+            const auto baseJ = StackJitter(settled[0], 1.25f, 1.45f);
+            TableCard baseBlock{settled[start - 1], JitteredRect(baseRect, baseJ)};
+            baseBlock.elevation = TableLayout::CardElevation;
+            baseBlock.thickness = static_cast<float>(start) * capStep - 0.0001f;
+            baseBlock.yaw = baseJ.yaw;
+            baseBlock.shadow = true;
+            cards.push_back(baseBlock);
+        }
+        for (std::size_t k = start; k < count; ++k) {
+            const int cid = settled[k];
+            const auto j = StackJitter(cid, 1.25f, 1.45f);
+            const bool isTop = (k + 1 == count);
+            TableCard layer{cid, JitteredRect(baseRect, j)};
+            layer.elevation = TableLayout::CardElevation + static_cast<float>(std::min<std::size_t>(k, 23)) * capStep;
+            layer.thickness = isTop ? TableLayout::CardThickness : (capStep - 0.0001f);
+            layer.yaw = j.yaw;
+            layer.shadow = (k == 0 || isTop);
+            cards.push_back(layer);
         }
     }
     if (dragged_) {
@@ -379,8 +438,10 @@ std::vector<TableCard> TableGame::Cards() const {
         cards.push_back(draggedCard);
     }
     if (stockReady_ && game_.GetPhase() == Phase::AWAIT_DRAW_CHOICE) {
-        TableCard pending{*game_.PendingCard(), TableLayout::Stock};
+        const auto j = StackJitter(100 + static_cast<int>(game_.StockRemaining()), 0.9f, 0.9f);
+        TableCard pending{*game_.PendingCard(), JitteredRect(TableLayout::Stock, j)};
         pending.elevation = TableLayout::CardElevation + StockHeight() + 0.002f;
+        pending.yaw = j.yaw;
         cards.push_back(pending);
     }
     constexpr float Pi = 3.14159265f;
@@ -391,12 +452,14 @@ std::vector<TableCard> TableGame::Cards() const {
         float flipAngle = 0.0f;
         float pitch = 0.0f;
         float roll = 0.0f;
+        float yaw = m.toYaw;
         float elev = m.toElev;
         Rect r = m.to;
 
         if (animation_ == Animation::HIT_FREEZE) {
             r = m.to;
             elev = m.toElev;
+            yaw = m.toYaw;
         } else if (animation_ == Animation::STOCK_FLIP || animation_ == Animation::CPU_FLIP) {
             r = m.from;
             const float eased = t * t * (3.0f - 2.0f * t);
@@ -404,6 +467,7 @@ std::vector<TableCard> TableGame::Cards() const {
             flip = std::max(0.01f, std::abs(std::cos(flipAngle)));
             if (t < 0.5f) id = -1;
             elev = m.fromElev + 0.022f * std::sin(Pi * t);
+            yaw = m.fromYaw + (m.toYaw - m.fromYaw) * eased;
         } else {
             const bool snap = (animation_ == Animation::HAND_MOVE && playerSnap_);
             r = snap ? InterpolateSnap(m.from, m.to, t) : Interpolate(m.from, m.to, t);
@@ -411,6 +475,7 @@ std::vector<TableCard> TableGame::Cards() const {
                                      : (t * t * (3.0f - 2.0f * t));
             const float arc = snap ? 0.0f : (animation_ == Animation::RETURN ? 0.018f : 0.052f) * std::sin(Pi * t);
             elev = m.fromElev + (m.toElev - m.fromElev) * easeT + arc;
+            yaw = m.fromYaw + (m.toYaw - m.fromYaw) * easeT;
             const float dx = m.to.x - m.from.x;
             const float dy = m.to.y - m.from.y;
             const float tiltEnv = std::sin(Pi * t);
@@ -418,7 +483,7 @@ std::vector<TableCard> TableGame::Cards() const {
             pitch = std::clamp(-dy * 0.00045f, -0.18f, 0.18f) * tiltEnv;
         }
 
-        TableCard movingCard{id, r, flip, elev, flipAngle, pitch, roll, TableLayout::CardThickness, true};
+        TableCard movingCard{id, r, flip, elev, flipAngle, pitch, roll, yaw, TableLayout::CardThickness, true};
         cards.push_back(movingCard);
     }
     return cards;
