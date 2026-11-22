@@ -1,0 +1,115 @@
+#pragma once
+
+#include "RadioPlaylist.hpp"
+
+#include <atomic>
+#include <cstddef>
+#include <cstdint>
+#include <functional>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <thread>
+#include <vector>
+
+enum class RadioState {
+    OFF,
+    CONNECTING,
+    BUFFERING,
+    PLAYING,
+    ERROR,
+};
+
+// Demuxes SHOUTcast/Icecast inline metadata blocks (icy-metaint) from an audio byte stream.
+class IcyDemuxer {
+public:
+    explicit IcyDemuxer(std::size_t metaInterval = 0)
+        : metaInterval_(metaInterval), audioRemaining_(metaInterval) {}
+
+    void Reset(std::size_t metaInterval);
+    void Feed(const std::uint8_t* data, std::size_t size,
+              const std::function<void(const std::uint8_t*, std::size_t)>& onAudio,
+              const std::function<void(const std::string&)>& onMeta);
+
+private:
+    enum class Phase { AUDIO, META_LEN, META_BODY };
+    std::size_t metaInterval_ = 0;
+    Phase phase_ = Phase::AUDIO;
+    std::size_t audioRemaining_ = 0;
+    std::size_t metaRemaining_ = 0;
+    std::string metaBuffer_;
+};
+
+// Streaming MP3 frame decoder using dr_mp3's low-level push API (handles mid-stream sync).
+class Mp3StreamDecoder {
+public:
+    Mp3StreamDecoder();
+    ~Mp3StreamDecoder();
+    Mp3StreamDecoder(const Mp3StreamDecoder&) = delete;
+    Mp3StreamDecoder& operator=(const Mp3StreamDecoder&) = delete;
+
+    void Reset();
+    void Feed(const std::uint8_t* data, std::size_t size, bool flush,
+              const std::function<void(const std::int16_t*, std::size_t frames, int sampleRate, int channels)>& onPcm);
+    [[nodiscard]] std::size_t DecodedFrames() const { return decodedFrames_; }
+
+private:
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
+    std::vector<std::uint8_t> inBuf_;
+    std::size_t decodedFrames_ = 0;
+};
+
+// Thread-safe PCM ring buffer connecting the network/decoder thread to the main audio thread.
+class PcmRingBuffer {
+public:
+    explicit PcmRingBuffer(std::size_t maxFrames = 192000);
+
+    void Clear(int sampleRate = 0, int channels = 0);
+    void Push(const std::int16_t* interleaved, std::size_t frames, int sampleRate, int channels);
+    std::size_t Pop(std::int16_t* out, std::size_t exactFrames, int& outSampleRate, int& outChannels);
+    void FormatAndAvailable(int& outSampleRate, int& outChannels, std::size_t& outFrames) const;
+
+private:
+    mutable std::mutex mutex_;
+    std::vector<std::int16_t> samples_;
+    std::size_t maxFrames_ = 192000;
+    std::size_t headFrames_ = 0;
+    std::size_t countFrames_ = 0;
+    int sampleRate_ = 0;
+    int channels_ = 0;
+};
+
+// Background stream fetcher/demuxer/decoder for HTTP/HTTPS .pls and MP3 radio streams.
+class RadioStreamWorker {
+public:
+    RadioStreamWorker() = default;
+    ~RadioStreamWorker();
+    RadioStreamWorker(const RadioStreamWorker&) = delete;
+    RadioStreamWorker& operator=(const RadioStreamWorker&) = delete;
+
+    void Start(std::string stationName, std::vector<std::string> candidateUrls);
+    void Stop();
+
+    PcmRingBuffer& Ring() { return ring_; }
+
+    struct Status {
+        RadioState state = RadioState::OFF;
+        std::string stationName;
+        std::string nowPlaying;
+        std::string statusText;
+    };
+    Status GetStatus() const;
+
+private:
+    void Run(std::string stationName, std::vector<std::string> candidateUrls);
+    void SetStatus(RadioState state, const std::string& statusText);
+    void SetNowPlaying(const std::string& title);
+    void SetStationName(const std::string& name);
+
+    PcmRingBuffer ring_;
+    mutable std::mutex statusMutex_;
+    Status status_;
+    std::atomic<bool> stopRequested_{false};
+    std::thread worker_;
+};
