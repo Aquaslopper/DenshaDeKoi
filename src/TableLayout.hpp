@@ -19,14 +19,14 @@ struct Point3 { float x, y, z; };
 struct Point2 { float x, y; };
 
 // Camera and table plane calibrated against the baked table backdrop. The
-// height, pitch, and plane bounds are a perspective fit to the eight hand and
-// eight opponent card slots plus the stock in the supplied table image.
-inline constexpr float CameraHeight = 0.992949f;
-inline constexpr float PitchRadians = 0.528482f;
+// height, pitch, and plane bounds are a perspective fit to the painted tile
+// trapezoid of the new table image.
+inline constexpr float CameraHeight = 1.019131f;
+inline constexpr float PitchRadians = 0.654819f;
 inline constexpr float FovDegrees = 45.0f;
-inline constexpr float PlaneHalfWidth = 0.759738f;
-inline constexpr float NearDepth = 0.836865f;
-inline constexpr float FarDepth = 2.256865f;
+inline constexpr float PlaneHalfWidth = 0.858605f;
+inline constexpr float NearDepth = 0.767704f;
+inline constexpr float FarDepth = 1.637212f;
 inline constexpr float CardElevation = 0.002f;
 
 [[nodiscard]] inline Point3 OnPlane(float x, float y, float elevation = 0.0f) {

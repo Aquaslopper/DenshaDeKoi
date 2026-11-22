@@ -37,8 +37,8 @@ void TestGeometry() {
     const auto b = Project(OnPlane(PlanWidth, 0));
     const auto c = Project(OnPlane(0, PlanHeight));
     const auto d = Project(OnPlane(PlanWidth, PlanHeight));
-    Check(Near(a.x, 392.5f, 2) && Near(a.y, 277.9f, 2) && Near(b.x, 967.5f, 2) &&
-          Near(c.x, 104.3f, 2) && Near(c.y, 714.0f, 2) && Near(d.x, 1255.7f, 2),
+    Check(Near(a.x, 265.3f, 2) && Near(a.y, 292.8f, 2) && Near(b.x, 1094.7f, 2) &&
+          Near(c.x, 32.6f, 2) && Near(c.y, 640.9f, 2) && Near(d.x, 1327.4f, 2),
           "Plane projection does not align with the baked table");
     const auto within = [](Rect r) { return r.x >= 0 && r.y >= 0 && r.x + r.width <= PlanWidth &&
                                            r.y + r.height <= PlanHeight; };
