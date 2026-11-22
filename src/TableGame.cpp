@@ -146,7 +146,7 @@ void TableGame::PointerUp(Point2 p) {
         return DeckRegister::At(x).month == DeckRegister::At(id).month;
     });
     const auto target = FindDropTarget(id, dragRect_);
-    if ((hasMatch && !target) || (!hasMatch && !Contains({132, 160, 700, 390}, Center(dragRect_)))) {
+    if ((hasMatch && !target) || (!hasMatch && !Contains({155, 175, 660, 335}, Center(dragRect_)))) {
         CancelDrag(); return;
     }
     const Rect from = dragRect_;
