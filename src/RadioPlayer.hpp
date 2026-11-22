@@ -13,8 +13,9 @@ enum class BufferMode {
     AUTO,
     SEC_2,
     SEC_5,
-    SEC_8,
-    SEC_12,
+    SEC_10,
+    SEC_15,
+    SEC_20,
 };
 
 struct RadioSnapshot {

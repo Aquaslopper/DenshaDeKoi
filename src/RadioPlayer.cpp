@@ -8,7 +8,7 @@
 
 namespace {
 constexpr int kRaylibStreamFrames = 2048;
-constexpr std::array<float, 6> kAutoBufferLadderSec = {2.0f, 3.5f, 5.5f, 8.0f, 10.5f, 12.0f};
+constexpr std::array<float, 6> kAutoBufferLadderSec = {2.0f, 4.0f, 7.0f, 10.0f, 15.0f, 20.0f};
 
 std::atomic<RadioPlayer*> gActiveRadioPlayer{nullptr};
 
@@ -44,15 +44,18 @@ float RadioPlayer::ActiveTargetSeconds() const {
     case BufferMode::AUTO: return autoTargetSec_;
     case BufferMode::SEC_2: return 2.0f;
     case BufferMode::SEC_5: return 5.0f;
-    case BufferMode::SEC_8: return 8.0f;
-    case BufferMode::SEC_12: return 12.0f;
+    case BufferMode::SEC_10: return 10.0f;
+    case BufferMode::SEC_15: return 15.0f;
+    case BufferMode::SEC_20: return 20.0f;
     }
     return autoTargetSec_;
 }
 
 void RadioPlayer::SyncTargetFrames(int sampleRate) {
     const int sr = sampleRate > 0 ? sampleRate : 44100;
-    const std::size_t frames = static_cast<std::size_t>(ActiveTargetSeconds() * static_cast<float>(sr));
+    const float targetSec = ActiveTargetSeconds();
+    worker_.SetTargetBufferSeconds(targetSec);
+    const std::size_t frames = static_cast<std::size_t>(targetSec * static_cast<float>(sr));
     targetBufferFrames_.store(std::max<std::size_t>(kRaylibStreamFrames * 4, frames), std::memory_order_release);
 }
 
@@ -117,6 +120,7 @@ void RadioPlayer::ResetAudioStream() {
 
 void RadioPlayer::StartCurrentSelection() {
     ResetAudioStream();
+    SyncTargetFrames(0);
     lastSeenUnderruns_ = underrunCount_.load(std::memory_order_relaxed);
     const auto& stations = DefaultRadioStations();
     if (stationIndex_ >= 0 && static_cast<std::size_t>(stationIndex_) < stations.size()) {
@@ -198,9 +202,10 @@ void RadioPlayer::CycleBufferMode() {
     switch (bufferMode_) {
     case BufferMode::AUTO: SetBufferMode(BufferMode::SEC_2); break;
     case BufferMode::SEC_2: SetBufferMode(BufferMode::SEC_5); break;
-    case BufferMode::SEC_5: SetBufferMode(BufferMode::SEC_8); break;
-    case BufferMode::SEC_8: SetBufferMode(BufferMode::SEC_12); break;
-    case BufferMode::SEC_12: SetBufferMode(BufferMode::AUTO); break;
+    case BufferMode::SEC_5: SetBufferMode(BufferMode::SEC_10); break;
+    case BufferMode::SEC_10: SetBufferMode(BufferMode::SEC_15); break;
+    case BufferMode::SEC_15: SetBufferMode(BufferMode::SEC_20); break;
+    case BufferMode::SEC_20: SetBufferMode(BufferMode::AUTO); break;
     }
 }
 

@@ -75,27 +75,28 @@ private:
     std::size_t decodedFrames_ = 0;
 };
 
-// Thread-safe PCM ring buffer connecting the network/decoder thread to the main audio thread.
+// Lock-free Single-Producer Single-Consumer PCM ring buffer (30s capacity at 44.1 kHz).
+// Audio callback only reads/advances head_; worker thread only writes/advances tail_.
 class PcmRingBuffer {
 public:
-    explicit PcmRingBuffer(std::size_t maxFrames = 768000);
+    explicit PcmRingBuffer(std::size_t maxFrames = 1323000);
 
     void Clear(int sampleRate = 0, int channels = 0);
-    void Push(const std::int16_t* interleaved, std::size_t frames, int sampleRate, int channels);
+    std::size_t Push(const std::int16_t* interleaved, std::size_t frames, int sampleRate, int channels);
     std::size_t Pop(std::int16_t* out, std::size_t exactFrames, int& outSampleRate, int& outChannels);
     bool PopExact(std::int16_t* out, std::size_t exactFrames, int expectedSampleRate, int expectedChannels,
                   std::size_t& outRemaining);
     void FormatAndAvailable(int& outSampleRate, int& outChannels, std::size_t& outFrames) const;
     [[nodiscard]] std::size_t AvailableFrames() const;
+    [[nodiscard]] std::size_t CapacityFrames() const { return maxFrames_; }
 
 private:
-    mutable std::mutex mutex_;
     std::vector<std::int16_t> samples_;
-    std::size_t maxFrames_ = 192000;
-    std::size_t headFrames_ = 0;
-    std::size_t countFrames_ = 0;
-    int sampleRate_ = 0;
-    int channels_ = 0;
+    std::size_t maxFrames_ = 1323000;
+    std::atomic<std::size_t> head_{0};
+    std::atomic<std::size_t> tail_{0};
+    std::atomic<int> sampleRate_{0};
+    std::atomic<int> channels_{0};
 };
 
 // Background stream fetcher/demuxer/decoder for HTTP/HTTPS .pls and MP3 radio streams.
@@ -108,6 +109,7 @@ public:
 
     void Start(std::string stationName, std::vector<std::string> candidateUrls);
     void Stop();
+    void SetTargetBufferSeconds(float seconds);
 
     PcmRingBuffer& Ring() { return ring_; }
 
@@ -126,6 +128,7 @@ private:
     void SetStationName(const std::string& name);
 
     PcmRingBuffer ring_;
+    std::atomic<float> targetBufferSeconds_{2.0f};
     mutable std::mutex statusMutex_;
     Status status_;
     std::atomic<bool> stopRequested_{false};

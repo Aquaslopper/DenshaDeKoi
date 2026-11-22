@@ -47,7 +47,6 @@
 
 namespace {
 constexpr std::size_t kBufferReadyFrames = 66150; // ~1.5s at 44.1 kHz
-constexpr std::size_t kHighWaterBufferFrames = 600000; // ~13.6s at 44.1 kHz
 constexpr std::size_t kMp3LookaheadBytes = 2048;
 constexpr std::size_t kMaxPlaylistBytes = 65536;
 
@@ -688,94 +687,103 @@ void Mp3StreamDecoder::Feed(
     }
 }
 
-PcmRingBuffer::PcmRingBuffer(std::size_t maxFrames) : maxFrames_(maxFrames) {}
+PcmRingBuffer::PcmRingBuffer(std::size_t maxFrames)
+    : samples_(maxFrames * 2, 0), maxFrames_(maxFrames) {}
 
 void PcmRingBuffer::Clear(int sampleRate, int channels) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    headFrames_ = 0;
-    countFrames_ = 0;
-    sampleRate_ = sampleRate;
-    channels_ = channels;
-    samples_.clear();
+    head_.store(0, std::memory_order_relaxed);
+    tail_.store(0, std::memory_order_relaxed);
+    sampleRate_.store(sampleRate, std::memory_order_release);
+    channels_.store(channels, std::memory_order_release);
 }
 
-void PcmRingBuffer::Push(const std::int16_t* interleaved, std::size_t frames, int sampleRate, int channels) {
-    if (frames == 0 || channels <= 0 || sampleRate <= 0) return;
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (sampleRate_ != sampleRate || channels_ != channels) {
-        sampleRate_ = sampleRate;
-        channels_ = channels;
-        headFrames_ = 0;
-        countFrames_ = 0;
-        samples_.assign(maxFrames_ * static_cast<std::size_t>(channels), 0);
+std::size_t PcmRingBuffer::Push(const std::int16_t* interleaved, std::size_t frames, int sampleRate, int channels) {
+    if (frames == 0 || (channels != 1 && channels != 2) || sampleRate <= 0) return 0;
+
+    int curSr = sampleRate_.load(std::memory_order_relaxed);
+    int curCh = channels_.load(std::memory_order_relaxed);
+    if (curSr == 0 || curCh == 0) {
+        sampleRate_.store(sampleRate, std::memory_order_release);
+        channels_.store(channels, std::memory_order_release);
+        curSr = sampleRate;
+        curCh = channels;
     }
+    if (curSr != sampleRate || curCh != channels) {
+        return 0;
+    }
+
+    const std::size_t h = head_.load(std::memory_order_acquire);
+    const std::size_t t = tail_.load(std::memory_order_relaxed);
+    const std::size_t used = t - h;
+    const std::size_t freeFrames = used < maxFrames_ ? (maxFrames_ - used) : 0;
+    const std::size_t toWrite = std::min(frames, freeFrames);
+    if (toWrite == 0) return 0;
+
     const std::size_t ch = static_cast<std::size_t>(channels);
-    if (frames >= maxFrames_) {
-        interleaved += (frames - maxFrames_) * ch;
-        frames = maxFrames_;
-        headFrames_ = 0;
-        countFrames_ = 0;
+    const std::size_t tailIdx = t % maxFrames_;
+    const std::size_t first = std::min(toWrite, maxFrames_ - tailIdx);
+    std::memcpy(samples_.data() + tailIdx * ch, interleaved, first * ch * sizeof(std::int16_t));
+    if (toWrite > first) {
+        std::memcpy(samples_.data(), interleaved + first * ch, (toWrite - first) * ch * sizeof(std::int16_t));
     }
-    if (countFrames_ + frames > maxFrames_) {
-        const std::size_t drop = (countFrames_ + frames) - maxFrames_;
-        headFrames_ = (headFrames_ + drop) % maxFrames_;
-        countFrames_ -= drop;
-    }
-    std::size_t tail = (headFrames_ + countFrames_) % maxFrames_;
-    const std::size_t first = std::min(frames, maxFrames_ - tail);
-    std::memcpy(samples_.data() + tail * ch, interleaved, first * ch * sizeof(std::int16_t));
-    if (frames > first) {
-        std::memcpy(samples_.data(), interleaved + first * ch, (frames - first) * ch * sizeof(std::int16_t));
-    }
-    countFrames_ += frames;
+    tail_.store(t + toWrite, std::memory_order_release);
+    return toWrite;
 }
 
 std::size_t PcmRingBuffer::Pop(std::int16_t* out, std::size_t exactFrames, int& outSampleRate, int& outChannels) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    outSampleRate = sampleRate_;
-    outChannels = channels_;
-    if (countFrames_ < exactFrames || channels_ <= 0) return 0;
-    const std::size_t ch = static_cast<std::size_t>(channels_);
-    const std::size_t first = std::min(exactFrames, maxFrames_ - headFrames_);
-    std::memcpy(out, samples_.data() + headFrames_ * ch, first * ch * sizeof(std::int16_t));
+    const std::size_t t = tail_.load(std::memory_order_acquire);
+    const std::size_t h = head_.load(std::memory_order_relaxed);
+    outSampleRate = sampleRate_.load(std::memory_order_acquire);
+    outChannels = channels_.load(std::memory_order_acquire);
+    if (outChannels <= 0 || (t - h) < exactFrames) return 0;
+
+    const std::size_t ch = static_cast<std::size_t>(outChannels);
+    const std::size_t headIdx = h % maxFrames_;
+    const std::size_t first = std::min(exactFrames, maxFrames_ - headIdx);
+    std::memcpy(out, samples_.data() + headIdx * ch, first * ch * sizeof(std::int16_t));
     if (exactFrames > first) {
         std::memcpy(out + first * ch, samples_.data(), (exactFrames - first) * ch * sizeof(std::int16_t));
     }
-    headFrames_ = (headFrames_ + exactFrames) % maxFrames_;
-    countFrames_ -= exactFrames;
+    head_.store(h + exactFrames, std::memory_order_release);
     return exactFrames;
 }
 
 bool PcmRingBuffer::PopExact(std::int16_t* out, std::size_t exactFrames, int expectedSampleRate, int expectedChannels,
                              std::size_t& outRemaining) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (sampleRate_ != expectedSampleRate || channels_ != expectedChannels || channels_ <= 0 ||
-        countFrames_ < exactFrames) {
-        outRemaining = countFrames_;
+    const std::size_t t = tail_.load(std::memory_order_acquire);
+    const std::size_t h = head_.load(std::memory_order_relaxed);
+    const std::size_t avail = t - h;
+    const int sr = sampleRate_.load(std::memory_order_acquire);
+    const int ch = channels_.load(std::memory_order_acquire);
+    if (sr != expectedSampleRate || ch != expectedChannels || ch <= 0 || avail < exactFrames) {
+        outRemaining = avail;
         return false;
     }
-    const std::size_t ch = static_cast<std::size_t>(channels_);
-    const std::size_t first = std::min(exactFrames, maxFrames_ - headFrames_);
-    std::memcpy(out, samples_.data() + headFrames_ * ch, first * ch * sizeof(std::int16_t));
+
+    const std::size_t chCount = static_cast<std::size_t>(ch);
+    const std::size_t headIdx = h % maxFrames_;
+    const std::size_t first = std::min(exactFrames, maxFrames_ - headIdx);
+    std::memcpy(out, samples_.data() + headIdx * chCount, first * chCount * sizeof(std::int16_t));
     if (exactFrames > first) {
-        std::memcpy(out + first * ch, samples_.data(), (exactFrames - first) * ch * sizeof(std::int16_t));
+        std::memcpy(out + first * chCount, samples_.data(), (exactFrames - first) * chCount * sizeof(std::int16_t));
     }
-    headFrames_ = (headFrames_ + exactFrames) % maxFrames_;
-    countFrames_ -= exactFrames;
-    outRemaining = countFrames_;
+    head_.store(h + exactFrames, std::memory_order_release);
+    outRemaining = avail - exactFrames;
     return true;
 }
 
 void PcmRingBuffer::FormatAndAvailable(int& outSampleRate, int& outChannels, std::size_t& outFrames) const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    outSampleRate = sampleRate_;
-    outChannels = channels_;
-    outFrames = countFrames_;
+    const std::size_t t = tail_.load(std::memory_order_acquire);
+    const std::size_t h = head_.load(std::memory_order_acquire);
+    outSampleRate = sampleRate_.load(std::memory_order_acquire);
+    outChannels = channels_.load(std::memory_order_acquire);
+    outFrames = t >= h ? (t - h) : 0;
 }
 
 std::size_t PcmRingBuffer::AvailableFrames() const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    return countFrames_;
+    const std::size_t t = tail_.load(std::memory_order_acquire);
+    const std::size_t h = head_.load(std::memory_order_acquire);
+    return t >= h ? (t - h) : 0;
 }
 
 RadioStreamWorker::~RadioStreamWorker() {
@@ -794,6 +802,10 @@ void RadioStreamWorker::Start(std::string stationName, std::vector<std::string> 
         status_.statusText = "Connecting...";
     }
     worker_ = std::thread(&RadioStreamWorker::Run, this, std::move(stationName), std::move(candidateUrls));
+}
+
+void RadioStreamWorker::SetTargetBufferSeconds(float seconds) {
+    targetBufferSeconds_.store(std::clamp(seconds, 1.5f, 24.0f), std::memory_order_relaxed);
 }
 
 void RadioStreamWorker::Stop() {
@@ -892,7 +904,16 @@ void RadioStreamWorker::Run(std::string stationName, std::vector<std::string> ca
                             decoder.Feed(audio, audioLen, false,
                                 [&](const std::int16_t* pcm, std::size_t frames, int hz, int ch) {
                                     anyDecoded = true;
-                                    ring_.Push(pcm, frames, hz, ch);
+                                    std::size_t written = 0;
+                                    while (written < frames && !stopRequested_.load()) {
+                                        const std::size_t n = ring_.Push(
+                                            pcm + written * static_cast<std::size_t>(ch),
+                                            frames - written, hz, ch);
+                                        written += n;
+                                        if (written < frames) {
+                                            std::this_thread::sleep_for(std::chrono::milliseconds(15));
+                                        }
+                                    }
                                     if (!playingAnnounced) {
                                         int sr = 0, c = 0;
                                         std::size_t avail = 0;
@@ -908,8 +929,16 @@ void RadioStreamWorker::Run(std::string stationName, std::vector<std::string> ca
                             }
                         },
                         [&](const std::string& title) { SetNowPlaying(title); });
-                    // Apply TCP backpressure once ~12s of decoded audio is buffered so we never drop frames.
-                    while (!stopRequested_.load() && ring_.AvailableFrames() >= kHighWaterBufferFrames) {
+                    // Keep target + 2s headroom ahead in the 30s lock-free ring via TCP backpressure.
+                    int curSr = 0, curCh = 0;
+                    std::size_t curAvail = 0;
+                    ring_.FormatAndAvailable(curSr, curCh, curAvail);
+                    const std::size_t sr = static_cast<std::size_t>(curSr > 0 ? curSr : 44100);
+                    const std::size_t desiredHeadroom = std::min<std::size_t>(
+                        ring_.CapacityFrames() - sr * 2,
+                        static_cast<std::size_t>((targetBufferSeconds_.load(std::memory_order_relaxed) + 2.0f) *
+                                                 static_cast<float>(sr)));
+                    while (!stopRequested_.load() && ring_.AvailableFrames() >= desiredHeadroom) {
                         std::this_thread::sleep_for(std::chrono::milliseconds(20));
                     }
                     return !abortNonMp3 && !stopRequested_.load();

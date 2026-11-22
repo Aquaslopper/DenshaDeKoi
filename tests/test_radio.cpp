@@ -99,15 +99,15 @@ void TestIcyDemuxerAndRingBuffer() {
     PcmRingBuffer ring(8);
     const std::int16_t f1[10] = {1, -1, 2, -2, 3, -3, 4, -4, 5, -5};
     const std::int16_t f2[10] = {6, -6, 7, -7, 8, -8, 9, -9, 10, -10};
-    ring.Push(f1, 5, 44100, 2);
-    ring.Push(f2, 5, 44100, 2); // overwrites oldest 2 frames -> keeps 3..10
+    Check(ring.Push(f1, 5, 44100, 2) == 5, "Initial push must write 5 frames");
+    Check(ring.Push(f2, 5, 44100, 2) == 3, "SPSC push must clamp cleanly at ring capacity");
     int sr = 0, ch = 0;
     std::size_t avail = 0;
     ring.FormatAndAvailable(sr, ch, avail);
     Check(sr == 44100 && ch == 2 && avail == 8 && ring.AvailableFrames() == 8, "Ring buffer count/format mismatch");
     std::int16_t popped[16]{};
-    Check(ring.Pop(popped, 8, sr, ch) == 8 && popped[0] == 3 && popped[1] == -3 &&
-          popped[14] == 10 && popped[15] == -10,
+    Check(ring.Pop(popped, 8, sr, ch) == 8 && popped[0] == 1 && popped[1] == -1 &&
+          popped[14] == 8 && popped[15] == -8,
           "Ring buffer wraparound pop mismatch");
 
     ring.Push(f1, 5, 44100, 2);
