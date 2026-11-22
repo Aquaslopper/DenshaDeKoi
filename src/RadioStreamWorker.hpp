@@ -85,6 +85,10 @@ public:
 
     void Clear(int sampleRate = 0, int channels = 0);
     std::size_t Push(const std::int16_t* interleaved, std::size_t frames, int sampleRate, int channels);
+    // Copies as many complete frames as are buffered (never blocks, never pads).
+    // Returns 0 when the ring is empty or the format does not match.
+    std::size_t PopAvailable(std::int16_t* out, std::size_t maxFrames, int expectedSampleRate,
+                             int expectedChannels);
     std::size_t Pop(std::int16_t* out, std::size_t exactFrames, int& outSampleRate, int& outChannels);
     bool PopExact(std::int16_t* out, std::size_t exactFrames, int expectedSampleRate, int expectedChannels,
                   std::size_t& outRemaining);

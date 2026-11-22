@@ -1,3 +1,4 @@
+#include "RadioPlayer.hpp" // buffer policy helpers (header-only)
 #include "RadioPlaylist.hpp"
 #include "RadioStreamWorker.hpp"
 
@@ -210,6 +211,66 @@ void TestIcyDemuxerAndRingBuffer() {
     }
     Check(decodedChunks == "Hello, JPop!", "HTTP chunked decoder failed");
 }
+void TestBufferPolicy() {
+    const int sr = 44100;
+    const std::size_t targetFrames = static_cast<std::size_t>(4 * sr);
+
+    // Starting playback keeps the configured cushion: the slider is the share
+    // of the buffer that has to be buffered before audio starts.
+    Check(RadioStartThresholdFrames(targetFrames, sr, 0.75f) == static_cast<std::size_t>(3 * sr),
+          "75% prebuffer must start at 3 s of a 4 s target");
+
+    // Resuming after a dropout must never demand that cushion back: it is
+    // capped, otherwise one glitch costs seconds of silence.
+    const std::size_t full = RadioResumeThresholdFrames(targetFrames, sr, 1.0f);
+    Check(full <= static_cast<std::size_t>(kRadioMaxResumeSeconds * sr),
+          "100% prebuffer exceeded the resume-time cap");
+    Check(full > 0, "100% prebuffer must still buffer something");
+    Check(RadioResumeThresholdFrames(targetFrames, sr, 0.75f) <
+              RadioStartThresholdFrames(targetFrames, sr, 0.75f),
+          "resume threshold must be smaller than the start cushion");
+
+    // 0% must not start on an empty ring (that produced permanent dropouts).
+    const std::size_t none = RadioResumeThresholdFrames(targetFrames, sr, 0.0f);
+    Check(none >= static_cast<std::size_t>(kRadioMinResumeSeconds * sr),
+          "0% prebuffer dropped below the minimum cushion");
+    Check(none < static_cast<std::size_t>(0.5 * sr), "0% prebuffer buffered far too much");
+
+    // A tiny target must not produce an inverted clamp or exceed the buffer.
+    const std::size_t tiny = RadioResumeThresholdFrames(256, sr, 1.0f);
+    Check(tiny <= 256, "resume threshold must never exceed the target buffer");
+    Check(RadioStartThresholdFrames(256, sr, 1.0f) <= 256,
+          "start threshold must never exceed the target buffer");
+
+    // AUTO grows on an underrun, stays capped, and decays after a stable run.
+    Check(RadioNextAutoBufferTarget(4.0f, true, 0.0) == 6.0f, "AUTO did not grow after an underrun");
+    Check(RadioNextAutoBufferTarget(6.0f, true, 0.0) == 6.0f, "AUTO grew past its cap");
+    Check(RadioNextAutoBufferTarget(6.0f, false, 5.0) == 6.0f, "AUTO decayed too early");
+    Check(RadioNextAutoBufferTarget(6.0f, false, kRadioAutoDecaySeconds + 1.0) == 4.0f,
+          "AUTO did not decay after a stable run");
+}
+
+void TestRingBufferPartialFillAndFormatChange() {
+    PcmRingBuffer ring(8);
+    const std::int16_t frames[6] = {1, -1, 2, -2, 3, -3};
+    Check(ring.Push(frames, 3, 44100, 2) == 3, "push failed");
+
+    // A short read must return what is there instead of nothing at all.
+    std::int16_t out[8]{};
+    Check(ring.PopAvailable(out, 4, 44100, 2) == 3 && out[0] == 1 && out[4] == 3,
+          "PopAvailable must return the frames that are buffered");
+    Check(ring.PopAvailable(out, 4, 44100, 2) == 0, "PopAvailable must report an empty ring");
+    Check(ring.PopAvailable(out, 4, 48000, 2) == 0, "PopAvailable must reject a format mismatch");
+
+    // A reconnect with another format must be adopted, not rejected forever.
+    Check(ring.Push(frames, 3, 44100, 2) == 3, "push before format change failed");
+    Check(ring.Push(frames, 3, 48000, 2) == 3, "format change must reset and adopt the new stream");
+    int sr = 0, ch = 0;
+    std::size_t avail = 0;
+    ring.FormatAndAvailable(sr, ch, avail);
+    Check(sr == 48000 && ch == 2 && avail == 3, "ring did not restart with the new format");
+}
+
 } // namespace
 
 int main() {
@@ -218,6 +279,8 @@ int main() {
         TestUrlParser();
         TestPlsAndIcyMetadata();
         TestIcyDemuxerAndRingBuffer();
+        TestBufferPolicy();
+        TestRingBufferPartialFillAndFormatChange();
         std::cout << "Radio playlist, ICY demuxer, and stream buffer checks passed.\n";
         return 0;
     } catch (const std::exception& e) {

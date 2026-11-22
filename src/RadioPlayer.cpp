@@ -6,13 +6,6 @@
 
 namespace {
 constexpr std::size_t kMinTargetFrames = 8192;
-constexpr std::array<float, 4> kAutoBufferLadderSec = {4.0f, 6.0f, 8.0f, 10.0f};
-
-std::size_t PrebufferThresholdFrames(std::size_t targetFrames, float ratio) {
-    const float clamped = std::clamp(ratio, 0.0f, 1.0f);
-    return static_cast<std::size_t>(
-        static_cast<double>(targetFrames) * static_cast<double>(clamped));
-}
 
 void FillRadioAudioTrampoline(void* user, std::int16_t* out, std::size_t frames) {
     if (!user || !out || frames == 0) return;
@@ -51,7 +44,8 @@ void RadioPlayer::SyncTargetFrames(int sampleRate) {
 void RadioPlayer::FillAudioFrames(std::int16_t* out, std::size_t frames) {
     const int ch = callbackChannels_.load(std::memory_order_acquire);
     const int sr = callbackSampleRate_.load(std::memory_order_acquire);
-    const std::size_t byteCount = frames * static_cast<std::size_t>(std::max(1, ch)) * sizeof(std::int16_t);
+    const std::size_t channels = static_cast<std::size_t>(std::max(1, ch));
+    const std::size_t byteCount = frames * channels * sizeof(std::int16_t);
 
     if (!callbackActive_.load(std::memory_order_acquire) || ch <= 0 || sr <= 0) {
         std::memset(out, 0, byteCount);
@@ -60,7 +54,7 @@ void RadioPlayer::FillAudioFrames(std::int16_t* out, std::size_t frames) {
 
     const std::size_t targetFrames = targetBufferFrames_.load(std::memory_order_acquire);
     const float ratio = prebufferRatio_.load(std::memory_order_acquire);
-    const std::size_t resumeThreshold = PrebufferThresholdFrames(targetFrames, ratio);
+    const std::size_t resumeThreshold = RadioResumeThresholdFrames(targetFrames, sr, ratio);
     if (rebuffering_.load(std::memory_order_acquire)) {
         if (worker_.Ring().AvailableFrames() < resumeThreshold) {
             std::memset(out, 0, byteCount);
@@ -69,17 +63,24 @@ void RadioPlayer::FillAudioFrames(std::int16_t* out, std::size_t frames) {
         rebuffering_.store(false, std::memory_order_release);
     }
 
-    std::size_t remaining = 0;
-    if (!worker_.Ring().PopExact(out, frames, sr, ch, remaining)) {
-        std::memset(out, 0, byteCount);
-        rebuffering_.store(true, std::memory_order_release);
-        fadeInPending_.store(true, std::memory_order_release);
+    // Fill as much of the period as is buffered and pad only the missing tail.
+    // Demanding a whole period used to zero the entire period on any shortfall,
+    // which turned a single lost 40 ms period into a multi-second dropout.
+    const std::size_t got = worker_.Ring().PopAvailable(out, frames, sr, ch);
+    if (got < frames) {
+        std::memset(out + got * channels, 0, (frames - got) * channels * sizeof(std::int16_t));
+        // An audible hole: count it and nudge the cushion, but keep playing.
         underrunCount_.fetch_add(1, std::memory_order_relaxed);
+        fadeInPending_.store(true, std::memory_order_release);
+    }
+    if (got == 0) {
+        // Genuinely starved: from here on we wait for the resume threshold again.
+        rebuffering_.store(true, std::memory_order_release);
         return;
     }
 
     if (fadeInPending_.exchange(false, std::memory_order_acq_rel)) {
-        const std::size_t rampFrames = std::min<std::size_t>(frames, static_cast<std::size_t>(std::max(1, sr / 100)));
+        const std::size_t rampFrames = std::min<std::size_t>(got, static_cast<std::size_t>(std::max(1, sr / 100)));
         for (std::size_t f = 0; f < rampFrames; ++f) {
             const float gain = static_cast<float>(f) / static_cast<float>(rampFrames);
             for (int c = 0; c < ch; ++c) {
@@ -103,6 +104,7 @@ void RadioPlayer::StartCurrentSelection() {
     ResetAudioStream();
     SyncTargetFrames(0);
     lastSeenUnderruns_ = underrunCount_.load(std::memory_order_relaxed);
+    lastUnderrunTime_ = std::chrono::steady_clock::now();
     const auto& stations = DefaultRadioStations();
     if (stationIndex_ >= 0 && static_cast<std::size_t>(stationIndex_) < stations.size()) {
         const auto& st = stations[static_cast<std::size_t>(stationIndex_)];
@@ -169,8 +171,9 @@ void RadioPlayer::ToggleMute() {
 void RadioPlayer::SetBufferMode(BufferMode mode) {
     bufferMode_ = mode;
     if (mode == BufferMode::AUTO) {
-        autoTargetSec_ = kAutoBufferLadderSec.front();
+        autoTargetSec_ = kRadioAutoBufferLadderSec.front();
         lastSeenUnderruns_ = underrunCount_.load(std::memory_order_relaxed);
+        lastUnderrunTime_ = std::chrono::steady_clock::now();
     }
     SyncTargetFrames(output_.SampleRate());
 }
@@ -183,7 +186,7 @@ void RadioPlayer::ApplyPrebufferThreshold() {
     if (!enabled_ || !output_.IsActive()) return;
     const std::size_t targetFrames = targetBufferFrames_.load(std::memory_order_acquire);
     const float ratio = prebufferRatio_.load(std::memory_order_acquire);
-    const std::size_t threshold = PrebufferThresholdFrames(targetFrames, ratio);
+    const std::size_t threshold = RadioStartThresholdFrames(targetFrames, output_.SampleRate(), ratio);
     if (worker_.Ring().AvailableFrames() < threshold) {
         fadeInPending_.store(true, std::memory_order_release);
         rebuffering_.store(true, std::memory_order_release);
@@ -214,23 +217,24 @@ void RadioPlayer::Update() {
     }
     bufferedSec_ = static_cast<float>(avail) / static_cast<float>(sr);
 
-    // Automatically scale up buffer size on network underruns when in AUTO mode (capped at 10s).
+    // AUTO: grow the buffer on an underrun, but decay back down after a stable
+    // run. Without the decay the target only ever grew (4 -> 6 -> 8 -> 10 s),
+    // which made every following dropout cost even more seconds of silence.
+    const auto now = std::chrono::steady_clock::now();
     const std::uint64_t currentUnderruns = underrunCount_.load(std::memory_order_relaxed);
-    if (currentUnderruns > lastSeenUnderruns_) {
+    const bool hadUnderrun = currentUnderruns > lastSeenUnderruns_;
+    if (hadUnderrun) {
         lastSeenUnderruns_ = currentUnderruns;
-        if (bufferMode_ == BufferMode::AUTO) {
-            for (float step : kAutoBufferLadderSec) {
-                if (step > autoTargetSec_ + 0.1f) {
-                    autoTargetSec_ = step;
-                    break;
-                }
-            }
-        }
+        lastUnderrunTime_ = now;
+    }
+    if (bufferMode_ == BufferMode::AUTO) {
+        const double stableSeconds = std::chrono::duration<double>(now - lastUnderrunTime_).count();
+        autoTargetSec_ = RadioNextAutoBufferTarget(autoTargetSec_, hadUnderrun, stableSeconds);
     }
     SyncTargetFrames(sr);
 
-    const std::size_t startThreshold = PrebufferThresholdFrames(
-        targetBufferFrames_.load(std::memory_order_acquire),
+    const std::size_t startThreshold = RadioStartThresholdFrames(
+        targetBufferFrames_.load(std::memory_order_acquire), sr,
         prebufferRatio_.load(std::memory_order_acquire));
     if (!output_.IsActive() || output_.SampleRate() != sr || output_.Channels() != ch) {
         if (avail < startThreshold) return;

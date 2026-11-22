@@ -3,10 +3,10 @@
 #include <cstddef>
 #include <cstdint>
 
-// Platform audio output abstraction:
-// - On Windows, prefers a chunked DirectSound circular buffer (16 x 2048 frames),
-//   with event-driven Pro Audio WASAPI and WinMM waveOut fallbacks.
-// - On non-Windows, uses Raylib's AudioStream callback.
+// Platform audio output abstraction: a miniaudio playback device (the copy
+// bundled with Raylib) with a fixed 40 ms period and 4 periods, feeding the
+// caller's fill callback from the audio thread. miniaudio picks the backend
+// (WASAPI/DirectSound/WinMM on Windows, ALSA/PulseAudio elsewhere).
 class RadioAudioOutput {
 public:
     using FillCallback = void (*)(void* user, std::int16_t* out, std::size_t frames);

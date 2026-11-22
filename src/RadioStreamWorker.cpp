@@ -731,7 +731,15 @@ std::size_t PcmRingBuffer::Push(const std::int16_t* interleaved, std::size_t fra
         curCh = channels;
     }
     if (curSr != sampleRate || curCh != channels) {
-        return 0;
+        // The stream restarted with a different format (station change, new
+        // connect). Adopt it instead of rejecting every frame forever, which
+        // used to leave playback silent until the ring was rebuilt by hand.
+        head_.store(0, std::memory_order_relaxed);
+        tail_.store(0, std::memory_order_relaxed);
+        sampleRate_.store(sampleRate, std::memory_order_release);
+        channels_.store(channels, std::memory_order_release);
+        curSr = sampleRate;
+        curCh = channels;
     }
 
     const std::size_t h = head_.load(std::memory_order_acquire);
@@ -750,6 +758,28 @@ std::size_t PcmRingBuffer::Push(const std::int16_t* interleaved, std::size_t fra
     }
     tail_.store(t + toWrite, std::memory_order_release);
     return toWrite;
+}
+
+std::size_t PcmRingBuffer::PopAvailable(std::int16_t* out, std::size_t maxFrames, int expectedSampleRate,
+                                        int expectedChannels) {
+    if (!out || maxFrames == 0) return 0;
+    const std::size_t t = tail_.load(std::memory_order_acquire);
+    const std::size_t h = head_.load(std::memory_order_relaxed);
+    const std::size_t avail = t >= h ? (t - h) : 0;
+    const int sr = sampleRate_.load(std::memory_order_acquire);
+    const int ch = channels_.load(std::memory_order_acquire);
+    if (sr != expectedSampleRate || ch != expectedChannels || ch <= 0 || avail == 0) return 0;
+
+    const std::size_t count = std::min(maxFrames, avail);
+    const std::size_t chCount = static_cast<std::size_t>(ch);
+    const std::size_t headIdx = h % maxFrames_;
+    const std::size_t first = std::min(count, maxFrames_ - headIdx);
+    std::memcpy(out, samples_.data() + headIdx * chCount, first * chCount * sizeof(std::int16_t));
+    if (count > first) {
+        std::memcpy(out + first * chCount, samples_.data(), (count - first) * chCount * sizeof(std::int16_t));
+    }
+    head_.store(h + count, std::memory_order_release);
+    return count;
 }
 
 std::size_t PcmRingBuffer::Pop(std::int16_t* out, std::size_t exactFrames, int& outSampleRate, int& outChannels) {
@@ -905,7 +935,9 @@ void RadioStreamWorker::Run(std::string stationName, std::vector<std::string> ca
         for (const std::string& streamUrl : resolvedUrls) {
             if (stopRequested_.load()) return;
             SetStatus(RadioState::CONNECTING, "Connecting...");
-            ring_.Clear();
+            // Keep whatever is still buffered from the previous connection: the
+            // audio thread keeps playing it while we reconnect, and Push() only
+            // resets the ring if the new stream uses a different format.
 
             IcyDemuxer demuxer(0);
             Mp3StreamDecoder decoder;
@@ -994,7 +1026,13 @@ void RadioStreamWorker::Run(std::string stationName, std::vector<std::string> ca
         }
 
         if (stopRequested_.load()) return;
-        if (!anyDecoded && ++failures >= 3) {
+        int ringSampleRate = 0;
+        int ringChannels = 0;
+        std::size_t ringFrames = 0;
+        ring_.FormatAndAvailable(ringSampleRate, ringChannels, ringFrames);
+        const bool haveBufferedAudio =
+            ringSampleRate > 0 && ringFrames > static_cast<std::size_t>(ringSampleRate); // > 1 s
+        if (!anyDecoded && !haveBufferedAudio && ++failures >= 3) {
             SetStatus(RadioState::FAILED, "Stream unavailable");
             return;
         }
@@ -1003,7 +1041,8 @@ void RadioStreamWorker::Run(std::string stationName, std::vector<std::string> ca
             ++status_.reconnects;
         }
         SetStatus(RadioState::CONNECTING, "Reconnecting...");
-        for (int i = 0; i < 15 && !stopRequested_.load(); ++i) {
+        // Do not sit out a fixed backoff while there is still audio to play.
+        for (int i = 0; i < (haveBufferedAudio ? 0 : 15) && !stopRequested_.load(); ++i) {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
     }
