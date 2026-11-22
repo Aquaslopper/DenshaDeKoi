@@ -14,10 +14,17 @@ public:
     TableScene(TableScene&&) = delete;
     TableScene& operator=(TableScene&&) = delete;
 
+    // Eases the digital zoom toward the player's turn. Call once per frame
+    // before Draw().
+    void Update(const TableGame& game, float dt);
     void Draw(const TableGame& game) const;
+    // Visible sub-rectangle of the world canvas, in canvas pixels.
+    [[nodiscard]] Rectangle SourceRect() const;
 
 private:
     Texture2D background_{};
     Texture2D atlas_{};
     RenderTexture2D canvas_{};
+    float zoom_ = 0.0f;      // 0 = whole table, 1 = fully cropped
+    float zoomPhase_ = 0.0f; // eased 0..1 progress behind zoom_
 };

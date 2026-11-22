@@ -13,6 +13,12 @@
 namespace {
 using TableLayout::Rect;
 
+// Digital zoom. The world canvas is cropped and magnified; the HUD is drawn
+// after the blit so controls are never cropped or resized by the zoom.
+constexpr float kZoomInset = 0.10f;  // 10% of each axis at full zoom
+constexpr float kZoomAnchorY = 0.85f; // bias the crop toward the near edge
+constexpr float kZoomSeconds = 0.2f;  // full transition duration
+
 void Vertex(float x, float y, float u, float v, float elevation) {
     const auto point = TableLayout::OnPlane(x, y, elevation);
     rlTexCoord2f(u, v);
@@ -44,6 +50,42 @@ void DrawCards(Texture2D atlas, const std::vector<TableCard>& cards) {
         rlEnd();
     }
     rlSetTexture(0);
+}
+
+// Maps the fixed 1360x768 HUD design space onto the letterboxed screen rect.
+struct ScreenMap {
+    Rectangle box{};
+    float scale = 1.0f;
+    [[nodiscard]] int X(float x) const { return static_cast<int>(std::lround(box.x + x * scale)); }
+    [[nodiscard]] int Y(float y) const { return static_cast<int>(std::lround(box.y + y * scale)); }
+    [[nodiscard]] int W(float w) const { return std::max(1, static_cast<int>(std::lround(w * scale))); }
+    [[nodiscard]] int H(float h) const { return std::max(1, static_cast<int>(std::lround(h * scale))); }
+    [[nodiscard]] int Font(float size) const { return W(size); }
+};
+
+// The HUD belongs to the screen, not the zoomed world: it is drawn after the
+// world blit, in the same unzoomed 1360x768 layout as the click rectangles.
+void DrawHud(const TableGame& game, Rectangle destination, float scale) {
+    const ScreenMap map{destination, scale};
+    DrawRectangle(map.X(8), map.Y(8), map.W(500), map.H(102), Color{15, 20, 27, 220});
+    const std::string label = "ROUND " + std::to_string(game.Round()) + " / " +
+        std::to_string(TableLayout::MatchRounds) +
+        "    YOU " + std::to_string(game.Scores()[PlayerIndex(Player::PLAYER)]) +
+        "  -  CPU " + std::to_string(game.Scores()[PlayerIndex(Player::OPPONENT)]);
+    DrawText(label.c_str(), map.X(20), map.Y(18), map.Font(22), WHITE);
+    DrawText(game.Status().c_str(), map.X(20), map.Y(51), map.Font(19), WHITE);
+    DrawText("Drag a card to a match; right-click to cancel", map.X(20), map.Y(80), map.Font(15), LIGHTGRAY);
+    if (game.Rules().GetPhase() == Phase::AWAIT_DECISION && game.Rules().CurrentPlayer() == Player::PLAYER && !game.Busy()) {
+        DrawRectangle(map.X(1010), map.Y(20), map.W(145), map.H(40), Color{31, 75, 58, 245});
+        DrawRectangle(map.X(1165), map.Y(20), map.W(145), map.H(40), Color{100, 50, 38, 245});
+        DrawText("KOI-KOI", map.X(1030), map.Y(30), map.Font(20), WHITE);
+        DrawText("SHOBU", map.X(1190), map.Y(30), map.Font(20), WHITE);
+    }
+    if (game.Rules().GetPhase() == Phase::ROUND_END) {
+        DrawRectangle(map.X(1000), map.Y(20), map.W(310), map.H(66), Color{15, 20, 27, 235});
+        DrawText(game.MatchFinished() ? "MATCH OVER" : "NEXT ROUND", map.X(1020), map.Y(27), map.Font(20), WHITE);
+        DrawText(game.MatchFinished() ? "Click to restart" : "Click to continue", map.X(1020), map.Y(55), map.Font(16), LIGHTGRAY);
+    }
 }
 
 Texture2D LoadRequiredTexture(const char* path) {
@@ -81,6 +123,25 @@ TableScene::~TableScene() {
     UnloadTexture(background_);
 }
 
+void TableScene::Update(const TableGame& game, float dt) {
+    const bool playerTurn = game.Rules().GetPhase() != Phase::ROUND_END &&
+                            game.Rules().CurrentPlayer() == Player::PLAYER;
+    const float step = std::max(0.0f, dt) / kZoomSeconds;
+    zoomPhase_ = std::clamp(zoomPhase_ + (playerTurn ? step : -step), 0.0f, 1.0f);
+    zoom_ = zoomPhase_ * zoomPhase_ * (3.0f - 2.0f * zoomPhase_); // smoothstep
+}
+
+Rectangle TableScene::SourceRect() const {
+    const float width = static_cast<float>(canvas_.texture.width);
+    const float height = static_cast<float>(canvas_.texture.height);
+    const float insetX = width * kZoomInset * zoom_;
+    const float insetY = height * kZoomInset * zoom_;
+    const float cropWidth = width - 2.0f * insetX;
+    const float cropHeight = height - 2.0f * insetY;
+    return {(width - cropWidth) * 0.5f, (height - cropHeight) * kZoomAnchorY,
+            cropWidth, cropHeight};
+}
+
 void TableScene::Draw(const TableGame& game) const {
     BeginTextureMode(canvas_);
     ClearBackground(BLACK);
@@ -94,24 +155,6 @@ void TableScene::Draw(const TableGame& game) const {
     BeginMode3D(camera);
     DrawCards(atlas_, game.Cards());
     EndMode3D();
-    DrawRectangle(8, 8, 500, 102, Color{15, 20, 27, 220});
-    const std::string label = "ROUND " + std::to_string(game.Round()) + " / " + std::to_string(TableLayout::MatchRounds) +
-        "    YOU " + std::to_string(game.Scores()[PlayerIndex(Player::PLAYER)]) +
-        "  -  CPU " + std::to_string(game.Scores()[PlayerIndex(Player::OPPONENT)]);
-    DrawText(label.c_str(), 20, 18, 22, WHITE);
-    DrawText(game.Status().c_str(), 20, 51, 19, WHITE);
-    DrawText("Drag a card to a match; right-click to cancel", 20, 80, 15, LIGHTGRAY);
-    if (game.Rules().GetPhase() == Phase::AWAIT_DECISION && game.Rules().CurrentPlayer() == Player::PLAYER && !game.Busy()) {
-        DrawRectangle(1010, 20, 145, 40, Color{31, 75, 58, 245});
-        DrawRectangle(1165, 20, 145, 40, Color{100, 50, 38, 245});
-        DrawText("KOI-KOI", 1030, 30, 20, WHITE);
-        DrawText("SHOBU", 1190, 30, 20, WHITE);
-    }
-    if (game.Rules().GetPhase() == Phase::ROUND_END) {
-        DrawRectangle(1000, 20, 310, 66, Color{15, 20, 27, 235});
-        DrawText(game.MatchFinished() ? "MATCH OVER" : "NEXT ROUND", 1020, 27, 20, WHITE);
-        DrawText(game.MatchFinished() ? "Click to restart" : "Click to continue", 1020, 55, 16, LIGHTGRAY);
-    }
     EndTextureMode();
 
     const float scale = std::min(static_cast<float>(GetScreenWidth()) / TableLayout::ImageWidth,
@@ -120,10 +163,13 @@ void TableScene::Draw(const TableGame& game) const {
     const float height = TableLayout::ImageHeight * scale;
     const Rectangle destination{(GetScreenWidth() - width) / 2.0f, (GetScreenHeight() - height) / 2.0f,
                                 width, height};
+    const Rectangle source = SourceRect();
     BeginDrawing();
     ClearBackground(BLACK);
-    // A render texture is vertically inverted in Raylib.
-    DrawTexturePro(canvas_.texture, {0, 0, static_cast<float>(canvas_.texture.width),
-                                    -static_cast<float>(canvas_.texture.height)}, destination, {0, 0}, 0, WHITE);
+    // A render texture is vertically inverted in Raylib; a negative source
+    // height flips the cropped sub-rectangle as well.
+    DrawTexturePro(canvas_.texture, {source.x, source.y, source.width, -source.height},
+                   destination, {0, 0}, 0, WHITE);
+    DrawHud(game, destination, scale);
     EndDrawing();
 }
