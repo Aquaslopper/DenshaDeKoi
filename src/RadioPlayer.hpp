@@ -31,6 +31,7 @@ struct RadioSnapshot {
     float targetBufferSec = 2.0f;
     float bufferedSec = 0.0f;
     bool rebuffering = false;
+    std::uint64_t underruns = 0;
 };
 
 class RadioPlayer {
@@ -79,6 +80,7 @@ private:
 
     std::atomic<bool> callbackActive_{false};
     std::atomic<bool> rebuffering_{false};
+    std::atomic<bool> fadeInPending_{false};
     std::atomic<int> callbackSampleRate_{0};
     std::atomic<int> callbackChannels_{0};
     std::atomic<std::size_t> targetBufferFrames_{88200};

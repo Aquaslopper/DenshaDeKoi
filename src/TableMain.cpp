@@ -28,7 +28,7 @@ TableLayout::Point2 PlanPoint(TableLayout::Point2 canvas) {
 } // namespace
 
 int main() {
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE);
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_VSYNC_HINT);
     InitWindow(TableLayout::ImageWidth, TableLayout::ImageHeight, "Densha de Koi");
     if (!IsWindowReady()) {
         std::fprintf(stderr, "Could not create the window.\n");

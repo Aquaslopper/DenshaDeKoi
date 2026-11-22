@@ -326,9 +326,10 @@ void DrawPauseMenu(const ScreenMap& map, const TableHudState& hud) {
 
     DrawText(("Station: " + stationLabel).c_str(), map.X(338), map.Y(242), map.Font(17), WHITE);
     const std::string bufReadout = radioOn
-        ? ("  Buf " + FormatTenths(hud.radio.bufferedSec) + "/" + FormatTenths(hud.radio.targetBufferSec))
+        ? ("  Buf " + FormatTenths(hud.radio.bufferedSec) + "/" + FormatTenths(hud.radio.targetBufferSec) +
+           "  Drops:" + std::to_string(hud.radio.underruns))
         : "";
-    DrawText(("[" + statusBadge + bufReadout + "]").c_str(), map.X(688), map.Y(242), map.Font(16), badgeColor);
+    DrawText(("[" + statusBadge + bufReadout + "]").c_str(), map.X(656), map.Y(242), map.Font(16), badgeColor);
     const std::string trackLine = hud.radio.nowPlaying.empty()
         ? (radioOn ? "Now Playing: Streaming live J-Pop..." : "Select a J-Pop .pls station below to listen")
         : ("Now Playing: " + hud.radio.nowPlaying);

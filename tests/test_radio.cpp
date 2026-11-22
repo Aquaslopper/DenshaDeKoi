@@ -125,6 +125,19 @@ void TestIcyDemuxerAndRingBuffer() {
     decoder.Feed(noise.data(), noise.size(), true,
                  [](const std::int16_t*, std::size_t, int, int) {});
     Check(decoder.DecodedFrames() == 0, "Zeroed bytes must not produce valid MP3 frames");
+
+    HttpChunkedDecoder chunked;
+    chunked.Reset(true);
+    const std::string chunkedPayload = "5\r\nHello\r\n7;ext=1\r\n, JPop!\r\n0\r\n\r\n";
+    std::string decodedChunks;
+    for (std::size_t off = 0; off < chunkedPayload.size(); off += 2) {
+        const std::size_t n = std::min<std::size_t>(2, chunkedPayload.size() - off);
+        chunked.Feed(reinterpret_cast<const std::uint8_t*>(chunkedPayload.data() + off), n,
+                     [&](const std::uint8_t* p, std::size_t len) {
+                         decodedChunks.append(reinterpret_cast<const char*>(p), len);
+                     });
+    }
+    Check(decodedChunks == "Hello, JPop!", "HTTP chunked decoder failed");
 }
 } // namespace
 

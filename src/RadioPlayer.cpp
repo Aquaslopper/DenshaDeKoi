@@ -79,7 +79,20 @@ void RadioPlayer::FillAudioFrames(std::int16_t* out, std::size_t frames) {
     if (!worker_.Ring().PopExact(out, frames, sr, ch, remaining)) {
         std::memset(out, 0, byteCount);
         rebuffering_.store(true, std::memory_order_release);
+        fadeInPending_.store(true, std::memory_order_release);
         underrunCount_.fetch_add(1, std::memory_order_relaxed);
+        return;
+    }
+
+    if (fadeInPending_.exchange(false, std::memory_order_acq_rel)) {
+        const std::size_t rampFrames = std::min<std::size_t>(frames, static_cast<std::size_t>(std::max(1, sr / 100)));
+        for (std::size_t f = 0; f < rampFrames; ++f) {
+            const float gain = static_cast<float>(f) / static_cast<float>(rampFrames);
+            for (int c = 0; c < ch; ++c) {
+                const std::size_t idx = f * static_cast<std::size_t>(ch) + static_cast<std::size_t>(c);
+                out[idx] = static_cast<std::int16_t>(static_cast<float>(out[idx]) * gain);
+            }
+        }
     }
 }
 
@@ -241,6 +254,7 @@ void RadioPlayer::Update() {
         callbackSampleRate_.store(sr, std::memory_order_release);
         callbackChannels_.store(ch, std::memory_order_release);
         rebuffering_.store(false, std::memory_order_release);
+        fadeInPending_.store(true, std::memory_order_release);
         SetAudioStreamVolume(audio_->stream, muted_ ? 0.0f : volume_);
         SetAudioStreamCallback(audio_->stream, &RadioAudioCallback);
         callbackActive_.store(true, std::memory_order_release);
@@ -279,5 +293,6 @@ RadioSnapshot RadioPlayer::Snapshot() const {
         ActiveTargetSeconds(),
         bufferedSec_,
         isRebuf,
+        underrunCount_.load(std::memory_order_relaxed),
     };
 }

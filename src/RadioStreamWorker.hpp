@@ -20,6 +20,21 @@ enum class RadioState {
     FAILED,
 };
 
+// Decodes HTTP/1.1 Transfer-Encoding: chunked framing when an audio server sends chunked bodies.
+class HttpChunkedDecoder {
+public:
+    void Reset(bool enabled);
+    void Feed(const std::uint8_t* data, std::size_t size,
+              const std::function<void(const std::uint8_t*, std::size_t)>& onPayload);
+
+private:
+    enum class Phase { SIZE_LINE, DATA, DATA_CR, DATA_LF, TRAILER };
+    bool enabled_ = false;
+    Phase phase_ = Phase::SIZE_LINE;
+    std::size_t chunkRemaining_ = 0;
+    std::string sizeLine_;
+};
+
 // Demuxes SHOUTcast/Icecast inline metadata blocks (icy-metaint) from an audio byte stream.
 class IcyDemuxer {
 public:

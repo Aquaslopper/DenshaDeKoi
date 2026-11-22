@@ -65,6 +65,10 @@ std::string TrimAscii(std::string_view sv) {
     return std::string(sv.substr(first, last - first));
 }
 
+bool ContainsNoCase(std::string_view haystack, std::string_view needle) {
+    return ToLowerAscii(haystack).find(ToLowerAscii(needle)) != std::string::npos;
+}
+
 std::size_t ParseIcyMetaIntHeader(std::string_view headers) {
     std::size_t pos = 0;
     while (pos < headers.size()) {
@@ -454,15 +458,26 @@ bool StreamHttpSocketAudio(const std::string& initialUrl,
 
         onHeaders(ParseIcyMetaIntHeader(headerBlock), ParseHeaderValue(headerBlock, "icy-name"));
 
+        const bool isChunked = ContainsNoCase(ParseHeaderValue(headerBlock, "transfer-encoding"), "chunked");
+        HttpChunkedDecoder chunked;
+        chunked.Reset(isChunked);
+        bool keepGoing = true;
+        const auto emitBody = [&](const std::uint8_t* bytes, std::size_t count) -> bool {
+            chunked.Feed(bytes, count, [&](const std::uint8_t* payload, std::size_t payloadLen) {
+                if (keepGoing && !onChunk(payload, payloadLen)) keepGoing = false;
+            });
+            return keepGoing;
+        };
+
         if (bodyStart < headBuf.size()) {
             const auto* ptr = reinterpret_cast<const std::uint8_t*>(headBuf.data() + bodyStart);
-            if (!onChunk(ptr, headBuf.size() - bodyStart)) {
+            if (!emitBody(ptr, headBuf.size() - bodyStart)) {
                 CloseSocket(sock);
                 return false;
             }
         }
         while (!stop.load() && RecvWithWait(sock, chunk, sizeof(chunk), n, stop)) {
-            if (!onChunk(reinterpret_cast<const std::uint8_t*>(chunk), static_cast<std::size_t>(n))) {
+            if (!emitBody(reinterpret_cast<const std::uint8_t*>(chunk), static_cast<std::size_t>(n))) {
                 CloseSocket(sock);
                 return false;
             }
@@ -509,6 +524,68 @@ bool FetchPlaylistText(const std::string& url, std::string& outBody, const std::
 #endif
 }
 } // namespace
+
+void HttpChunkedDecoder::Reset(bool enabled) {
+    enabled_ = enabled;
+    phase_ = Phase::SIZE_LINE;
+    chunkRemaining_ = 0;
+    sizeLine_.clear();
+}
+
+void HttpChunkedDecoder::Feed(const std::uint8_t* data, std::size_t size,
+                              const std::function<void(const std::uint8_t*, std::size_t)>& onPayload) {
+    if (!enabled_) {
+        if (size > 0) onPayload(data, size);
+        return;
+    }
+    std::size_t off = 0;
+    while (off < size) {
+        if (phase_ == Phase::SIZE_LINE) {
+            const char c = static_cast<char>(data[off++]);
+            if (c == '\n') {
+                std::string hex = TrimAscii(sizeLine_);
+                if (const std::size_t semi = hex.find(';'); semi != std::string::npos) hex.resize(semi);
+                hex = TrimAscii(hex);
+                std::size_t len = 0;
+                const auto [ptr, ec] = std::from_chars(hex.data(), hex.data() + hex.size(), len, 16);
+                sizeLine_.clear();
+                if (ec != std::errc{} || ptr != hex.data() + hex.size()) {
+                    // Malformed chunk line: fall back to pass-through to avoid stalling forever.
+                    enabled_ = false;
+                    if (off < size) onPayload(data + off, size - off);
+                    return;
+                }
+                chunkRemaining_ = len;
+                phase_ = (len == 0) ? Phase::TRAILER : Phase::DATA;
+            } else if (c != '\r' && sizeLine_.size() < 64) {
+                sizeLine_.push_back(c);
+            }
+        } else if (phase_ == Phase::DATA) {
+            const std::size_t take = std::min(size - off, chunkRemaining_);
+            if (take > 0) {
+                onPayload(data + off, take);
+                off += take;
+                chunkRemaining_ -= take;
+            }
+            if (chunkRemaining_ == 0) phase_ = Phase::DATA_CR;
+        } else if (phase_ == Phase::DATA_CR) {
+            if (data[off] == '\r') {
+                ++off;
+                phase_ = Phase::DATA_LF;
+            } else if (data[off] == '\n') {
+                ++off;
+                phase_ = Phase::SIZE_LINE;
+            } else {
+                phase_ = Phase::SIZE_LINE;
+            }
+        } else if (phase_ == Phase::DATA_LF) {
+            if (data[off] == '\n') ++off;
+            phase_ = Phase::SIZE_LINE;
+        } else {
+            off = size;
+        }
+    }
+}
 
 void IcyDemuxer::Reset(std::size_t metaInterval) {
     metaInterval_ = metaInterval;
