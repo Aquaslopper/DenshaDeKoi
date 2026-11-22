@@ -49,6 +49,7 @@ if(BUILD_DESKTOP_APP)
         src/RadioStreamWorker.cpp
     )
     configure_project_target(denshadekoi)
+    target_include_directories(denshadekoi PRIVATE "${raylib_SOURCE_DIR}/src")
     target_link_libraries(denshadekoi PRIVATE raylib hanafuda_core)
     if(WIN32)
         target_link_libraries(denshadekoi PRIVATE winhttp ws2_32 winmm ole32)
