@@ -1,6 +1,6 @@
 # DenshaDeKoi
 
-A C++20 / Raylib atlas inspector with a GUI-independent Hanafuda database, deck, and Koi-Koi rules engine. A playable UI and AI are not implemented yet.
+A C++20 / Raylib perspective table preview with a GUI-independent Hanafuda database, deck, and Koi-Koi rules engine. A playable UI and AI are not implemented yet.
 
 ## Build and run
 
@@ -13,9 +13,11 @@ cd build
 ./denshadekoi
 ```
 
-On multi-configuration generators, run the executable from its configuration directory (for example, `build/Debug`). CMake copies `cards_atlas.png` alongside the executable. The application loads that copy regardless of the current working directory, so an unrelated file in that directory cannot be picked up accidentally. You can alternatively pass a path to another atlas as the first argument (relative paths are resolved from the current working directory).
+On multi-configuration generators, run the executable from its configuration directory (for example, `build/Debug`). CMake copies `cards_atlas.png` and `the-city.jpg` alongside the executables. Assets are loaded from that directory regardless of the current working directory.
 
-To verify the rules, deck, atlas, rectangle math, asset lookup, grid layout, and hover selection without Raylib, a window system, or network access (the inspector test uses a Raylib test double):
+The former atlas inspector remains available as `denshadekoi_inspector` (or `denshadekoi_inspector.exe` on Windows). You can pass it an alternative packed atlas path as its first argument.
+
+To verify the rules, deck, table geometry and render commands, atlas, asset lookup, and inspector without Raylib, a window system, or network access (the table and inspector tests use Raylib test doubles):
 
 ```sh
 cmake -S . -B build-headless -DBUILD_DESKTOP_APP=OFF -DBUILD_TESTING=ON
@@ -29,9 +31,13 @@ When Python 3 is available, CTest also checks the black frame pixels on every ca
 
 `.github/workflows/build.yml` builds and tests every push to `main` and every pull request on Windows with both MSVC and MinGW-w64, and uploads the compiled `denshadekoi.exe` as a build artifact.
 
-## Usage
+## Table preview
 
-The inspector uses columns for months 1–12 and rows for card indices 0–3. Hover a card to see its identifiers; the white outline is drawn outside the card so its original black frame remains visible. Close the window or press Escape to exit.
+`denshadekoi` opens a static preview of the supplied city background and table. The card layout is mapped to a horizontal 3D plane under a perspective camera, calibrated to the supplied mockup. The 840×720 placement plan defines two rows of eight field slots, the stock at left, an eight-card opponent hand, and an eight-card player hand. Eight example field cards and eight example player cards use the original atlas; the opponent hand and stock use solid-black backs. Resizing preserves the scene's aspect ratio. Close the window or press Escape to exit.
+
+The preview is configured and labelled for **three rounds**, but there is not yet a match controller: no rounds are dealt, advanced, or scored in the preview. The example cards are static rather than an actual deal. Drag-and-drop, card flips, movement, magnetic snapping, matching/hit effects and playable gameplay are intentionally deferred until after the table is ready.
+
+The separate `denshadekoi_inspector` uses columns for months 1–12 and rows for card indices 0–3. Hover a card to see its identifiers; the white outline is drawn outside the card so its original black frame remains visible.
 
 ## Atlas
 
@@ -55,4 +61,4 @@ The sake cup counts as both an animal and one phantom plain. Ino-shika-cho stack
 
 Xeno-koi's speed minigame and match-end speed bonus are intentionally excluded from DenshaDeKoi.
 
-The existing `std::mt19937` shuffle remains instead of Xeno-koi's xorshift32, so seeds and replay sequences are not interchangeable. The caller chooses or draws the initial dealer; there is no automatic dealer-selection UI, match ledger, match-total integration, AI, persistence, or graphical gameplay yet. The executable remains an atlas inspector.
+The existing `std::mt19937` shuffle remains instead of Xeno-koi's xorshift32, so seeds and replay sequences are not interchangeable. The caller chooses or draws the initial dealer; there is no automatic dealer-selection UI, match ledger, match-total integration, AI, persistence, or graphical gameplay yet. The table preview is not connected to this engine yet.
