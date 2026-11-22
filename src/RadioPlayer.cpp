@@ -8,18 +8,15 @@ namespace {
 constexpr std::size_t kMinTargetFrames = 8192;
 constexpr std::array<float, 4> kAutoBufferLadderSec = {4.0f, 6.0f, 8.0f, 10.0f};
 
-// Start playback quickly (~1.25s) instead of waiting in silence until the full
-// target buffer is 90% full; the worker continues filling up to targetBufferSec in the background.
-std::size_t StartThresholdFrames(std::size_t targetFrames, int sampleRate) {
-    const std::size_t sr = static_cast<std::size_t>(sampleRate > 0 ? sampleRate : 44100);
-    const std::size_t fastStart = std::max<std::size_t>(36864, (sr * 5) / 4); // ~1.25s
-    return std::min(targetFrames, fastStart);
+// Prebuffer 75% of the configured target buffer before starting or resuming
+// playback (matching Winamp's streaming prebuffer behavior), while the worker
+// continues topping up to 100% of targetBufferSec in the background.
+std::size_t StartThresholdFrames(std::size_t targetFrames) {
+    return std::max<std::size_t>(kMinTargetFrames, (targetFrames * 3) / 4);
 }
 
-std::size_t ResumeThresholdFrames(std::size_t targetFrames, int sampleRate) {
-    const std::size_t sr = static_cast<std::size_t>(sampleRate > 0 ? sampleRate : 44100);
-    const std::size_t maxRebuf = sr * 2; // Cap rebuffer wait at 2.0s even on 10-20s targets
-    return std::clamp<std::size_t>((targetFrames * 3) / 4, kMinTargetFrames, maxRebuf);
+std::size_t ResumeThresholdFrames(std::size_t targetFrames) {
+    return std::max<std::size_t>(kMinTargetFrames, (targetFrames * 3) / 4);
 }
 
 void FillRadioAudioTrampoline(void* user, std::int16_t* out, std::size_t frames) {
@@ -67,7 +64,7 @@ void RadioPlayer::FillAudioFrames(std::int16_t* out, std::size_t frames) {
     }
 
     const std::size_t targetFrames = targetBufferFrames_.load(std::memory_order_acquire);
-    const std::size_t resumeThreshold = ResumeThresholdFrames(targetFrames, sr);
+    const std::size_t resumeThreshold = ResumeThresholdFrames(targetFrames);
     if (rebuffering_.load(std::memory_order_acquire)) {
         if (worker_.Ring().AvailableFrames() < resumeThreshold) {
             std::memset(out, 0, byteCount);
@@ -221,7 +218,7 @@ void RadioPlayer::Update() {
     }
     SyncTargetFrames(sr);
 
-    const std::size_t startThreshold = StartThresholdFrames(targetBufferFrames_.load(std::memory_order_acquire), sr);
+    const std::size_t startThreshold = StartThresholdFrames(targetBufferFrames_.load(std::memory_order_acquire));
     if (!output_.IsActive() || output_.SampleRate() != sr || output_.Channels() != ch) {
         if (avail < startThreshold) return;
         ResetAudioStream();
