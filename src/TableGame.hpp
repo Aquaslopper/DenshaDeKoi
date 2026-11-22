@@ -72,7 +72,6 @@ private:
     float elapsed_ = 0, duration_ = 0;
     bool matched_ = false;
     bool stockReady_ = false;
-    bool compactField_ = false;
     int pendingSlot_ = -1;
     std::vector<Moving> moving_;
 };

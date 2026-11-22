@@ -4,91 +4,109 @@
 #include <cmath>
 #include <cstddef>
 
-// The placement reference is an 840 x 720 top-down plan. Its rectangles are
-// mapped to an actual horizontal plane viewed through a perspective camera.
+// The placement reference is the 1360 x 768 plan in assets/blueprints/README.md.
+// Its rectangles are mapped to a horizontal plane viewed through a perspective
+// camera fitted to the table quad of assets/blueprints/grid example-2.png.
 // Nothing here depends on Raylib, so gameplay and hit testing can reuse it.
 namespace TableLayout {
 inline constexpr int ImageWidth = 1360;
 inline constexpr int ImageHeight = 768;
 inline constexpr int MatchRounds = 3;
-inline constexpr float PlanWidth = 840.0f;
-inline constexpr float PlanHeight = 720.0f;
+inline constexpr float PlanWidth = 1360.0f;
+inline constexpr float PlanHeight = 768.0f;
 
 struct Rect { float x, y, width, height; };
 struct Point3 { float x, y, z; };
 struct Point2 { float x, y; };
 
-// Camera and table plane calibrated against the baked table backdrop. The
-// height, pitch, and plane bounds are a perspective fit to the eight hand and
-// eight opponent card slots plus the stock in the supplied table image.
-inline constexpr float CameraHeight = 0.992949f;
-inline constexpr float PitchRadians = 0.528482f;
-inline constexpr float FovDegrees = 45.0f;
-inline constexpr float PlaneHalfWidth = 0.759738f;
-inline constexpr float NearDepth = 0.836865f;
-inline constexpr float FarDepth = 2.256865f;
+// Camera fitted so the plan lands on the table quad of the projected blueprint:
+// (417.8, 275.7) (979.5, 275.4) (1272.8, 744.3) (110.9, 739.4) at 1360x768.
+// The lateral shift and yaw reproduce the blueprint's slight off-centre quad.
+inline constexpr float PlaneHalfWidth = 0.799834f;
+inline constexpr float CameraHeight = 0.843715f;
+inline constexpr float PitchRadians = 0.227149f;
+inline constexpr float YawRadians = -0.010617f;
+inline constexpr float CameraShift = 0.012594f;
+inline constexpr float NearDepth = 2.126004f;
+inline constexpr float FarDepth = 4.605817f;
+inline constexpr float FovDegrees = 18.503222f;
 inline constexpr float CardElevation = 0.002f;
 
 [[nodiscard]] inline Point3 OnPlane(float x, float y, float elevation = 0.0f) {
-    return {-PlaneHalfWidth + 2.0f * PlaneHalfWidth * x / PlanWidth,
+    return {-PlaneHalfWidth + 2.0f * PlaneHalfWidth * x / PlanWidth - CameraShift,
             elevation, -(FarDepth - (FarDepth - NearDepth) * y / PlanHeight)};
 }
 
 // Equivalent perspective projection, used by headless geometry tests.
 [[nodiscard]] inline Point2 Project(Point3 p) {
-    const float pitchSin = std::sin(PitchRadians);
-    const float pitchCos = std::cos(PitchRadians);
+    const float pitchSin = std::sin(PitchRadians), pitchCos = std::cos(PitchRadians);
+    const float yawSin = std::sin(YawRadians), yawCos = std::cos(YawRadians);
     const float depth = -p.z;
-    const float forward = (CameraHeight - p.y) * pitchSin + depth * pitchCos;
-    const float vertical = (CameraHeight - p.y) * pitchCos - depth * pitchSin;
+    const float right = p.x * yawCos - depth * yawSin;
+    const float ahead = p.x * yawSin + depth * yawCos;
+    const float height = CameraHeight - p.y;
+    const float forward = height * pitchSin + ahead * pitchCos;
+    const float vertical = height * pitchCos - ahead * pitchSin;
     const float focal = ImageHeight * 0.5f / std::tan(FovDegrees * 0.5f * 0.017453292519943295f);
-    return {ImageWidth * 0.5f + focal * p.x / forward,
+    return {ImageWidth * 0.5f + focal * right / forward,
             ImageHeight * 0.5f + focal * vertical / forward};
 }
 
 // Inverse of Project() for pointer hit testing on the elevated card plane.
 [[nodiscard]] inline Point2 Unproject(Point2 screen, float elevation = CardElevation) {
-    const float s = std::sin(PitchRadians), c = std::cos(PitchRadians);
-    const float f = ImageHeight * 0.5f / std::tan(FovDegrees * 0.5f * 0.017453292519943295f);
-    const float h = CameraHeight - elevation;
-    const float sy = screen.y - ImageHeight * 0.5f;
-    const float denominator = sy * c + f * s;
-    if (denominator <= 0.001f) return {-10000.0f, -10000.0f};
-    const float depth = (f * h * c - sy * h * s) / denominator;
-    const float worldX = (screen.x - ImageWidth * 0.5f) * (h * s + depth * c) / f;
+    const float pitchSin = std::sin(PitchRadians), pitchCos = std::cos(PitchRadians);
+    const float yawSin = std::sin(YawRadians), yawCos = std::cos(YawRadians);
+    const float focal = ImageHeight * 0.5f / std::tan(FovDegrees * 0.5f * 0.017453292519943295f);
+    const float height = CameraHeight - elevation;
+    const float kx = (screen.x - ImageWidth * 0.5f) / focal;
+    const float ky = (screen.y - ImageHeight * 0.5f) / focal;
+    const float denominator = ky * pitchCos + pitchSin;
+    if (std::abs(denominator) <= 0.0001f) return {-10000.0f, -10000.0f};
+    const float ahead = height * (pitchCos - ky * pitchSin) / denominator;
+    const float forward = height * pitchSin + ahead * pitchCos;
+    const float right = kx * forward;
+    const float worldX = right * yawCos + ahead * yawSin + CameraShift;
+    const float depth = -right * yawSin + ahead * yawCos;
     return {(worldX + PlaneHalfWidth) * PlanWidth / (2.0f * PlaneHalfWidth),
             (FarDepth - depth) * PlanHeight / (FarDepth - NearDepth)};
 }
 
-[[nodiscard]] constexpr std::array<Rect, 8> MakeHand(float x, float y, float step,
-                                                     float width, float height) {
+// One card footprint for the whole table, taken from the plan.
+inline constexpr float CardWidth = 62.1f;
+inline constexpr float CardHeight = 101.6f;
+inline constexpr float ColumnPitch = 70.02f;
+inline constexpr float FirstColumn = 415.2f;
+
+[[nodiscard]] constexpr Rect ColumnRect(std::size_t column, float y) {
+    return {FirstColumn + static_cast<float>(column) * ColumnPitch, y, CardWidth, CardHeight};
+}
+
+[[nodiscard]] constexpr std::array<Rect, 8> MakeHand(std::size_t, float y) {
     std::array<Rect, 8> result{};
-    for (std::size_t i = 0; i < result.size(); ++i)
-        result[i] = {x + static_cast<float>(i) * step, y, width, height};
+    for (std::size_t i = 0; i < result.size(); ++i) result[i] = ColumnRect(i, y);
     return result;
 }
 
-inline constexpr auto OpponentHand = MakeHand(185.0f, 12.0f, 62.0f, 56.0f, 91.0f);
-inline constexpr auto PlayerHand = MakeHand(40.218f, 567.0f, 96.0f, 88.0f, 142.0f);
-inline constexpr Rect Stock{49.0f, 261.0f, 76.0f, 126.0f};
+inline constexpr auto OpponentHand = MakeHand(0, 14.7f);
+inline constexpr auto PlayerHand = MakeHand(0, 651.7f);
 
-// The first sixteen field positions use two rows of eight as in the plan.
+inline constexpr Rect Stock{261.6f, 295.9f, 87.0f, 141.2f};
+inline constexpr Rect OpponentCaptures{261.6f, 140.0f, CardWidth, CardHeight};
+inline constexpr Rect PlayerCaptures{261.6f, 500.0f, CardWidth, CardHeight};
+
+// Two rows of the same eight columns as the hands, plus one spare row.
 [[nodiscard]] constexpr std::array<Rect, 16> MakeField() {
     std::array<Rect, 16> result{};
     for (std::size_t row = 0; row < 2; ++row)
         for (std::size_t col = 0; col < 8; ++col)
-            result[row * 8 + col] = {156.0f + static_cast<float>(col) * 81.0f,
-                                     184.0f + static_cast<float>(row) * 139.0f,
-                                     75.0f, 125.0f};
+            result[row * 8 + col] = ColumnRect(col, row == 0 ? 198.8f : 458.5f);
     return result;
 }
 inline constexpr auto Field = MakeField();
-// Overflow rows use a compact five-row layout if the field becomes crowded.
-[[nodiscard]] constexpr Rect FieldSlot(std::size_t index, bool compact = false) {
-    if (compact) return {156.0f + static_cast<float>(index % 8) * 81.0f,
-                         165.0f + static_cast<float>(index / 8) * 77.0f, 75.0f, 72.0f};
-    return index < Field.size() ? Field[index]
-        : Rect{156.0f + static_cast<float>(index - 16) * 81.0f, 455.0f, 75.0f, 96.0f};
+inline constexpr std::size_t FieldSlotCount = 24;
+inline constexpr float OverflowRowY = 330.0f;
+[[nodiscard]] constexpr Rect FieldSlot(std::size_t index) {
+    if (index < Field.size()) return Field[index];
+    return ColumnRect((index - Field.size()) % 8, OverflowRowY);
 }
-inline constexpr std::size_t FieldSlotCount = 36;
 } // namespace TableLayout

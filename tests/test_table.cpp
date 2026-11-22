@@ -33,19 +33,41 @@ void Reset() {
 }
 void TestGeometry() {
     using namespace TableLayout;
-    const auto a = Project(OnPlane(0, 0));
-    const auto b = Project(OnPlane(PlanWidth, 0));
-    const auto c = Project(OnPlane(0, PlanHeight));
-    const auto d = Project(OnPlane(PlanWidth, PlanHeight));
-    Check(Near(a.x, 392.5f, 2) && Near(a.y, 277.9f, 2) && Near(b.x, 967.5f, 2) &&
-          Near(c.x, 104.3f, 2) && Near(c.y, 714.0f, 2) && Near(d.x, 1255.7f, 2),
-          "Plane projection does not align with the baked table");
+    // The plan rect used by the blueprint drawing (0..839, 0..680 exported at
+    // 1.129412 and centred 206.2 px) must land on the blueprint's table quad.
+    const float scale = 768.0f / 680.0f;
+    const float x0 = (1360.0f - 839.0f * scale) * 0.5f;
+    const auto a = Project(OnPlane(x0, 0));
+    const auto b = Project(OnPlane(x0 + 839.0f * scale, 0));
+    const auto c = Project(OnPlane(x0, PlanHeight));
+    const auto d = Project(OnPlane(x0 + 839.0f * scale, PlanHeight));
+    Check(Near(a.x, 417.8f, 2) && Near(a.y, 275.7f, 2) && Near(b.x, 979.5f, 2) &&
+          Near(c.y, 739.4f, 2) && Near(c.x, 110.9f, 2) && Near(d.x, 1272.8f, 2),
+          "Plane projection does not align with the blueprint table quad");
+
     const auto within = [](Rect r) { return r.x >= 0 && r.y >= 0 && r.x + r.width <= PlanWidth &&
                                            r.y + r.height <= PlanHeight; };
     Check(MatchRounds == 3 && within(Stock), "Wrong rounds or stock position");
     for (auto r : OpponentHand) Check(within(r), "Opponent hand outside plane");
     for (auto r : PlayerHand) Check(within(r), "Player hand outside plane");
     for (auto r : Field) Check(within(r), "Field slot outside plane");
+
+    // One card footprint for the whole table, exactly as the plan states it.
+    for (std::size_t i = 0; i < 8; ++i) {
+        const Rect cpu = OpponentHand[i], you = PlayerHand[i];
+        Check(Near(cpu.width, you.width) && Near(cpu.height, you.height) &&
+              Near(cpu.width, CardWidth) && Near(cpu.height, CardHeight),
+              "The two hands must use the same unified card size");
+        Check(Near(cpu.x, you.x) && Near(cpu.x, Field[i].x),
+              "Both hands must share the field's eight columns");
+    }
+    for (auto r : Field) Check(Near(r.width, CardWidth) && Near(r.height, CardHeight),
+                               "Field must use the unified card size");
+    Check(Near(Stock.width, 87.0f) && Near(Stock.height, 141.2f),
+          "Stock must use the plan's stock rectangle");
+    Check(Field[0].y < Field[8].y && Field[0].y > OpponentHand[0].y + CardHeight &&
+          Field[8].y + CardHeight < PlayerHand[0].y,
+          "Field rows must sit between the two hands");
 
 }
 void TestDraw() {
@@ -82,7 +104,7 @@ void TestDraw() {
                       "Card quad winding or orientation is wrong");
             }
         }
-        Check(camera.projection == CAMERA_PERSPECTIVE && Near(camera.fovy, 45), "Wrong 3D camera");
+        Check(camera.projection == CAMERA_PERSPECTIVE && Near(camera.fovy, TableLayout::FovDegrees), "Wrong 3D camera");
         Check(destinations.size() == 2 && Near(destinations[1].height, 900) &&
               Near(destinations[1].width, 1360.0f * 900.0f / 768.0f) && sources[1].height < 0,
               "Window resize must preserve aspect ratio and flip render target");

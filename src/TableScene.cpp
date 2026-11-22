@@ -123,9 +123,11 @@ void TableScene::Draw(const TableGame& game) const {
     DrawTexturePro(background_, {0, 0, static_cast<float>(background_.width), static_cast<float>(background_.height)},
                    {0, 0, static_cast<float>(TableLayout::ImageWidth), static_cast<float>(TableLayout::ImageHeight)},
                    {0, 0}, 0, WHITE);
+    const float yawSin = std::sin(TableLayout::YawRadians), yawCos = std::cos(TableLayout::YawRadians);
     const Camera3D camera{{0, TableLayout::CameraHeight, 0},
-                          {0, TableLayout::CameraHeight - std::sin(TableLayout::PitchRadians),
-                           -std::cos(TableLayout::PitchRadians)},
+                          {yawSin * std::cos(TableLayout::PitchRadians),
+                           TableLayout::CameraHeight - std::sin(TableLayout::PitchRadians),
+                           -yawCos * std::cos(TableLayout::PitchRadians)},
                           {0, 1, 0}, TableLayout::FovDegrees, CAMERA_PERSPECTIVE};
     BeginMode3D(camera);
     DrawCards(atlas_, game.Cards());
