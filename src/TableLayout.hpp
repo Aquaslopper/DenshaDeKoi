@@ -68,9 +68,9 @@ inline constexpr float CardElevation = 0.002f;
     return result;
 }
 
-inline constexpr auto OpponentHand = MakeHand(185.0f, 12.0f, 62.0f, 56.0f, 91.0f);
-inline constexpr auto PlayerHand = MakeHand(40.218f, 567.0f, 96.0f, 88.0f, 142.0f);
-inline constexpr Rect Stock{49.0f, 261.0f, 76.0f, 126.0f};
+inline constexpr auto OpponentHand = MakeHand(185.0f, 13.0f, 62.0f, 55.0f, 90.0f);
+inline constexpr auto PlayerHand = MakeHand(185.0f, 577.0f, 62.0f, 55.0f, 90.0f);
+inline constexpr Rect Stock{50.0f, 263.0f, 75.0f, 123.0f};
 
 // The first sixteen field positions use two rows of eight as in the plan.
 [[nodiscard]] constexpr std::array<Rect, 16> MakeField() {
