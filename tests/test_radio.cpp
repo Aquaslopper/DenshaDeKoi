@@ -147,6 +147,56 @@ void TestIcyDemuxerAndRingBuffer() {
     Check(chunkDecoder.DecodedFrames() == 40u * 1152u,
           "Mp3StreamDecoder dropped frames across network chunk boundaries");
 
+    // End-to-end ICY + MP3 + SPSC ring streaming check across 300 frames (~7.8s at 44.1 kHz).
+    std::vector<std::uint8_t> longMp3;
+    for (int f = 0; f < 300; ++f) {
+        std::vector<std::uint8_t> frame(417, 0); // 128 kbps 44.1 kHz MPEG-1 Layer 3 frame
+        frame[0] = 0xFF;
+        frame[1] = 0xFB;
+        frame[2] = 0x90;
+        frame[3] = 0x00;
+        longMp3.insert(longMp3.end(), frame.begin(), frame.end());
+    }
+    std::vector<std::uint8_t> icyStream;
+    constexpr std::size_t kTestMetaInt = 4096;
+    for (std::size_t off = 0; off < longMp3.size(); off += kTestMetaInt) {
+        const std::size_t slice = std::min(kTestMetaInt, longMp3.size() - off);
+        icyStream.insert(icyStream.end(), longMp3.begin() + static_cast<std::ptrdiff_t>(off),
+                         longMp3.begin() + static_cast<std::ptrdiff_t>(off + slice));
+        if (slice == kTestMetaInt) {
+            icyStream.push_back(off == kTestMetaInt ? 3 : 0);
+            if (off == kTestMetaInt) {
+                std::string title = "StreamTitle='Test Track - DenshaDeKoi';";
+                title.resize(48, '\0');
+                icyStream.insert(icyStream.end(), title.begin(), title.end());
+            }
+        }
+    }
+    IcyDemuxer longDemux(kTestMetaInt);
+    Mp3StreamDecoder longDec;
+    PcmRingBuffer longRing(44100 * 10);
+    std::string detectedTitle;
+    const std::size_t chunkPattern[] = {64, 513, 1460, 4096, 257};
+    std::size_t patIdx = 0;
+    for (std::size_t off = 0; off < icyStream.size();) {
+        const std::size_t n = std::min(chunkPattern[patIdx++ % 5], icyStream.size() - off);
+        longDemux.Feed(icyStream.data() + off, n,
+                       [&](const std::uint8_t* a, std::size_t len) {
+                           longDec.Feed(a, len, false, [&](const std::int16_t* pcm, std::size_t frames, int hz, int ch) {
+                               Check(longRing.Push(pcm, frames, hz, ch) == frames, "Ring overflow in stream test");
+                           });
+                       },
+                       [&](const std::string& m) { detectedTitle = m; });
+        off += n;
+    }
+    longDec.Feed(nullptr, 0, true, [&](const std::int16_t* pcm, std::size_t frames, int hz, int ch) {
+        Check(longRing.Push(pcm, frames, hz, ch) == frames, "Ring overflow on flush");
+    });
+    Check(longDec.DecodedFrames() == 300u * 1152u && longDec.ResyncCount() == 0,
+          "Long ICY+MP3 stream decode dropped frames or triggered false resyncs");
+    Check(longRing.AvailableFrames() == 300u * 1152u && detectedTitle == "Test Track - DenshaDeKoi",
+          "Long ICY+MP3 stream lost PCM frames or metadata");
+
     HttpChunkedDecoder chunked;
     chunked.Reset(true);
     const std::string chunkedPayload = "5\r\nHello\r\n7;ext=1\r\n, JPop!\r\n0\r\n\r\n";

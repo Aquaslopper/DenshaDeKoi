@@ -4,8 +4,8 @@
 #include <cstdint>
 
 // Platform audio output abstraction:
-// - On Windows, uses waveOut with a 371 ms (8 x 2048 frames) queued buffer pool so
-//   audio playback is immune to 10 ms WASAPI scheduling jitter and Raylib's AudioData lock.
+// - On Windows, prefers a chunked DirectSound circular buffer (16 x 2048 frames),
+//   with event-driven Pro Audio WASAPI and WinMM waveOut fallbacks.
 // - On non-Windows, uses Raylib's AudioStream callback.
 class RadioAudioOutput {
 public:
@@ -23,6 +23,7 @@ public:
     [[nodiscard]] bool IsActive() const;
     [[nodiscard]] int SampleRate() const;
     [[nodiscard]] int Channels() const;
+    [[nodiscard]] const char* BackendName() const;
 
 private:
     struct Impl;

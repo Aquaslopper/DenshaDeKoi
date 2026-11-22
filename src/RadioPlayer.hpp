@@ -34,6 +34,9 @@ struct RadioSnapshot {
     float bufferedSec = 0.0f;
     bool rebuffering = false;
     std::uint64_t underruns = 0;
+    std::string backendName = "--";
+    std::uint64_t resyncs = 0;
+    std::uint64_t reconnects = 0;
 };
 
 class RadioPlayer {

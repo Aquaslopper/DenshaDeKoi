@@ -36,8 +36,13 @@
 #endif
 
 namespace {
+constexpr std::size_t kDsChunkCount = 16;
+constexpr std::size_t kDsChunkFrames = 2048;      // ~0.74s total ring at 44.1 kHz
+constexpr int kDsPrefillChunks = 10;              // ~0.46s initial prefill
+constexpr int kDsTargetLeadChunks = 13;           // ~0.60s steady lead ahead of playCursor
+
 constexpr std::size_t kWaveBufferCount = 16;
-constexpr std::size_t kWaveBufferFrames = 4096; // ~1.48 seconds queued at 44.1 kHz
+constexpr std::size_t kWaveBufferFrames = 4096;   // ~1.48s queued at 44.1 kHz
 
 const CLSID kClsidMMDeviceEnumerator = {
     0xbcde0395, 0xe52f, 0x467c, {0x8e, 0x3d, 0xc4, 0x57, 0x92, 0x91, 0x69, 0x2e}
@@ -60,6 +65,44 @@ struct TimerPeriodGuard {
     }
 };
 
+struct ComInitGuard {
+    bool shouldUninit = false;
+    bool ok = false;
+    ComInitGuard() {
+        const HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+        shouldUninit = (hr == S_OK || hr == S_FALSE);
+        ok = !FAILED(hr) || hr == RPC_E_CHANGED_MODE;
+    }
+    ~ComInitGuard() {
+        if (shouldUninit) CoUninitialize();
+    }
+};
+
+struct ProAudioThreadGuard {
+    HMODULE avrtLib = nullptr;
+    HANDLE taskHandle = nullptr;
+    using RevertFn = BOOL(WINAPI*)(HANDLE);
+    RevertFn pRevert = nullptr;
+
+    ProAudioThreadGuard() {
+        avrtLib = LoadLibraryW(L"avrt.dll");
+        if (!avrtLib) return;
+        using SetFn = HANDLE(WINAPI*)(LPCWSTR, LPDWORD);
+        auto pSet = reinterpret_cast<SetFn>(
+            reinterpret_cast<void*>(GetProcAddress(avrtLib, "AvSetMmThreadCharacteristicsW")));
+        pRevert = reinterpret_cast<RevertFn>(
+            reinterpret_cast<void*>(GetProcAddress(avrtLib, "AvRevertMmThreadCharacteristics")));
+        if (pSet) {
+            DWORD taskIndex = 0;
+            taskHandle = pSet(L"Pro Audio", &taskIndex);
+        }
+    }
+    ~ProAudioThreadGuard() {
+        if (taskHandle && pRevert) pRevert(taskHandle);
+        if (avrtLib) FreeLibrary(avrtLib);
+    }
+};
+
 void ApplyGain(std::int16_t* samples, std::size_t totalSamples, float gain) {
     const float g = std::clamp(gain, 0.0f, 1.0f);
     if (g <= 0.0001f) {
@@ -77,6 +120,7 @@ struct RadioAudioOutput::Impl {
     std::thread feeder;
     std::atomic<bool> stopRequested{false};
     std::atomic<float> gain{0.65f};
+    std::atomic<const char*> backendName{"--"};
     std::mutex initMutex;
     std::condition_variable initCv;
     bool initDone = false;
@@ -98,6 +142,7 @@ struct RadioAudioOutput::Impl {
     }
 
     bool RunDirectSound(bool& outSignaledInit) {
+        ComInitGuard comGuard;
         HMODULE dsoundLib = LoadLibraryW(L"dsound.dll");
         if (!dsoundLib) return false;
 
@@ -115,10 +160,9 @@ struct RadioAudioOutput::Impl {
             return false;
         }
 
-        HWND hwnd = GetForegroundWindow();
-        if (!hwnd) hwnd = GetDesktopWindow();
-        if (FAILED(ds8->SetCooperativeLevel(hwnd, DSSCL_PRIORITY))) {
-            if (FAILED(ds8->SetCooperativeLevel(GetDesktopWindow(), DSSCL_NORMAL))) {
+        if (FAILED(ds8->SetCooperativeLevel(GetDesktopWindow(), DSSCL_NORMAL))) {
+            HWND fg = GetForegroundWindow();
+            if (!fg || FAILED(ds8->SetCooperativeLevel(fg, DSSCL_PRIORITY))) {
                 ds8->Release();
                 FreeLibrary(dsoundLib);
                 return false;
@@ -134,16 +178,12 @@ struct RadioAudioOutput::Impl {
         wfx.nAvgBytesPerSec = wfx.nSamplesPerSec * wfx.nBlockAlign;
 
         const DWORD blockAlign = wfx.nBlockAlign;
-        const DWORD bufferBytes = static_cast<DWORD>(sampleRate) * 2U * blockAlign;      // Full 2.0s ring
-        const DWORD prefillBytes = static_cast<DWORD>((sampleRate * 3) / 4) * blockAlign; // 0.75s initial prefill
-        const DWORD targetLeadBytes = static_cast<DWORD>((sampleRate * 3) / 2) * blockAlign; // 1.5s lead
-        const DWORD minWriteBytes = blockAlign * 256U;
-        const DWORD maxChunkBytes = blockAlign * 4096U;
-        const DWORD safetyMarginBytes = blockAlign * 128U;
+        const DWORD chunkBytes = static_cast<DWORD>(kDsChunkFrames) * blockAlign;
+        const DWORD bufferBytes = static_cast<DWORD>(kDsChunkCount) * chunkBytes;
 
         DSBUFFERDESC dsbd{};
         dsbd.dwSize = sizeof(DSBUFFERDESC);
-        dsbd.dwFlags = DSBCAPS_GLOBALFOCUS | DSBCAPS_GETCURRENTPOSITION2 | DSBCAPS_LOCSOFTWARE;
+        dsbd.dwFlags = DSBCAPS_GETCURRENTPOSITION2 | DSBCAPS_GLOBALFOCUS;
         dsbd.dwBufferBytes = bufferBytes;
         dsbd.lpwfxFormat = &wfx;
 
@@ -154,48 +194,51 @@ struct RadioAudioOutput::Impl {
             return false;
         }
 
-        const auto fillLockedRegion = [&](void* ptr, DWORD bytes) {
-            if (!ptr || bytes < blockAlign) return;
-            const std::size_t frames = static_cast<std::size_t>(bytes / blockAlign);
-            auto* dst = static_cast<std::int16_t*>(ptr);
-            callback(user, dst, frames);
-            ApplyGain(dst, frames * static_cast<std::size_t>(channels), gain.load(std::memory_order_relaxed));
-        };
-
-        const auto writeRingChunk = [&](DWORD offset, DWORD bytes) -> bool {
+        const auto writeChunk = [&](std::size_t chunkIdx) -> bool {
+            const DWORD offset = static_cast<DWORD>(chunkIdx % kDsChunkCount) * chunkBytes;
             void* p1 = nullptr;
             void* p2 = nullptr;
             DWORD b1 = 0;
             DWORD b2 = 0;
-            HRESULT hr = dsBuf->Lock(offset, bytes, &p1, &b1, &p2, &b2, 0);
+            HRESULT hr = dsBuf->Lock(offset, chunkBytes, &p1, &b1, &p2, &b2, 0);
             if (hr == DSERR_BUFFERLOST) {
                 dsBuf->Restore();
-                hr = dsBuf->Lock(offset, bytes, &p1, &b1, &p2, &b2, 0);
+                hr = dsBuf->Lock(offset, chunkBytes, &p1, &b1, &p2, &b2, 0);
             }
             if (FAILED(hr)) return false;
-            fillLockedRegion(p1, b1);
-            fillLockedRegion(p2, b2);
+
+            const auto fillSlice = [&](void* ptr, DWORD bytes) {
+                if (!ptr || bytes < blockAlign) return;
+                const std::size_t frames = static_cast<std::size_t>(bytes / blockAlign);
+                auto* dst = static_cast<std::int16_t*>(ptr);
+                callback(user, dst, frames);
+                ApplyGain(dst, frames * static_cast<std::size_t>(channels), gain.load(std::memory_order_relaxed));
+            };
+            fillSlice(p1, b1);
+            fillSlice(p2, b2);
             dsBuf->Unlock(p1, b1, p2, b2);
             return true;
         };
 
-        // Zero the full 2.0s buffer first, then prefill the opening 1.0s cleanly.
+        // Zero full circular buffer, then pre-fill the opening chunks before Play().
         {
             void* p1 = nullptr;
             void* p2 = nullptr;
             DWORD b1 = 0;
             DWORD b2 = 0;
-            if (SUCCEEDED(dsBuf->Lock(0, bufferBytes, &p1, &b1, &p2, &b2, 0))) {
+            if (SUCCEEDED(dsBuf->Lock(0, bufferBytes, &p1, &b1, &p2, &b2, DSBLOCK_ENTIREBUFFER))) {
                 if (p1 && b1 > 0) std::memset(p1, 0, b1);
                 if (p2 && b2 > 0) std::memset(p2, 0, b2);
                 dsBuf->Unlock(p1, b1, p2, b2);
             }
         }
-        if (!writeRingChunk(0, prefillBytes)) {
-            dsBuf->Release();
-            ds8->Release();
-            FreeLibrary(dsoundLib);
-            return false;
+        for (int c = 0; c < kDsPrefillChunks; ++c) {
+            if (!writeChunk(static_cast<std::size_t>(c))) {
+                dsBuf->Release();
+                ds8->Release();
+                FreeLibrary(dsoundLib);
+                return false;
+            }
         }
         dsBuf->SetCurrentPosition(0);
         if (FAILED(dsBuf->Play(0, 0, DSBPLAY_LOOPING))) {
@@ -205,7 +248,11 @@ struct RadioAudioOutput::Impl {
             return false;
         }
 
-        DWORD writeOffset = prefillBytes % bufferBytes;
+        std::size_t prevPlayChunk = 0;
+        std::size_t nextWriteChunk = static_cast<std::size_t>(kDsPrefillChunks) % kDsChunkCount;
+        int queuedChunks = kDsPrefillChunks;
+
+        backendName.store("DS", std::memory_order_release);
         if (!outSignaledInit) {
             outSignaledInit = true;
             SignalInit(true);
@@ -213,41 +260,43 @@ struct RadioAudioOutput::Impl {
 
         TimerPeriodGuard timerGuard;
         while (!stopRequested.load(std::memory_order_acquire)) {
+            DWORD status = 0;
+            if (SUCCEEDED(dsBuf->GetStatus(&status))) {
+                if (status & DSBSTATUS_BUFFERLOST) {
+                    dsBuf->Restore();
+                } else if (!(status & DSBSTATUS_PLAYING)) {
+                    dsBuf->Play(0, 0, DSBPLAY_LOOPING);
+                }
+            }
+
             DWORD playCursor = 0;
             DWORD writeCursor = 0;
             if (SUCCEEDED(dsBuf->GetCurrentPosition(&playCursor, &writeCursor))) {
-                DWORD ahead = (writeOffset >= playCursor)
-                    ? (writeOffset - playCursor)
-                    : (bufferBytes - playCursor + writeOffset);
-                const DWORD mixerLag = (writeCursor >= playCursor)
-                    ? (writeCursor - playCursor)
-                    : (bufferBytes - playCursor + writeCursor);
+                const std::size_t curChunk = static_cast<std::size_t>(playCursor / chunkBytes) % kDsChunkCount;
+                const std::size_t delta = (curChunk >= prevPlayChunk)
+                    ? (curChunk - prevPlayChunk)
+                    : (kDsChunkCount - prevPlayChunk + curChunk);
 
-                // Recover cleanly if a massive OS stall caused playCursor to lap writeOffset.
-                if (ahead <= mixerLag || ahead > bufferBytes - safetyMarginBytes) {
-                    writeOffset = (writeCursor + safetyMarginBytes) % bufferBytes;
-                    writeOffset -= (writeOffset % blockAlign);
-                    ahead = (writeOffset >= playCursor)
-                        ? (writeOffset - playCursor)
-                        : (bufferBytes - playCursor + writeOffset);
+                // Ignore spurious 1-chunk backward cursor jitter; only advance forward.
+                if (delta > 0 && delta < kDsChunkCount - 2) {
+                    prevPlayChunk = curChunk;
+                    queuedChunks -= static_cast<int>(delta);
                 }
 
-                if (ahead < targetLeadBytes) {
-                    DWORD needed = targetLeadBytes - ahead;
-                    const DWORD maxSafe = (bufferBytes > ahead + safetyMarginBytes)
-                        ? (bufferBytes - ahead - safetyMarginBytes)
-                        : 0;
-                    needed = std::min(needed, maxSafe);
-                    needed -= (needed % blockAlign);
-                    while (needed >= minWriteBytes && !stopRequested.load(std::memory_order_acquire)) {
-                        const DWORD chunk = std::min(needed, maxChunkBytes);
-                        if (!writeRingChunk(writeOffset, chunk)) break;
-                        writeOffset = (writeOffset + chunk) % bufferBytes;
-                        needed -= chunk;
-                    }
+                // Recover cleanly if a severe OS freeze caused hardware playback to catch nextWriteChunk.
+                if (queuedChunks <= 1) {
+                    nextWriteChunk = (curChunk + 2) % kDsChunkCount;
+                    prevPlayChunk = curChunk;
+                    queuedChunks = 0;
+                }
+
+                while (queuedChunks < kDsTargetLeadChunks && !stopRequested.load(std::memory_order_acquire)) {
+                    if (!writeChunk(nextWriteChunk)) break;
+                    nextWriteChunk = (nextWriteChunk + 1) % kDsChunkCount;
+                    ++queuedChunks;
                 }
             }
-            Sleep(15);
+            Sleep(10);
         }
 
         dsBuf->Stop();
@@ -258,15 +307,8 @@ struct RadioAudioOutput::Impl {
     }
 
     bool RunWasapiEvent(bool& outSignaledInit) {
-        const HRESULT comHr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-        const bool shouldUninit = (comHr == S_OK || comHr == S_FALSE);
-        const auto cleanupCom = [&]() {
-            if (shouldUninit) CoUninitialize();
-        };
-        if (FAILED(comHr) && comHr != RPC_E_CHANGED_MODE) {
-            cleanupCom();
-            return false;
-        }
+        ComInitGuard comGuard;
+        if (!comGuard.ok) return false;
 
         WAVEFORMATEX wfx{};
         wfx.wFormatTag = WAVE_FORMAT_PCM;
@@ -280,14 +322,12 @@ struct RadioAudioOutput::Impl {
         if (FAILED(CoCreateInstance(kClsidMMDeviceEnumerator, nullptr, CLSCTX_ALL, kIidIMMDeviceEnumerator,
                                     reinterpret_cast<void**>(&enumerator))) ||
             !enumerator) {
-            cleanupCom();
             return false;
         }
 
         IMMDevice* device = nullptr;
         if (FAILED(enumerator->GetDefaultAudioEndpoint(eRender, eMultimedia, &device)) || !device) {
             enumerator->Release();
-            cleanupCom();
             return false;
         }
 
@@ -297,7 +337,6 @@ struct RadioAudioOutput::Impl {
         device->Release();
         if (FAILED(hr) || !audioClient) {
             enumerator->Release();
-            cleanupCom();
             return false;
         }
 
@@ -317,7 +356,6 @@ struct RadioAudioOutput::Impl {
             if (renderClient) renderClient->Release();
             audioClient->Release();
             enumerator->Release();
-            cleanupCom();
             return false;
         }
 
@@ -335,10 +373,11 @@ struct RadioAudioOutput::Impl {
             renderClient->Release();
             audioClient->Release();
             enumerator->Release();
-            cleanupCom();
             return false;
         }
 
+        ProAudioThreadGuard proAudio;
+        backendName.store("WASAPI", std::memory_order_release);
         if (!outSignaledInit) {
             outSignaledInit = true;
             SignalInit(true);
@@ -368,7 +407,6 @@ struct RadioAudioOutput::Impl {
         renderClient->Release();
         audioClient->Release();
         enumerator->Release();
-        cleanupCom();
         return true;
     }
 
@@ -424,6 +462,7 @@ struct RadioAudioOutput::Impl {
         }
         waveOutRestart(hWaveOut);
 
+        backendName.store("WO", std::memory_order_release);
         if (!outSignaledInit) {
             outSignaledInit = true;
             SignalInit(true);
@@ -453,7 +492,7 @@ struct RadioAudioOutput::Impl {
     }
 
     void RunFeeder() {
-        SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
+        SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
         bool signaledInit = false;
         if (RunDirectSound(signaledInit) || stopRequested.load(std::memory_order_acquire)) {
             if (!signaledInit) SignalInit(false);
@@ -483,6 +522,7 @@ bool RadioAudioOutput::Start(int sampleRate, int channels, FillCallback callback
     if (!impl_) impl_ = new Impl();
 
     impl_->stopRequested.store(false, std::memory_order_relaxed);
+    impl_->backendName.store("--", std::memory_order_relaxed);
     {
         std::lock_guard<std::mutex> lock(impl_->initMutex);
         impl_->initDone = false;
@@ -516,6 +556,7 @@ void RadioAudioOutput::Stop() {
     impl_->active = false;
     impl_->sampleRate = 0;
     impl_->channels = 0;
+    impl_->backendName.store("--", std::memory_order_relaxed);
 }
 
 void RadioAudioOutput::SetGain(float gain) {
@@ -533,6 +574,10 @@ int RadioAudioOutput::SampleRate() const {
 
 int RadioAudioOutput::Channels() const {
     return impl_ ? impl_->channels : 0;
+}
+
+const char* RadioAudioOutput::BackendName() const {
+    return impl_ ? impl_->backendName.load(std::memory_order_acquire) : "--";
 }
 
 #else
@@ -641,6 +686,10 @@ int RadioAudioOutput::SampleRate() const {
 
 int RadioAudioOutput::Channels() const {
     return impl_ ? impl_->channels : 0;
+}
+
+const char* RadioAudioOutput::BackendName() const {
+    return (impl_ && impl_->active) ? "RL" : "--";
 }
 
 #endif

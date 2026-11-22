@@ -325,11 +325,16 @@ void DrawPauseMenu(const ScreenMap& map, const TableHudState& hud) {
     else if (hud.radio.state == RadioState::FAILED) badgeColor = Color{236, 122, 112, 255};
 
     DrawText(("Station: " + stationLabel).c_str(), map.X(338), map.Y(242), map.Font(17), WHITE);
-    const std::string bufReadout = radioOn
-        ? ("  Buf " + FormatTenths(hud.radio.bufferedSec) + "/" + FormatTenths(hud.radio.targetBufferSec) +
-           "  Drops:" + std::to_string(hud.radio.underruns))
-        : "";
-    DrawText(("[" + statusBadge + bufReadout + "]").c_str(), map.X(656), map.Y(242), map.Font(16), badgeColor);
+    std::string bufReadout;
+    if (radioOn) {
+        const std::string backend = hud.radio.backendName.empty() ? "--" : hud.radio.backendName;
+        bufReadout = " " + backend +
+                     "  Buf " + FormatTenths(hud.radio.bufferedSec) + "/" + FormatTenths(hud.radio.targetBufferSec) +
+                     "  D:" + std::to_string(hud.radio.underruns);
+        if (hud.radio.resyncs > 0) bufReadout += " S:" + std::to_string(hud.radio.resyncs);
+        if (hud.radio.reconnects > 0) bufReadout += " R:" + std::to_string(hud.radio.reconnects);
+    }
+    DrawText(("[" + statusBadge + bufReadout + "]").c_str(), map.X(628), map.Y(242), map.Font(15), badgeColor);
     const std::string trackLine = hud.radio.nowPlaying.empty()
         ? (radioOn ? "Now Playing: Streaming live J-Pop..." : "Select a J-Pop .pls station below to listen")
         : ("Now Playing: " + hud.radio.nowPlaying);

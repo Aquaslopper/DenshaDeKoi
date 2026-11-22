@@ -67,12 +67,14 @@ public:
     void Feed(const std::uint8_t* data, std::size_t size, bool flush,
               const std::function<void(const std::int16_t*, std::size_t frames, int sampleRate, int channels)>& onPcm);
     [[nodiscard]] std::size_t DecodedFrames() const { return decodedFrames_; }
+    [[nodiscard]] std::uint64_t ResyncCount() const { return resyncCount_; }
 
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
     std::vector<std::uint8_t> inBuf_;
     std::size_t decodedFrames_ = 0;
+    std::uint64_t resyncCount_ = 0;
 };
 
 // Lock-free Single-Producer Single-Consumer PCM ring buffer (30s capacity at 44.1 kHz).
@@ -118,6 +120,8 @@ public:
         std::string stationName;
         std::string nowPlaying;
         std::string statusText;
+        std::uint64_t resyncs = 0;
+        std::uint64_t reconnects = 0;
     };
     Status GetStatus() const;
 

@@ -46,8 +46,8 @@
 #endif
 
 namespace {
-constexpr std::size_t kBufferReadyFrames = 66150; // ~1.5s at 44.1 kHz
-constexpr std::size_t kMp3LookaheadBytes = 16384; // Matches dr_mp3 DRMP3_MIN_DATA_CHUNK_SIZE
+constexpr std::size_t kBufferReadyFrames = 44100; // ~1.0s at 44.1 kHz
+constexpr std::size_t kMp3LookaheadBytes = 4096;  // Matches proven low-latency MP3 streaming lookahead
 constexpr std::size_t kMp3TailPreserveBytes = 2304; // Matches DRMP3_MAX_FREE_FORMAT_FRAME_SIZE
 constexpr std::size_t kMaxPlaylistBytes = 65536;
 
@@ -246,7 +246,8 @@ bool StreamWinHttpAudio(const std::string& url,
                         if (WinHttpQueryHeaders(hRequest, WINHTTP_QUERY_RAW_HEADERS_CRLF,
                                                 WINHTTP_HEADER_NAME_BY_INDEX, rawHdr.data(), &hdrBytes,
                                                 WINHTTP_NO_HEADER_INDEX)) {
-                            headersUtf8 = ToUtf8(rawHdr);
+                            const std::size_t actualLen = wcsnlen(rawHdr.data(), rawHdr.size());
+                            headersUtf8 = ToUtf8(std::wstring_view(rawHdr.data(), actualLen));
                         }
                     }
                     onHeaders(ParseIcyMetaIntHeader(headersUtf8), ParseHeaderValue(headersUtf8, "icy-name"));
@@ -657,6 +658,7 @@ void Mp3StreamDecoder::Reset() {
     drmp3dec_init(&impl_->dec);
     inBuf_.clear();
     decodedFrames_ = 0;
+    resyncCount_ = 0;
 }
 
 void Mp3StreamDecoder::Feed(
@@ -689,11 +691,13 @@ void Mp3StreamDecoder::Feed(
             // straddling a network chunk boundary is never discarded.
             if (!flush && step >= static_cast<std::size_t>(available)) {
                 if (rem > kMp3TailPreserveBytes) {
+                    if (decodedFrames_ > 0) ++resyncCount_;
                     consumed += std::min(step, rem - kMp3TailPreserveBytes);
                     continue;
                 }
                 break;
             }
+            if (decodedFrames_ > 0) ++resyncCount_;
             consumed += step;
         }
     }
@@ -818,6 +822,8 @@ void RadioStreamWorker::Start(std::string stationName, std::vector<std::string> 
         status_.stationName = stationName;
         status_.nowPlaying.clear();
         status_.statusText = "Connecting...";
+        status_.resyncs = 0;
+        status_.reconnects = 0;
     }
     worker_ = std::thread(&RadioStreamWorker::Run, this, std::move(stationName), std::move(candidateUrls));
 }
@@ -834,6 +840,8 @@ void RadioStreamWorker::Stop() {
     status_.state = RadioState::OFF;
     status_.nowPlaying.clear();
     status_.statusText = "Radio off";
+    status_.resyncs = 0;
+    status_.reconnects = 0;
 }
 
 RadioStreamWorker::Status RadioStreamWorker::GetStatus() const {
@@ -919,6 +927,7 @@ void RadioStreamWorker::Run(std::string stationName, std::vector<std::string> ca
                         chunk, len,
                         [&](const std::uint8_t* audio, std::size_t audioLen) {
                             rawAudioBytes += audioLen;
+                            const std::uint64_t prevResyncs = decoder.ResyncCount();
                             decoder.Feed(audio, audioLen, false,
                                 [&](const std::int16_t* pcm, std::size_t frames, int hz, int ch) {
                                     anyDecoded = true;
@@ -967,6 +976,11 @@ void RadioStreamWorker::Run(std::string stationName, std::vector<std::string> ca
                                         }
                                     }
                                 });
+                            const std::uint64_t newResyncs = decoder.ResyncCount();
+                            if (newResyncs > prevResyncs) {
+                                std::lock_guard<std::mutex> lock(statusMutex_);
+                                status_.resyncs += (newResyncs - prevResyncs);
+                            }
                             if (rawAudioBytes > 131072 && decoder.DecodedFrames() == 0) {
                                 abortNonMp3 = true;
                             }
@@ -983,6 +997,10 @@ void RadioStreamWorker::Run(std::string stationName, std::vector<std::string> ca
         if (!anyDecoded && ++failures >= 3) {
             SetStatus(RadioState::FAILED, "Stream unavailable");
             return;
+        }
+        {
+            std::lock_guard<std::mutex> lock(statusMutex_);
+            ++status_.reconnects;
         }
         SetStatus(RadioState::CONNECTING, "Reconnecting...");
         for (int i = 0; i < 15 && !stopRequested_.load(); ++i) {
