@@ -50,7 +50,7 @@ void TableGame::Start() {
     compactField_ = false;
     game_.Advance();
     const auto& field = game_.Field();
-    constexpr std::array<int, 8> initial{2, 3, 4, 5, 10, 11, 12, 13};
+    constexpr std::array<int, 8> initial{0, 1, 2, 3, 4, 5, 6, 7};
     for (std::size_t i = 0; i < field.size(); ++i) slots_[static_cast<std::size_t>(field[i])] = initial[i];
     RecordResult();
 }
@@ -69,10 +69,10 @@ int TableGame::FindFreeSlot(Point2 near) const {
     std::array<bool, TableLayout::FieldSlotCount> used{};
     for (int slot : slots_) if (slot >= 0) used[static_cast<std::size_t>(slot)] = true;
     float best = std::numeric_limits<float>::infinity(); int found = -1;
-    const bool compact = compactField_ || game_.Field().size() >= 24;
+    const bool compact = compactField_ || game_.Field().size() >= 12;
     for (std::size_t i = 0; i < used.size(); ++i) if (!used[i]) {
         // Prefer the reference layout until its slots are full.
-        if (!compact && i >= 24) continue;
+        if (!compact && i >= 12) continue;
         const float d = DistanceSq(Center(TableLayout::FieldSlot(i, compact)), near);
         if (d < best) { best = d; found = static_cast<int>(i); }
     }
@@ -161,7 +161,7 @@ void TableGame::StartHand(CardId id, Rect from, std::optional<CardId> target) {
     }
     matched_ = target.has_value();
     pendingSlot_ = matched_ ? -1 : FindFreeSlot(Center(from));
-    const Rect dest = target ? FieldRect(*target) : TableLayout::FieldSlot(static_cast<std::size_t>(pendingSlot_), compactField_ || game_.Field().size() >= 24);
+    const Rect dest = target ? FieldRect(*target) : TableLayout::FieldSlot(static_cast<std::size_t>(pendingSlot_), compactField_ || game_.Field().size() >= 12);
     moving_ = {{id, from, dest}};
     if (game_.CurrentPlayer() == Player::OPPONENT) BeginAnimation(Animation::CPU_FLIP, 0.30f);
     else BeginAnimation(Animation::HAND_MOVE, 0.40f);
@@ -170,7 +170,7 @@ void TableGame::StartStockMove(std::optional<CardId> target) {
     const int id = *game_.PendingCard();
     matched_ = target.has_value();
     pendingSlot_ = matched_ ? -1 : FindFreeSlot({420, 350});
-    const Rect dest = target ? FieldRect(*target) : TableLayout::FieldSlot(static_cast<std::size_t>(pendingSlot_), compactField_ || game_.Field().size() >= 24);
+    const Rect dest = target ? FieldRect(*target) : TableLayout::FieldSlot(static_cast<std::size_t>(pendingSlot_), compactField_ || game_.Field().size() >= 12);
     moving_ = {{id, TableLayout::Stock, dest}};
     stockReady_ = false;
     BeginAnimation(Animation::STOCK_MOVE, 0.50f);
@@ -185,7 +185,7 @@ void TableGame::ResolveMove() {
     game_.Advance();
     if (pendingSlot_ >= 0) {
         slots_[static_cast<std::size_t>(incoming)] = pendingSlot_;
-        if (pendingSlot_ >= 24) compactField_ = true;
+        if (pendingSlot_ >= 12) compactField_ = true;
     }
     moving_.clear();
     const auto& captured = game_.Captured(player);
