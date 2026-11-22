@@ -1,5 +1,6 @@
 #pragma once
 
+#include "RadioAudioOutput.hpp"
 #include "RadioPlaylist.hpp"
 #include "RadioStreamWorker.hpp"
 
@@ -29,7 +30,7 @@ struct RadioSnapshot {
     float volume = 0.65f;
     bool muted = false;
     BufferMode bufferMode = BufferMode::AUTO;
-    float targetBufferSec = 2.0f;
+    float targetBufferSec = 2.5f;
     float bufferedSec = 0.0f;
     bool rebuffering = false;
     std::uint64_t underruns = 0;
@@ -54,7 +55,7 @@ public:
 
     [[nodiscard]] RadioSnapshot Snapshot() const;
 
-    // Called from Raylib's real-time audio hardware thread.
+    // Called from the audio output thread.
     void FillAudioFrames(std::int16_t* out, std::size_t frames);
 
 private:
@@ -64,30 +65,22 @@ private:
     void SyncTargetFrames(int sampleRate);
 
     RadioStreamWorker worker_;
+    RadioAudioOutput output_;
     bool enabled_ = false;
     int stationIndex_ = 0;
     std::string customUrl_;
     float volume_ = 0.65f;
     bool muted_ = false;
     BufferMode bufferMode_ = BufferMode::AUTO;
-    float autoTargetSec_ = 2.0f;
+    float autoTargetSec_ = 2.5f;
     float bufferedSec_ = 0.0f;
-
-    bool ownsAudioDevice_ = false;
-    bool audioDeviceReady_ = false;
-    bool streamActive_ = false;
-    int streamSampleRate_ = 0;
-    int streamChannels_ = 0;
 
     std::atomic<bool> callbackActive_{false};
     std::atomic<bool> rebuffering_{false};
     std::atomic<bool> fadeInPending_{false};
     std::atomic<int> callbackSampleRate_{0};
     std::atomic<int> callbackChannels_{0};
-    std::atomic<std::size_t> targetBufferFrames_{88200};
+    std::atomic<std::size_t> targetBufferFrames_{110250};
     std::atomic<std::uint64_t> underrunCount_{0};
     std::uint64_t lastSeenUnderruns_ = 0;
-
-    struct AudioImpl;
-    AudioImpl* audio_ = nullptr;
 };

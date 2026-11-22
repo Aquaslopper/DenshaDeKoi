@@ -44,13 +44,14 @@ if(BUILD_DESKTOP_APP)
     add_executable(denshadekoi
         src/TableMain.cpp
         src/TableScene.cpp
+        src/RadioAudioOutput.cpp
         src/RadioPlayer.cpp
         src/RadioStreamWorker.cpp
     )
     configure_project_target(denshadekoi)
     target_link_libraries(denshadekoi PRIVATE raylib hanafuda_core)
     if(WIN32)
-        target_link_libraries(denshadekoi PRIVATE winhttp ws2_32)
+        target_link_libraries(denshadekoi PRIVATE winhttp ws2_32 winmm)
     else()
         find_package(Threads REQUIRED)
         target_link_libraries(denshadekoi PRIVATE Threads::Threads)

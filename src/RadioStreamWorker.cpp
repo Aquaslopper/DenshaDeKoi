@@ -950,14 +950,14 @@ void RadioStreamWorker::Run(std::string stationName, std::vector<std::string> ca
                             }
                         },
                         [&](const std::string& title) { SetNowPlaying(title); });
-                    // Keep target + 2s headroom ahead in the 30s lock-free ring via TCP backpressure.
+                    // Keep target + 1.5s headroom ahead in the 30s lock-free ring via TCP backpressure.
                     int curSr = 0, curCh = 0;
                     std::size_t curAvail = 0;
                     ring_.FormatAndAvailable(curSr, curCh, curAvail);
                     const std::size_t sr = static_cast<std::size_t>(curSr > 0 ? curSr : 44100);
                     const std::size_t desiredHeadroom = std::min<std::size_t>(
                         ring_.CapacityFrames() - sr * 2,
-                        static_cast<std::size_t>((targetBufferSeconds_.load(std::memory_order_relaxed) + 2.0f) *
+                        static_cast<std::size_t>((targetBufferSeconds_.load(std::memory_order_relaxed) + 1.5f) *
                                                  static_cast<float>(sr)));
                     while (!stopRequested_.load() && ring_.AvailableFrames() >= desiredHeadroom) {
                         std::this_thread::sleep_for(std::chrono::milliseconds(20));

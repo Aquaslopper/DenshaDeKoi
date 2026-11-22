@@ -1,42 +1,25 @@
 #include "RadioPlayer.hpp"
 
-#include <raylib.h>
-
 #include <algorithm>
 #include <array>
 #include <cstring>
 
 namespace {
-constexpr int kRaylibStreamFrames = 2048;
-constexpr std::array<float, 6> kAutoBufferLadderSec = {2.0f, 4.0f, 7.0f, 10.0f, 15.0f, 20.0f};
+constexpr std::size_t kMinTargetFrames = 8192;
+constexpr std::array<float, 5> kAutoBufferLadderSec = {2.5f, 4.0f, 6.0f, 8.0f, 10.0f};
 
-std::atomic<RadioPlayer*> gActiveRadioPlayer{nullptr};
-
-void RadioAudioCallback(void* bufferData, unsigned int frames) {
-    if (!bufferData || frames == 0) return;
-    if (auto* player = gActiveRadioPlayer.load(std::memory_order_acquire)) {
-        player->FillAudioFrames(static_cast<std::int16_t*>(bufferData), static_cast<std::size_t>(frames));
-    }
+void FillRadioAudioTrampoline(void* user, std::int16_t* out, std::size_t frames) {
+    if (!user || !out || frames == 0) return;
+    static_cast<RadioPlayer*>(user)->FillAudioFrames(out, frames);
 }
 } // namespace
 
-struct RadioPlayer::AudioImpl {
-    AudioStream stream{};
-};
-
-RadioPlayer::RadioPlayer() : audio_(new AudioImpl()) {
-    gActiveRadioPlayer.store(this, std::memory_order_release);
+RadioPlayer::RadioPlayer() {
+    output_.SetGain(muted_ ? 0.0f : volume_);
 }
 
 RadioPlayer::~RadioPlayer() {
     Stop();
-    RadioPlayer* expected = this;
-    gActiveRadioPlayer.compare_exchange_strong(expected, nullptr, std::memory_order_acq_rel);
-    if (ownsAudioDevice_ && IsAudioDeviceReady()) {
-        CloseAudioDevice();
-    }
-    delete audio_;
-    audio_ = nullptr;
 }
 
 float RadioPlayer::ActiveTargetSeconds() const {
@@ -56,7 +39,7 @@ void RadioPlayer::SyncTargetFrames(int sampleRate) {
     const float targetSec = ActiveTargetSeconds();
     worker_.SetTargetBufferSeconds(targetSec);
     const std::size_t frames = static_cast<std::size_t>(targetSec * static_cast<float>(sr));
-    targetBufferFrames_.store(std::max<std::size_t>(kRaylibStreamFrames * 4, frames), std::memory_order_release);
+    targetBufferFrames_.store(std::max(kMinTargetFrames, frames), std::memory_order_release);
 }
 
 void RadioPlayer::FillAudioFrames(std::int16_t* out, std::size_t frames) {
@@ -101,19 +84,9 @@ void RadioPlayer::FillAudioFrames(std::int16_t* out, std::size_t frames) {
 
 void RadioPlayer::ResetAudioStream() {
     callbackActive_.store(false, std::memory_order_release);
-    if (streamActive_) {
-        if (IsAudioStreamValid(audio_->stream)) {
-            StopAudioStream(audio_->stream);
-            SetAudioStreamCallback(audio_->stream, nullptr);
-            UnloadAudioStream(audio_->stream);
-        }
-        audio_->stream = AudioStream{};
-        streamActive_ = false;
-        streamSampleRate_ = 0;
-        streamChannels_ = 0;
-        callbackSampleRate_.store(0, std::memory_order_release);
-        callbackChannels_.store(0, std::memory_order_release);
-    }
+    output_.Stop();
+    callbackSampleRate_.store(0, std::memory_order_release);
+    callbackChannels_.store(0, std::memory_order_release);
     rebuffering_.store(false, std::memory_order_release);
     bufferedSec_ = 0.0f;
 }
@@ -177,16 +150,12 @@ void RadioPlayer::Stop() {
 
 void RadioPlayer::SetVolume(float volume) {
     volume_ = std::clamp(volume, 0.0f, 1.0f);
-    if (streamActive_ && IsAudioStreamValid(audio_->stream)) {
-        SetAudioStreamVolume(audio_->stream, muted_ ? 0.0f : volume_);
-    }
+    output_.SetGain(muted_ ? 0.0f : volume_);
 }
 
 void RadioPlayer::ToggleMute() {
     muted_ = !muted_;
-    if (streamActive_ && IsAudioStreamValid(audio_->stream)) {
-        SetAudioStreamVolume(audio_->stream, muted_ ? 0.0f : volume_);
-    }
+    output_.SetGain(muted_ ? 0.0f : volume_);
 }
 
 void RadioPlayer::SetBufferMode(BufferMode mode) {
@@ -195,7 +164,7 @@ void RadioPlayer::SetBufferMode(BufferMode mode) {
         autoTargetSec_ = kAutoBufferLadderSec.front();
         lastSeenUnderruns_ = underrunCount_.load(std::memory_order_relaxed);
     }
-    SyncTargetFrames(streamSampleRate_);
+    SyncTargetFrames(output_.SampleRate());
 }
 
 void RadioPlayer::CycleBufferMode() {
@@ -222,7 +191,7 @@ void RadioPlayer::Update() {
     }
     bufferedSec_ = static_cast<float>(avail) / static_cast<float>(sr);
 
-    // Automatically scale up buffer size on network underruns when in AUTO mode.
+    // Automatically scale up buffer size on network underruns when in AUTO mode (capped at 10s).
     const std::uint64_t currentUnderruns = underrunCount_.load(std::memory_order_relaxed);
     if (currentUnderruns > lastSeenUnderruns_) {
         lastSeenUnderruns_ = currentUnderruns;
@@ -237,33 +206,19 @@ void RadioPlayer::Update() {
     }
     SyncTargetFrames(sr);
 
-    if (!audioDeviceReady_) {
-        if (!IsAudioDeviceReady()) {
-            InitAudioDevice();
-            ownsAudioDevice_ = IsAudioDeviceReady();
-        }
-        audioDeviceReady_ = IsAudioDeviceReady();
-        if (!audioDeviceReady_) return;
-    }
-
     const std::size_t startThreshold = targetBufferFrames_.load(std::memory_order_acquire);
-    if (!streamActive_ || streamSampleRate_ != sr || streamChannels_ != ch) {
+    if (!output_.IsActive() || output_.SampleRate() != sr || output_.Channels() != ch) {
         if (avail < startThreshold) return;
         ResetAudioStream();
-        SetAudioStreamBufferSizeDefault(kRaylibStreamFrames);
-        audio_->stream = LoadAudioStream(static_cast<unsigned int>(sr), 16, static_cast<unsigned int>(ch));
-        if (!IsAudioStreamValid(audio_->stream)) return;
-        streamActive_ = true;
-        streamSampleRate_ = sr;
-        streamChannels_ = ch;
         callbackSampleRate_.store(sr, std::memory_order_release);
         callbackChannels_.store(ch, std::memory_order_release);
         rebuffering_.store(false, std::memory_order_release);
         fadeInPending_.store(true, std::memory_order_release);
-        SetAudioStreamVolume(audio_->stream, muted_ ? 0.0f : volume_);
-        SetAudioStreamCallback(audio_->stream, &RadioAudioCallback);
+        output_.SetGain(muted_ ? 0.0f : volume_);
         callbackActive_.store(true, std::memory_order_release);
-        PlayAudioStream(audio_->stream);
+        if (!output_.Start(sr, ch, &FillRadioAudioTrampoline, this)) {
+            callbackActive_.store(false, std::memory_order_release);
+        }
     }
 }
 
@@ -274,13 +229,14 @@ RadioSnapshot RadioPlayer::Snapshot() const {
     if (name.empty() && stationIndex_ >= 0 && static_cast<std::size_t>(stationIndex_) < stations.size()) {
         name = stations[static_cast<std::size_t>(stationIndex_)].name;
     }
-    const bool isRebuf = enabled_ && streamActive_ && rebuffering_.load(std::memory_order_acquire);
+    const bool streamActive = output_.IsActive();
+    const bool isRebuf = enabled_ && streamActive && rebuffering_.load(std::memory_order_acquire);
     RadioState effectiveState = enabled_ ? st.state : RadioState::OFF;
     std::string effectiveStatus = enabled_ ? st.statusText : "Radio off";
     if (isRebuf) {
         effectiveState = RadioState::BUFFERING;
         effectiveStatus = "Rebuffering...";
-    } else if (enabled_ && !streamActive_ && st.state == RadioState::PLAYING) {
+    } else if (enabled_ && !streamActive && st.state == RadioState::PLAYING) {
         effectiveState = RadioState::BUFFERING;
         effectiveStatus = "Buffering...";
     }
