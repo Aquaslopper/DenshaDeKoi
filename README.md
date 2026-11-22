@@ -23,6 +23,12 @@ cmake --build build-headless
 ctest --test-dir build-headless --output-on-failure
 ```
 
+## Continuous integration
+
+`.github/workflows/build.yml` builds and tests every push to `main` and every pull request on Windows with both MSVC and MinGW-w64, and uploads the compiled `denshadekoi.exe` as a build artifact.
+
+## Usage
+
 The inspector uses columns for months 1–12 and rows for card indices 0–3. Hover a card to see its identifiers. Close the window or press Escape to exit.
 
 ## Atlas
