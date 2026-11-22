@@ -13,12 +13,17 @@ function(configure_project_target target)
         target_compile_options(${target} PRIVATE -Wall -Wextra)
     endif()
     get_target_property(target_type ${target} TYPE)
-    if(MINGW AND NOT target_type STREQUAL "OBJECT_LIBRARY")
+    if(MINGW AND target_type STREQUAL "EXECUTABLE")
         # Link the GCC runtime statically so the .exe also runs on PCs without MSYS2
         # (otherwise it needs libstdc++-6.dll, libgcc_s_seh-1.dll, libwinpthread-1.dll).
         target_link_options(${target} PRIVATE -static)
     endif()
 endfunction()
+
+# The card database and deck have no Raylib or window-system dependency.
+add_library(hanafuda_core STATIC src/Deck.cpp)
+configure_project_target(hanafuda_core)
+target_include_directories(hanafuda_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
 
 if(BUILD_DESKTOP_APP)
     include(FetchContent)
@@ -34,7 +39,7 @@ if(BUILD_DESKTOP_APP)
         src/AtlasManager.cpp
     )
     configure_project_target(denshadekoi)
-    target_link_libraries(denshadekoi PRIVATE raylib)
+    target_link_libraries(denshadekoi PRIVATE raylib hanafuda_core)
 
     # Keep the runtime asset alongside the executable, including multi-config builds.
     add_custom_command(TARGET denshadekoi POST_BUILD
@@ -54,6 +59,11 @@ if(BUILD_DESKTOP_APP)
 endif()
 
 if(BUILD_TESTING)
+    add_executable(test_deck tests/test_deck.cpp)
+    configure_project_target(test_deck)
+    target_link_libraries(test_deck PRIVATE hanafuda_core)
+    add_test(NAME deck COMMAND test_deck)
+
     add_executable(test_atlas_math tests/test_atlas_math.cpp)
     configure_project_target(test_atlas_math)
     target_include_directories(test_atlas_math PRIVATE src)
