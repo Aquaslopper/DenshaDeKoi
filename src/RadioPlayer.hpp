@@ -32,6 +32,7 @@ struct RadioSnapshot {
     BufferMode bufferMode = BufferMode::AUTO;
     float targetBufferSec = 4.0f;
     float bufferedSec = 0.0f;
+    float prebufferRatio = 0.75f;
     bool rebuffering = false;
     std::uint64_t underruns = 0;
     std::string backendName = "--";
@@ -54,6 +55,8 @@ public:
     void ToggleMute();
     void CycleBufferMode();
     void SetBufferMode(BufferMode mode);
+    void SetPrebufferRatio(float ratio);
+    void ApplyPrebufferThreshold();
     void Update();
 
     [[nodiscard]] RadioSnapshot Snapshot() const;
@@ -84,6 +87,7 @@ private:
     std::atomic<int> callbackSampleRate_{0};
     std::atomic<int> callbackChannels_{0};
     std::atomic<std::size_t> targetBufferFrames_{176400};
+    std::atomic<float> prebufferRatio_{0.75f};
     std::atomic<std::uint64_t> underrunCount_{0};
     std::uint64_t lastSeenUnderruns_ = 0;
 };

@@ -48,6 +48,7 @@ int main() {
         RadioPlayer radio;
         bool paused = false;
         bool draggingVolume = false;
+        bool draggingPrebuffer = false;
         std::string hudFeedback;
         float feedbackTimer = 0.0f;
 
@@ -64,6 +65,7 @@ int main() {
             if (IsKeyPressed(KEY_ESCAPE) || IsKeyPressed(KEY_P)) {
                 paused = !paused;
                 draggingVolume = false;
+                draggingPrebuffer = false;
                 if (paused) game.CancelDrag();
             }
             if (IsKeyPressed(KEY_M)) {
@@ -78,6 +80,7 @@ int main() {
                         In(canvas, TableHud::ResumeBottomButton)) {
                         paused = false;
                         draggingVolume = false;
+                        draggingPrebuffer = false;
                     } else if (In(canvas, TableHud::RadioPowerButton)) {
                         radio.ToggleEnabled();
                     } else if (In(canvas, TableHud::RadioMuteButton)) {
@@ -87,6 +90,10 @@ int main() {
                     } else if (In(canvas, TableHud::VolumeHitBox)) {
                         draggingVolume = true;
                         radio.SetVolume((canvas.x - TableHud::VolumeBar.x) / TableHud::VolumeBar.width);
+                    } else if (In(canvas, TableHud::PrebufferHitBox)) {
+                        draggingPrebuffer = true;
+                        radio.SetPrebufferRatio(
+                            (canvas.x - TableHud::PrebufferBar.x) / TableHud::PrebufferBar.width);
                     } else if (In(canvas, TableHud::PasteUrlButton)) {
                         const char* clip = GetClipboardText();
                         if (clip && ParseUrl(clip).valid) {
@@ -100,6 +107,7 @@ int main() {
                         game = TableGame();
                         paused = false;
                         draggingVolume = false;
+                        draggingPrebuffer = false;
                     } else {
                         for (std::size_t i = 0; i < TableHud::StationSlotCount; ++i) {
                             if (In(canvas, TableHud::StationButton(i))) {
@@ -113,8 +121,16 @@ int main() {
                 if (draggingVolume && IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
                     radio.SetVolume((canvas.x - TableHud::VolumeBar.x) / TableHud::VolumeBar.width);
                 }
+                if (draggingPrebuffer && IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
+                    radio.SetPrebufferRatio(
+                        (canvas.x - TableHud::PrebufferBar.x) / TableHud::PrebufferBar.width);
+                }
                 if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) {
+                    if (draggingPrebuffer) {
+                        radio.ApplyPrebufferThreshold();
+                    }
                     draggingVolume = false;
+                    draggingPrebuffer = false;
                 }
             } else {
                 if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) game.CancelDrag();

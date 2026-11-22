@@ -8,15 +8,10 @@ namespace {
 constexpr std::size_t kMinTargetFrames = 8192;
 constexpr std::array<float, 4> kAutoBufferLadderSec = {4.0f, 6.0f, 8.0f, 10.0f};
 
-// Prebuffer 75% of the configured target buffer before starting or resuming
-// playback (matching Winamp's streaming prebuffer behavior), while the worker
-// continues topping up to 100% of targetBufferSec in the background.
-std::size_t StartThresholdFrames(std::size_t targetFrames) {
-    return std::max<std::size_t>(kMinTargetFrames, (targetFrames * 3) / 4);
-}
-
-std::size_t ResumeThresholdFrames(std::size_t targetFrames) {
-    return std::max<std::size_t>(kMinTargetFrames, (targetFrames * 3) / 4);
+std::size_t PrebufferThresholdFrames(std::size_t targetFrames, float ratio) {
+    const float clamped = std::clamp(ratio, 0.0f, 1.0f);
+    return static_cast<std::size_t>(
+        static_cast<double>(targetFrames) * static_cast<double>(clamped));
 }
 
 void FillRadioAudioTrampoline(void* user, std::int16_t* out, std::size_t frames) {
@@ -64,7 +59,8 @@ void RadioPlayer::FillAudioFrames(std::int16_t* out, std::size_t frames) {
     }
 
     const std::size_t targetFrames = targetBufferFrames_.load(std::memory_order_acquire);
-    const std::size_t resumeThreshold = ResumeThresholdFrames(targetFrames);
+    const float ratio = prebufferRatio_.load(std::memory_order_acquire);
+    const std::size_t resumeThreshold = PrebufferThresholdFrames(targetFrames, ratio);
     if (rebuffering_.load(std::memory_order_acquire)) {
         if (worker_.Ring().AvailableFrames() < resumeThreshold) {
             std::memset(out, 0, byteCount);
@@ -179,6 +175,21 @@ void RadioPlayer::SetBufferMode(BufferMode mode) {
     SyncTargetFrames(output_.SampleRate());
 }
 
+void RadioPlayer::SetPrebufferRatio(float ratio) {
+    prebufferRatio_.store(std::clamp(ratio, 0.0f, 1.0f), std::memory_order_release);
+}
+
+void RadioPlayer::ApplyPrebufferThreshold() {
+    if (!enabled_ || !output_.IsActive()) return;
+    const std::size_t targetFrames = targetBufferFrames_.load(std::memory_order_acquire);
+    const float ratio = prebufferRatio_.load(std::memory_order_acquire);
+    const std::size_t threshold = PrebufferThresholdFrames(targetFrames, ratio);
+    if (worker_.Ring().AvailableFrames() < threshold) {
+        fadeInPending_.store(true, std::memory_order_release);
+        rebuffering_.store(true, std::memory_order_release);
+    }
+}
+
 void RadioPlayer::CycleBufferMode() {
     switch (bufferMode_) {
     case BufferMode::AUTO: SetBufferMode(BufferMode::SEC_2); break;
@@ -218,7 +229,9 @@ void RadioPlayer::Update() {
     }
     SyncTargetFrames(sr);
 
-    const std::size_t startThreshold = StartThresholdFrames(targetBufferFrames_.load(std::memory_order_acquire));
+    const std::size_t startThreshold = PrebufferThresholdFrames(
+        targetBufferFrames_.load(std::memory_order_acquire),
+        prebufferRatio_.load(std::memory_order_acquire));
     if (!output_.IsActive() || output_.SampleRate() != sr || output_.Channels() != ch) {
         if (avail < startThreshold) return;
         ResetAudioStream();
@@ -268,6 +281,7 @@ RadioSnapshot RadioPlayer::Snapshot() const {
         bufferMode_,
         ActiveTargetSeconds(),
         bufferedSec_,
+        prebufferRatio_.load(std::memory_order_acquire),
         isRebuf,
         underrunCount_.load(std::memory_order_relaxed),
         output_.BackendName(),

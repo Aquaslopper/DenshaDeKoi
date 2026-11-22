@@ -279,27 +279,27 @@ void DrawPauseMenu(const ScreenMap& map, const TableHudState& hud) {
                   Color{8, 12, 18, 175});
     DrawBox(map, TableHud::PausePanel, Color{17, 23, 32, 246}, Color{98, 124, 148, 255}, 2.0f);
 
-    DrawText("PAUSED", map.X(336), map.Y(116), map.Font(28), WHITE);
-    DrawText("J-Pop Internet Radio (.pls)", map.X(462), map.Y(124), map.Font(18), Color{172, 206, 224, 255});
+    DrawText("PAUSED", map.X(336), map.Y(100), map.Font(28), WHITE);
+    DrawText("J-Pop Internet Radio (.pls)", map.X(462), map.Y(108), map.Font(18), Color{172, 206, 224, 255});
     DrawBox(map, TableHud::ResumeTopButton, Color{38, 78, 64, 245}, Color{102, 174, 144, 255});
-    DrawText("RESUME", map.X(912), map.Y(129), map.Font(19), WHITE);
+    DrawText("RESUME", map.X(912), map.Y(113), map.Font(19), WHITE);
 
     const bool radioOn = hud.radio.enabled;
     const Color powerFill = radioOn ? Color{31, 86, 66, 245} : Color{46, 54, 66, 245};
     const Color powerBorder = radioOn ? Color{96, 184, 146, 255} : Color{96, 110, 126, 255};
     DrawBox(map, TableHud::RadioPowerButton, powerFill, powerBorder);
-    DrawText(radioOn ? "RADIO: ON" : "RADIO: OFF", map.X(349), map.Y(197), map.Font(18), WHITE);
+    DrawText(radioOn ? "RADIO: ON" : "RADIO: OFF", map.X(349), map.Y(175), map.Font(18), WHITE);
 
     const Color muteFill = hud.radio.muted ? Color{112, 54, 46, 245} : Color{40, 49, 60, 245};
     const Color muteBorder = hud.radio.muted ? Color{206, 114, 102, 255} : Color{96, 110, 126, 255};
     DrawBox(map, TableHud::RadioMuteButton, muteFill, muteBorder);
-    DrawText(hud.radio.muted ? "MUTED" : "MUTE", map.X(496), map.Y(197), map.Font(17), WHITE);
+    DrawText(hud.radio.muted ? "MUTED" : "MUTE", map.X(496), map.Y(175), map.Font(17), WHITE);
 
     const bool autoBuf = (hud.radio.bufferMode == BufferMode::AUTO);
     const Color bufFill = autoBuf ? Color{32, 68, 84, 245} : Color{44, 54, 68, 245};
     const Color bufBorder = autoBuf ? Color{112, 184, 214, 255} : Color{96, 114, 134, 255};
     DrawBox(map, TableHud::RadioBufferButton, bufFill, bufBorder);
-    DrawText(BufferButtonText(hud.radio).c_str(), map.X(588), map.Y(197), map.Font(17), WHITE);
+    DrawText(BufferButtonText(hud.radio).c_str(), map.X(588), map.Y(175), map.Font(17), WHITE);
 
     // Volume slider
     DrawBox(map, TableHud::VolumeBar, Color{26, 33, 44, 255}, Color{84, 104, 124, 255}, 1.0f);
@@ -313,7 +313,23 @@ void DrawPauseMenu(const ScreenMap& map, const TableHudState& hud) {
     const float knobX = TableHud::VolumeBar.x + vol * (TableHud::VolumeBar.width - 10.0f);
     DrawRectangle(map.X(knobX), map.Y(TableHud::VolumeBar.y - 3.0f), map.W(10.0f), map.H(26.0f), WHITE);
     const int volPct = static_cast<int>(std::lround(vol * 100.0f));
-    DrawText((std::to_string(volPct) + "%").c_str(), map.X(974), map.Y(197), map.Font(18), WHITE);
+    DrawText((std::to_string(volPct) + "%").c_str(), map.X(974), map.Y(175), map.Font(18), WHITE);
+
+    // Prebuffer slider (0% - 100% of active BUF target)
+    DrawText("PREBUFFER:", map.X(338), map.Y(223), map.Font(17), Color{186, 206, 222, 255});
+    DrawBox(map, TableHud::PrebufferBar, Color{26, 33, 44, 255}, Color{84, 104, 124, 255}, 1.0f);
+    const float preRatio = std::clamp(hud.radio.prebufferRatio, 0.0f, 1.0f);
+    if (preRatio > 0.0f) {
+        DrawRectangle(map.X(TableHud::PrebufferBar.x + 2.0f), map.Y(TableHud::PrebufferBar.y + 2.0f),
+                      map.W(std::max(2.0f, (TableHud::PrebufferBar.width - 4.0f) * preRatio)),
+                      map.H(TableHud::PrebufferBar.height - 4.0f), Color{92, 162, 206, 255});
+    }
+    const float preKnobX = TableHud::PrebufferBar.x + preRatio * (TableHud::PrebufferBar.width - 10.0f);
+    DrawRectangle(map.X(preKnobX), map.Y(TableHud::PrebufferBar.y - 3.0f), map.W(10.0f), map.H(24.0f), WHITE);
+    const int prePct = static_cast<int>(std::lround(preRatio * 100.0f));
+    const float preSec = hud.radio.targetBufferSec * preRatio;
+    DrawText((std::to_string(prePct) + "% (" + FormatTenths(preSec) + ")").c_str(),
+             map.X(848), map.Y(223), map.Font(17), WHITE);
 
     // Live station & stream metadata readout
     const std::string stationLabel = hud.radio.stationName.empty() ? "J-Pop Powerplay" : hud.radio.stationName;
@@ -324,7 +340,7 @@ void DrawPauseMenu(const ScreenMap& map, const TableHudState& hud) {
         badgeColor = Color{240, 206, 126, 255};
     else if (hud.radio.state == RadioState::FAILED) badgeColor = Color{236, 122, 112, 255};
 
-    DrawText(("Station: " + stationLabel).c_str(), map.X(338), map.Y(242), map.Font(17), WHITE);
+    DrawText(("Station: " + stationLabel).c_str(), map.X(338), map.Y(262), map.Font(17), WHITE);
     std::string bufReadout;
     if (radioOn) {
         const std::string backend = hud.radio.backendName.empty() ? "--" : hud.radio.backendName;
@@ -334,11 +350,11 @@ void DrawPauseMenu(const ScreenMap& map, const TableHudState& hud) {
         if (hud.radio.resyncs > 0) bufReadout += " S:" + std::to_string(hud.radio.resyncs);
         if (hud.radio.reconnects > 0) bufReadout += " R:" + std::to_string(hud.radio.reconnects);
     }
-    DrawText(("[" + statusBadge + bufReadout + "]").c_str(), map.X(628), map.Y(242), map.Font(15), badgeColor);
+    DrawText(("[" + statusBadge + bufReadout + "]").c_str(), map.X(628), map.Y(262), map.Font(15), badgeColor);
     const std::string trackLine = hud.radio.nowPlaying.empty()
         ? (radioOn ? "Now Playing: Streaming live J-Pop..." : "Select a J-Pop .pls station below to listen")
         : ("Now Playing: " + hud.radio.nowPlaying);
-    DrawText(trackLine.c_str(), map.X(338), map.Y(263), map.Font(15), Color{202, 214, 226, 255});
+    DrawText(trackLine.c_str(), map.X(338), map.Y(283), map.Font(15), Color{202, 214, 226, 255});
 
     // 2x3 preset .pls station grid
     const auto& stations = DefaultRadioStations();
@@ -358,9 +374,9 @@ void DrawPauseMenu(const ScreenMap& map, const TableHudState& hud) {
 
     // Custom .pls / stream URL paste row
     DrawBox(map, TableHud::PasteUrlButton, Color{42, 54, 72, 245}, Color{102, 128, 158, 255});
-    DrawText("PASTE .PLS / URL", map.X(355), map.Y(536), map.Font(17), WHITE);
+    DrawText("PASTE .PLS / URL", map.X(355), map.Y(556), map.Font(17), WHITE);
 
-    const TableLayout::Rect customBox{558.0f, 524.0f, 466.0f, 42.0f};
+    const TableLayout::Rect customBox{558.0f, 544.0f, 466.0f, 42.0f};
     DrawBox(map, customBox, Color{24, 30, 40, 240}, Color{68, 84, 102, 220}, 1.0f);
     std::string customText = "Copy any .pls or MP3 stream URL, then click Paste";
     Color customColor = LIGHTGRAY;
@@ -371,13 +387,13 @@ void DrawPauseMenu(const ScreenMap& map, const TableHudState& hud) {
         customText = SanitizeAsciiDisplay(hud.radio.customUrl, 48);
         customColor = Color{130, 228, 182, 255};
     }
-    DrawText(customText.c_str(), map.X(570), map.Y(537), map.Font(15), customColor);
+    DrawText(customText.c_str(), map.X(570), map.Y(557), map.Font(15), customColor);
 
     DrawBox(map, TableHud::NewMatchButton, Color{94, 48, 42, 245}, Color{168, 96, 86, 255});
-    DrawText("NEW MATCH", map.X(364), map.Y(607), map.Font(18), WHITE);
-    DrawText("ESC / P: Pause   M: Mute", map.X(546), map.Y(609), map.Font(15), LIGHTGRAY);
+    DrawText("NEW MATCH", map.X(364), map.Y(625), map.Font(18), WHITE);
+    DrawText("ESC / P: Pause   M: Mute", map.X(546), map.Y(627), map.Font(15), LIGHTGRAY);
     DrawBox(map, TableHud::ResumeBottomButton, Color{31, 75, 58, 245}, Color{96, 174, 144, 255});
-    DrawText("RESUME GAME", map.X(872), map.Y(607), map.Font(18), WHITE);
+    DrawText("RESUME GAME", map.X(872), map.Y(625), map.Font(18), WHITE);
 }
 
 // The HUD belongs to the screen, not the world canvas: it is drawn after the
