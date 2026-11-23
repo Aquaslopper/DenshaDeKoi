@@ -15,9 +15,7 @@ file simply stays silent. Names are lowercase and must match exactly:
 | `round_win.wav` | player wins a round |
 | `round_lose.wav` | CPU wins a round |
 
-Recommended delivery format: PCM WAV, 44.1 or 48 kHz, 16-bit, mono or stereo.
-Keep short transient effects trimmed tightly and leave their peak below 0 dBFS.
-The build copies this complete directory beside the game executable as `sfx/`.
+Use WAV files with the exact names above. The build copies this directory beside the game executable as `sfx/`.
 
 `SfxPlayer` provides the loading, playback, and volume interface. This change
 does not add or alter any UI and does not connect sounds to the radio controls.
