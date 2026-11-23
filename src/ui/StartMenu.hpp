@@ -112,11 +112,20 @@ public:
             DrawText("DENSHA DE KOI", viewport.X(470), viewport.Y(190), viewport.Font(64), WHITE);
         }
 
-        // The artwork includes the button faces and labels. This subtle focus
-        // wash gives mouse, keyboard, and controller navigation visible feedback.
+        // Keep the supplied artwork clean: indicate focus with a feathered,
+        // blue-white aura instead of drawing a hard box around the button.
         const Rectangle focus = viewport.Rec(Buttons[static_cast<std::size_t>(selected_)]);
-        DrawRectangleRec(focus, Color{106, 187, 255, 30});
-        DrawRectangleLinesEx(focus, std::max(2.0f, viewport.scale * 2.5f), Color{224, 244, 255, 235});
+        constexpr std::array<float, 4> spreads{14.0f, 9.0f, 4.0f, 0.0f};
+        constexpr std::array<float, 4> opacities{7.0f, 9.0f, 13.0f, 18.0f};
+        for (std::size_t layer = 0; layer < spreads.size(); ++layer) {
+            const float spread = spreads[layer] * viewport.scale;
+            const Rectangle halo{focus.x - spread, focus.y - spread,
+                                 focus.width + 2.0f * spread, focus.height + 2.0f * spread};
+            const float thickness = std::max(2.0f * viewport.scale, spread * 1.35f);
+            DrawRectangleRoundedLinesEx(halo, 0.18f, 16, thickness,
+                Color{151, 211, 255, static_cast<unsigned char>(opacities[layer])});
+        }
+        DrawRectangleRounded(focus, 0.16f, 16, Color{151, 211, 255, 10});
     }
 
     void DrawOptions(const Viewport& viewport, const GameOptions& options, Resolution display) const {
