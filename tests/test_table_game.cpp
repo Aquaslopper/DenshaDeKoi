@@ -50,7 +50,9 @@ void TestReturnAndFreeze() {
               "Dragged card must level out when stationary");
         game.PointerUp({0, 0});
         Check(game.Busy() && game.Rules().Hand(Player::PLAYER).size() == 8, "Invalid drop must return without playing");
-        game.Update(0.4f);
+        game.Update(0.59f);
+        Check(game.Busy(), "Return flight shorter than 600 ms");
+        game.Update(0.02f);
         Check(!game.Busy() && game.Rules().Hand(Player::PLAYER).size() == 8, "Return animation changed state");
         PlayFirst(game);
         game.Update(0.14f);
@@ -193,8 +195,9 @@ void TestStockAvoidsDeferredCapture() {
         if (stockMatches) continue;
 
         game.Update(0.51f); // finish flip
-        game.Update(0.0f);  // start stock table drop
-        game.Update(0.16f); // settle unmatched stock card into a free slot
+        game.Update(0.0f);  // start stock card flight
+        game.Update(0.61f); // finish slow flight
+        game.Update(0.16f); // finish snappy table drop into a free slot
         const Rect stockRect = game.FieldRect(stockCard);
         const auto captured = game.Rules().Captured(Player::PLAYER);
         const auto cards = game.Cards();

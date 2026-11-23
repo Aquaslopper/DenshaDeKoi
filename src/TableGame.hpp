@@ -50,7 +50,7 @@ public:
     [[nodiscard]] std::optional<CardId> FindDropTarget(CardId card, TableLayout::Rect drop) const;
 
 private:
-    enum class Animation { NONE, RETURN, CPU_FLIP, HAND_MOVE, STOCK_FLIP, STOCK_MOVE, HIT_FREEZE, CAPTURE };
+    enum class Animation { NONE, RETURN, CPU_FLIP, CARD_FLIGHT, HAND_MOVE, STOCK_FLIP, STOCK_MOVE, HIT_FREEZE, CAPTURE };
     struct Moving {
         int id;
         TableLayout::Rect from, to;
@@ -93,6 +93,8 @@ private:
     float dragPitch_ = 0, dragRoll_ = 0;
     Animation animation_ = Animation::NONE;
     float elapsed_ = 0, duration_ = 0;
+    float landingElevation_ = TableLayout::CardElevation;
+    bool stockPlacement_ = false;
     bool matched_ = false;
     bool playerSnap_ = false;
     bool stockReady_ = false;

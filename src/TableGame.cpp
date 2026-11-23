@@ -11,6 +11,7 @@ namespace {
 using TableLayout::Point2;
 using TableLayout::Rect;
 
+constexpr float CardFlightSeconds = 0.60f;
 constexpr float TableDropSeconds = 0.15f;
 constexpr float CaptureFlightSeconds = 0.50f;
 constexpr float CaptureHitFreezeSeconds = 0.50f;
@@ -31,12 +32,6 @@ Point2 Center(Rect r) { return {r.x + r.width * 0.5f, r.y + r.height * 0.5f}; }
 float DistanceSq(Point2 a, Point2 b) { return (a.x-b.x)*(a.x-b.x) + (a.y-b.y)*(a.y-b.y); }
 Rect Interpolate(Rect a, Rect b, float t) {
     t = std::clamp(t, 0.0f, 1.0f); t = t * t * (3.0f - 2.0f * t);
-    return {a.x+(b.x-a.x)*t, a.y+(b.y-a.y)*t, a.width+(b.width-a.width)*t, a.height+(b.height-a.height)*t};
-}
-Rect InterpolateSnap(Rect a, Rect b, float t) {
-    t = std::clamp(t, 0.0f, 1.0f);
-    const float inv = 1.0f - t;
-    t = 1.0f - inv * inv * inv;
     return {a.x+(b.x-a.x)*t, a.y+(b.y-a.y)*t, a.width+(b.width-a.width)*t, a.height+(b.height-a.height)*t};
 }
 struct StackOffset { float dx, dy, yaw; };
@@ -199,7 +194,7 @@ void TableGame::CancelDrag() {
         playerSnap_ = false;
         moving_ = {{*dragged_, dragRect_, HandRect(Player::PLAYER, static_cast<std::size_t>(it - hand.begin())),
                     TableLayout::CardElevation + 0.042f, TableLayout::CardElevation}};
-        BeginAnimation(Animation::RETURN, 0.28f);
+        BeginAnimation(Animation::RETURN, CardFlightSeconds);
     }
     dragged_.reset();
     dragDeltaX_ = dragDeltaY_ = dragVelX_ = dragVelY_ = dragPitch_ = dragRoll_ = 0.0f;
@@ -229,14 +224,18 @@ void TableGame::StartHand(CardId id, Rect from, std::optional<CardId> target) {
     matched_ = target.has_value();
     pendingSlot_ = matched_ ? -1 : FindFreeSlot(Center(from));
     const Rect dest = target ? FieldRect(*target) : TableLayout::FieldSlot(static_cast<std::size_t>(pendingSlot_), compactField_ || game_.Field().size() >= 16);
-    const float toElev = TableLayout::CardElevation + (matched_ ? TableLayout::CardThickness + 0.001f : 0.0f);
+    landingElevation_ = TableLayout::CardElevation +
+        (matched_ ? TableLayout::CardThickness + 0.001f : 0.0f);
+    stockPlacement_ = false;
     if (game_.CurrentPlayer() == Player::OPPONENT) {
         playerSnap_ = false;
-        moving_ = {{id, from, dest, TableLayout::CardElevation, toElev}};
+        moving_ = {{id, from, dest, TableLayout::CardElevation, landingElevation_ + 0.018f}};
         BeginAnimation(Animation::CPU_FLIP, 0.30f);
     } else {
+        // The player already performed the flight by dragging the card. Only
+        // the shared, snappy table-drop phase remains after release.
         playerSnap_ = false;
-        moving_ = {{id, from, dest, TableLayout::CardElevation + 0.042f, toElev}};
+        moving_ = {{id, from, dest, TableLayout::CardElevation + 0.042f, landingElevation_}};
         BeginAnimation(Animation::HAND_MOVE, TableDropSeconds);
     }
 }
@@ -246,12 +245,15 @@ void TableGame::StartStockMove(std::optional<CardId> target) {
     pendingSlot_ = matched_ ? -1 : FindFreeSlot({431.0f, 355.0f});
     const Rect dest = target ? FieldRect(*target) : TableLayout::FieldSlot(static_cast<std::size_t>(pendingSlot_), compactField_ || game_.Field().size() >= 16);
     const float fromElev = TableLayout::CardElevation + StockHeight();
-    const float toElev = TableLayout::CardElevation + (matched_ ? TableLayout::CardThickness + 0.001f : 0.0f);
+    landingElevation_ = TableLayout::CardElevation +
+        (matched_ ? TableLayout::CardThickness + 0.001f : 0.0f);
+    stockPlacement_ = true;
     const auto j = StackJitter(100 + static_cast<int>(game_.StockRemaining()), 0.9f, 0.9f);
     playerSnap_ = false;
-    moving_ = {{id, JitteredRect(TableLayout::Stock, j), dest, fromElev, toElev, j.yaw, 0.0f}};
+    moving_ = {{id, JitteredRect(TableLayout::Stock, j), dest, fromElev,
+                landingElevation_ + 0.018f, j.yaw, 0.0f}};
     stockReady_ = false;
-    BeginAnimation(Animation::STOCK_MOVE, TableDropSeconds);
+    BeginAnimation(Animation::CARD_FLIGHT, CardFlightSeconds);
 }
 void TableGame::ResolveMove() {
     const Phase resolvedPhase = game_.GetPhase();
@@ -313,7 +315,19 @@ void TableGame::FinishAnimation() {
     switch (animation_) {
         case Animation::RETURN: case Animation::CAPTURE:
             animation_ = Animation::NONE; moving_.clear(); break;
-        case Animation::CPU_FLIP: BeginAnimation(Animation::HAND_MOVE, TableDropSeconds); break;
+        case Animation::CPU_FLIP:
+            BeginAnimation(Animation::CARD_FLIGHT, CardFlightSeconds);
+            break;
+        case Animation::CARD_FLIGHT:
+            for (auto& card : moving_) {
+                card.from = card.to;
+                card.fromElev = card.toElev;
+                card.fromYaw = card.toYaw;
+                card.toElev = landingElevation_;
+            }
+            BeginAnimation(stockPlacement_ ? Animation::STOCK_MOVE : Animation::HAND_MOVE,
+                           TableDropSeconds);
+            break;
         case Animation::HAND_MOVE: case Animation::STOCK_MOVE:
             if (matched_) BeginAnimation(Animation::HIT_FREEZE, CaptureHitFreezeSeconds);
             else ResolveMove();
@@ -529,11 +543,12 @@ std::vector<TableCard> TableGame::Cards() const {
             elev = m.fromElev + 0.022f * std::sin(Pi * t);
             yaw = m.fromYaw + (m.toYaw - m.fromYaw) * eased;
         } else {
-            const bool snap = (animation_ == Animation::HAND_MOVE && playerSnap_);
-            r = snap ? InterpolateSnap(m.from, m.to, t) : Interpolate(m.from, m.to, t);
-            const float easeT = snap ? (1.0f - (1.0f - t) * (1.0f - t) * (1.0f - t))
-                                     : (t * t * (3.0f - 2.0f * t));
-            const float arc = snap ? 0.0f : (animation_ == Animation::RETURN ? 0.018f : 0.052f) * std::sin(Pi * t);
+            const bool tableDrop = animation_ == Animation::HAND_MOVE ||
+                                   animation_ == Animation::STOCK_MOVE;
+            r = Interpolate(m.from, m.to, t);
+            const float easeT = t * t * (3.0f - 2.0f * t);
+            const float arc = tableDrop ? 0.0f
+                : (animation_ == Animation::RETURN ? 0.018f : 0.052f) * std::sin(Pi * t);
             elev = m.fromElev + (m.toElev - m.fromElev) * easeT + arc;
             yaw = m.fromYaw + (m.toYaw - m.fromYaw) * easeT;
             const float dx = m.to.x - m.from.x;
