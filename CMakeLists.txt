@@ -4,6 +4,18 @@ project(DenshaDeKoi VERSION 0.1.0 LANGUAGES CXX)
 option(BUILD_DESKTOP_APP "Build the Raylib game and atlas inspector" ON)
 include(CTest)
 
+# Verify the exact owner-approved rules and table/card arrangement on every build.
+# This target is intentionally independent of Python and works with all supported
+# CMake generators, including Visual Studio and MinGW.
+add_custom_target(verify_protected_contract ALL
+    COMMAND ${CMAKE_COMMAND}
+        -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+        -DMANIFEST=${CMAKE_CURRENT_SOURCE_DIR}/.github/protected-contract.sha256
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/VerifyProtectedContract.cmake
+    COMMENT "Checking protected rules and card arrangement"
+    VERBATIM
+)
+
 function(configure_project_target target)
     target_compile_features(${target} PRIVATE cxx_std_20)
     set_target_properties(${target} PROPERTIES CXX_EXTENSIONS OFF)
@@ -29,6 +41,7 @@ add_library(hanafuda_core STATIC
     src/TableGame.cpp
 )
 configure_project_target(hanafuda_core)
+add_dependencies(hanafuda_core verify_protected_contract)
 target_compile_features(hanafuda_core PUBLIC cxx_std_20)
 target_include_directories(hanafuda_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
 

@@ -1,0 +1,30 @@
+# The owner must review changes to locked product behavior and its guardrails.
+/AGENTS.md @Aquaslopper
+/.github/PROTECTED_AREAS.md @Aquaslopper
+/.github/CODEOWNERS @Aquaslopper
+/.github/workflows/ @Aquaslopper
+/.github/protected-contract.sha256 @Aquaslopper
+/cmake/VerifyProtectedContract.cmake @Aquaslopper
+/CMakeLists.txt @Aquaslopper
+
+/src/KoiKoiRules.cpp @Aquaslopper
+/src/KoiKoiRules.hpp @Aquaslopper
+/src/KoiKoiProfile.hpp @Aquaslopper
+/src/KoiKoiStateMachine.cpp @Aquaslopper
+/src/KoiKoiStateMachine.hpp @Aquaslopper
+/src/TableGame.cpp @Aquaslopper
+/src/TableGame.hpp @Aquaslopper
+/src/Deck.cpp @Aquaslopper
+/src/Deck.hpp @Aquaslopper
+/src/DeckRegister.hpp @Aquaslopper
+
+/src/CardData.hpp @Aquaslopper
+/src/AtlasLayout.hpp @Aquaslopper
+/src/AtlasManager.cpp @Aquaslopper
+/src/AtlasManager.hpp @Aquaslopper
+/cards_atlas.png @Aquaslopper
+
+/src/TableLayout.hpp @Aquaslopper
+/src/TableScene.cpp @Aquaslopper
+/src/TableScene.hpp @Aquaslopper
+/src/TableHud.hpp @Aquaslopper

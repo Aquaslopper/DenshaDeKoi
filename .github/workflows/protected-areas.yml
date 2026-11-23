@@ -1,0 +1,68 @@
+name: Protected areas
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    name: Protected areas / owner approval
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out proposed change
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Reject unapproved protected changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          APPROVED: ${{ contains(github.event.pull_request.labels.*.name, 'protected-code-approved') }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Allow this guardrail's one-time installation. Once the policy exists
+          # on the base branch, all later edits are subject to the lock below.
+          if ! git cat-file -e "$BASE_SHA:.github/PROTECTED_AREAS.md" 2>/dev/null; then
+            echo "Installing protected-area policy for the first time."
+            exit 0
+          fi
+
+          mapfile -t changed < <(git diff --name-only "$BASE_SHA" HEAD)
+
+          is_protected() {
+            case "$1" in
+              AGENTS.md|.github/PROTECTED_AREAS.md|.github/CODEOWNERS|.github/workflows/*|\
+              .github/protected-contract.sha256|cmake/VerifyProtectedContract.cmake|CMakeLists.txt|\
+              src/KoiKoiRules.cpp|src/KoiKoiRules.hpp|src/KoiKoiProfile.hpp|\
+              src/KoiKoiStateMachine.cpp|src/KoiKoiStateMachine.hpp|\
+              src/TableGame.cpp|src/TableGame.hpp|src/Deck.cpp|src/Deck.hpp|src/DeckRegister.hpp|\
+              src/CardData.hpp|src/AtlasLayout.hpp|src/AtlasManager.cpp|src/AtlasManager.hpp|cards_atlas.png|\
+              src/TableLayout.hpp|src/TableScene.cpp|src/TableScene.hpp|src/TableHud.hpp)
+                return 0 ;;
+              *) return 1 ;;
+            esac
+          }
+
+          protected=()
+          for file in "${changed[@]}"; do
+            if is_protected "$file"; then protected+=("$file"); fi
+          done
+
+          if ((${#protected[@]} == 0)); then
+            echo "No protected files changed."
+            exit 0
+          fi
+
+          printf 'Protected files changed:\n - %s\n' "${protected[@]}"
+          if [[ "$APPROVED" != "true" ]]; then
+            echo "::error::Protected product code changed without owner approval."
+            echo "The repository owner must review the change and apply the protected-code-approved label."
+            exit 1
+          fi
+
+          echo "Owner approval label is present. CODEOWNERS review is still required by branch protection."
