@@ -11,6 +11,7 @@ namespace {
 using TableLayout::Point2;
 using TableLayout::Rect;
 
+constexpr float CardFlightSeconds = 0.60f;
 constexpr float TableDropSeconds = 0.15f;
 constexpr float CaptureFlightSeconds = 0.50f;
 constexpr float CaptureHitFreezeSeconds = 0.50f;
@@ -108,23 +109,8 @@ Rect TableGame::FieldRect(CardId id) const {
 int TableGame::FindFreeSlot(Point2 near) const {
     std::array<bool, TableLayout::FieldSlotCount> used{};
     for (int slot : slots_) if (slot >= 0) used[static_cast<std::size_t>(slot)] = true;
-    const bool compact = compactField_ || game_.Field().size() >= 16;
-
-    // A hand capture remains on the table until the stock card resolves. Its
-    // rule-state slots are already free, but they are not visually free yet.
-    // Reserve every slot covered by those held cards so an unmatched stock
-    // card cannot land on top of the waiting capture.
-    for (std::size_t i = 0; i < used.size(); ++i) {
-        const Rect candidate = TableLayout::FieldSlot(i, compact);
-        for (const auto& deferred : deferredCapture_) {
-            if (Contains(candidate, Center(deferred.rect))) {
-                used[i] = true;
-                break;
-            }
-        }
-    }
-
     float best = std::numeric_limits<float>::infinity(); int found = -1;
+    const bool compact = compactField_ || game_.Field().size() >= 16;
     for (std::size_t i = 0; i < used.size(); ++i) if (!used[i]) {
         // Prefer the reference layout until its slots are full.
         if (!compact && i >= 16) continue;
@@ -252,7 +238,7 @@ void TableGame::StartStockMove(std::optional<CardId> target) {
     playerSnap_ = false;
     moving_ = {{id, JitteredRect(TableLayout::Stock, j), dest, fromElev, toElev, j.yaw, 0.0f}};
     stockReady_ = false;
-    BeginAnimation(Animation::STOCK_MOVE, TableDropSeconds);
+    BeginAnimation(Animation::STOCK_MOVE, CardFlightSeconds);
 }
 void TableGame::ResolveMove() {
     const Phase resolvedPhase = game_.GetPhase();
@@ -314,7 +300,7 @@ void TableGame::FinishAnimation() {
     switch (animation_) {
         case Animation::RETURN: case Animation::CAPTURE:
             animation_ = Animation::NONE; moving_.clear(); break;
-        case Animation::CPU_FLIP: BeginAnimation(Animation::HAND_MOVE, TableDropSeconds); break;
+        case Animation::CPU_FLIP: BeginAnimation(Animation::HAND_MOVE, CardFlightSeconds); break;
         case Animation::HAND_MOVE: case Animation::STOCK_MOVE:
             if (matched_) BeginAnimation(Animation::HIT_FREEZE, CaptureHitFreezeSeconds);
             else ResolveMove();
