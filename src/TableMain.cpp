@@ -4,6 +4,7 @@
 #include "SimpleRadio.hpp"
 #include "SfxPlayer.hpp"
 #include "ui/PauseMenu.hpp"
+#include "ui/PauseRadioMenu.hpp"
 
 #include <algorithm>
 #include <array>
@@ -16,6 +17,7 @@
 #include <string>
 #include <sstream>
 #include <stdexcept>
+#include <random>
 #include <vector>
 
 namespace {
@@ -172,9 +174,24 @@ int main() {
             if (titleArt[static_cast<std::size_t>(i)].id == 0)
                 throw std::runtime_error("Could not load title menu art: " + path);
         }
-        std::size_t titleVariant = 0;
+        std::random_device randomSeed;
+        std::mt19937 randomEngine(randomSeed());
+        std::uniform_int_distribution<int> firstMenu(0, 3);
+        std::size_t titleVariant = static_cast<std::size_t>(firstMenu(randomEngine));
         bool titleScreen = true;
+        bool exitRequested = false;
         bool galleryPlaceholder = false;
+        Texture2D titleOptionsPanel = LoadTexture((appDir / "options" / "menu.png").string().c_str());
+        Texture2D titleOptionsStripe = LoadTexture((appDir / "options" / "setting-stripe.png").string().c_str());
+        Texture2D titleRadioLogo = LoadTexture(logo.c_str());
+        if (!titleOptionsPanel.id || !titleOptionsStripe.id || !titleRadioLogo.id)
+            throw std::runtime_error("Could not load title menu overlay assets.");
+        Font titleHeadingFont = LoadFontEx(headingFont.c_str(), 56, nullptr, 0);
+        Font titleBodyFont = LoadFontEx(bodyFont.c_str(), 56, nullptr, 0);
+        if (titleHeadingFont.texture.id == 0 || titleBodyFont.texture.id == 0)
+            throw std::runtime_error("Could not load title menu fonts.");
+        const Ui::PauseMenuAssets titlePauseAssets{titleOptionsPanel, titleOptionsStripe, titleHeadingFont, titleBodyFont};
+        const Ui::PauseRadioMenuAssets titleRadioAssets{titleRadioLogo, titleHeadingFont, titleBodyFont};
         const auto galleryDirectory = appDir / "card-gallery";
         const auto galleryCards = ReadGalleryCards(galleryDirectory);
         std::array<Texture2D, 4> galleryTextures{};
@@ -205,7 +222,7 @@ int main() {
             if (next != TableOverlay::NONE) game.CancelDrag();
         };
 
-        while (!WindowShouldClose()) {
+        while (!WindowShouldClose() && !exitRequested) {
             const float dt = std::min(GetFrameTime(), 0.1f);
             const Resolution display{GetScreenWidth(), GetScreenHeight()};
             if (display.width <= 0 || display.height <= 0) {
@@ -215,6 +232,47 @@ int main() {
                 continue;
             }
             if (titleScreen) {
+                const bool titleHadModal = overlay != TableOverlay::NONE;
+                radio.Update();
+                const auto titleCanvas = CanvasPoint(GetMousePosition());
+                const bool titlePressed = IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
+                if (!galleryPlaceholder && overlay != TableOverlay::NONE) {
+                    if (IsKeyPressed(KEY_ESCAPE) || IsKeyPressed(KEY_P)) {
+                        overlay = TableOverlay::NONE;
+                        titleVariant = (titleVariant + 1) % titleArt.size();
+                    } else if (overlay == TableOverlay::PAUSE) {
+                        const auto old = options;
+                        const auto movement = GetMouseDelta();
+                        const Ui::PauseInput input{titleCanvas, movement.x != 0 || movement.y != 0, titlePressed,
+                            IsMouseButtonDown(MOUSE_BUTTON_LEFT), IsKeyPressed(KEY_DOWN) - IsKeyPressed(KEY_UP),
+                            IsKeyPressed(KEY_RIGHT) - IsKeyPressed(KEY_LEFT), IsKeyPressed(KEY_ENTER)};
+                        if (pause.Update(options, input, display, desktop)) {
+                            overlay = TableOverlay::NONE;
+                            titleVariant = (titleVariant + 1) % titleArt.size();
+                        }
+                        if (old.masterVolume != options.masterVolume && IsAudioDeviceReady())
+                            SetMasterVolume(options.masterVolume / 100.0f);
+                        if (old.sfxVolume != options.sfxVolume) sfx.SetVolume(options.sfxVolume / 100.0f);
+                        if (old.screenMode != options.screenMode || old.resolution != options.resolution)
+                            ApplyDisplay(options, desktop);
+                        if (old.aaSamples != options.aaSamples)
+                            options.aaSamples = scene.SetAntiAliasing(options.aaSamples);
+                    } else {
+                        if (titlePressed && In(titleCanvas, TableHud::ResumeBottomButton)) {
+                            overlay = TableOverlay::NONE;
+                            titleVariant = (titleVariant + 1) % titleArt.size();
+                        } else if (titlePressed && In(titleCanvas, TableHud::RadioPowerButton)) radio.ToggleEnabled();
+                        else if (titlePressed && In(titleCanvas, TableHud::RadioMuteButton)) radio.ToggleMute();
+                        else if (titlePressed && In(titleCanvas, TableHud::VolumeHitBox)) draggingVolume = true;
+                        else if (titlePressed) {
+                            for (std::size_t i = 0; i < TableHud::StationSlotCount; ++i)
+                                if (In(titleCanvas, TableHud::StationButton(i))) { radio.SelectStation(static_cast<int>(i)); break; }
+                        }
+                        if (draggingVolume && IsMouseButtonDown(MOUSE_BUTTON_LEFT))
+                            radio.SetVolume((titleCanvas.x - TableHud::VolumeBar.x) / TableHud::VolumeBar.width);
+                        if (!IsMouseButtonDown(MOUSE_BUTTON_LEFT)) draggingVolume = false;
+                    }
+                }
                 if (galleryPlaceholder) {
                     if (IsKeyPressed(KEY_ESCAPE) && selectedGalleryCard >= 0) selectedGalleryCard = -1;
                     else if (IsKeyPressed(KEY_ESCAPE)) {
@@ -224,7 +282,7 @@ int main() {
                     if (selectedGalleryCard >= 0) {
                         if (IsKeyPressed(KEY_LEFT)) galleryRotation -= 8;
                         if (IsKeyPressed(KEY_RIGHT)) galleryRotation += 8;
-                        galleryZoom = std::clamp(galleryZoom + GetMouseWheelMove() * 0.08f, 0.65f, 1.75f);
+                        galleryZoom = std::clamp(galleryZoom + GetMouseWheelMove() * 0.08f, 0.65f, 1.30f);
                         if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) draggingGallery = true;
                         if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) draggingGallery = false;
                         if (draggingGallery) galleryRotation += GetMouseDelta().x * 0.7f;
@@ -331,15 +389,24 @@ int main() {
                             else if (x > 1280) loadGalleryMonth(galleryMonth % 12 + 1);
                         }
                     }
-                } else if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+                } else if (overlay != TableOverlay::NONE) {
+                    const float scale = std::min(display.width / float(TableLayout::ImageWidth),
+                                                 display.height / float(TableLayout::ImageHeight));
+                    const Ui::Viewport viewport{{(display.width - TableLayout::ImageWidth * scale) * 0.5f,
+                                                 (display.height - TableLayout::ImageHeight * scale) * 0.5f,
+                                                 TableLayout::ImageWidth * scale, TableLayout::ImageHeight * scale}, scale};
+                    if (overlay == TableOverlay::PAUSE)
+                        Ui::DrawPauseMenu(viewport, options, display, pause.Focus(), titlePauseAssets);
+                    else Ui::DrawPauseRadioMenu(viewport, radio.Status(), titleRadioAssets);
+                } else if (titlePressed && !titleHadModal) {
                     const Vector2 p = GetMousePosition();
                     const float nx = p.x / display.width, ny = p.y / display.height;
                     if (ny > 0.64f && ny < 0.88f) {
                         if (nx < 0.29f) { titleScreen = false; overlay = TableOverlay::NONE; }
-                        else if (nx < 0.43f) { titleScreen = false; overlay = TableOverlay::PAUSE; }
-                        else if (nx < 0.58f) { titleScreen = false; overlay = TableOverlay::RADIO; }
+                        else if (nx < 0.43f) { overlay = TableOverlay::PAUSE; pause = {}; }
+                        else if (nx < 0.58f) { overlay = TableOverlay::RADIO; }
                         else if (nx < 0.72f) galleryPlaceholder = true;
-                        else if (nx < 0.88f) SetWindowShouldClose(true);
+                        else if (nx < 0.88f) exitRequested = true;
                     }
                 }
                 EndDrawing();
@@ -440,6 +507,11 @@ int main() {
         for (const auto& art : titleArt) if (art.id != 0) UnloadTexture(art);
         for (const auto& texture : galleryTextures) if (texture.id != 0) UnloadTexture(texture);
         if (galleryRaw.id != 0) UnloadTexture(galleryRaw);
+        if (titleOptionsPanel.id != 0) UnloadTexture(titleOptionsPanel);
+        if (titleOptionsStripe.id != 0) UnloadTexture(titleOptionsStripe);
+        if (titleRadioLogo.id != 0) UnloadTexture(titleRadioLogo);
+        if (titleHeadingFont.texture.id != 0) UnloadFont(titleHeadingFont);
+        if (titleBodyFont.texture.id != 0) UnloadFont(titleBodyFont);
     } catch (const std::exception& error) {
         std::fprintf(stderr, "%s\n", error.what());
         result = 1;
