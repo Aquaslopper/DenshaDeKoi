@@ -50,4 +50,4 @@ if(checked EQUAL 0)
     message(FATAL_ERROR "Protected-contract manifest contains no files")
 endif()
 
-message(STATUS "Protected contract verified (${checked} files): rules and card arrangement unchanged")
+message(STATUS "Protected contract verified (${checked} files): rules, card arrangement, and menu presentation unchanged")

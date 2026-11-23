@@ -34,6 +34,14 @@ This protects every card's identity, atlas coordinates, dimensions, artwork, ren
 This protects where cards lie on the table, hand/field/stock/capture positions, projection, hit testing,
 camera calibration, and the established table presentation.
 
+## Menu designs and shared UI premises
+
+- `src/ui/UiViewport.hpp`
+- `src/ui/PauseRadioMenu.cpp`, `src/ui/PauseRadioMenu.hpp`
+
+Each menu owns its visual identity in a separate implementation. `UiViewport` provides only the common
+1360x768 scaling premise, while `PauseRadioMenu` preserves the approved PSX-inspired radio design.
+
 ## Guardrails themselves
 
 - `AGENTS.md`

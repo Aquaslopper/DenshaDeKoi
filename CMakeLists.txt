@@ -4,7 +4,7 @@ project(DenshaDeKoi VERSION 0.1.0 LANGUAGES CXX)
 option(BUILD_DESKTOP_APP "Build the Raylib game and atlas inspector" ON)
 include(CTest)
 
-# Verify the exact owner-approved rules and table/card arrangement on every build.
+# Verify the exact owner-approved rules, table/card arrangement, and menu presentation on every build.
 # This target is intentionally independent of Python and works with all supported
 # CMake generators, including Visual Studio and MinGW.
 add_custom_target(verify_protected_contract ALL
@@ -12,7 +12,7 @@ add_custom_target(verify_protected_contract ALL
         -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
         -DMANIFEST=${CMAKE_CURRENT_SOURCE_DIR}/.github/protected-contract.sha256
         -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/VerifyProtectedContract.cmake
-    COMMENT "Checking protected rules and card arrangement"
+    COMMENT "Checking protected rules, card arrangement, and menu presentation"
     VERBATIM
 )
 
@@ -57,6 +57,7 @@ if(BUILD_DESKTOP_APP)
     add_executable(denshadekoi
         src/TableMain.cpp
         src/TableScene.cpp
+        src/ui/PauseRadioMenu.cpp
         src/RadioEngine.cpp
         src/SimpleRadio.cpp
     )
@@ -120,7 +121,7 @@ endif()
 
 if(BUILD_TESTING)
     # Exercise the actual table rendering commands with a Raylib test double.
-    add_executable(test_table tests/test_table.cpp src/TableScene.cpp)
+    add_executable(test_table tests/test_table.cpp src/TableScene.cpp src/ui/PauseRadioMenu.cpp)
     configure_project_target(test_table)
     target_include_directories(test_table PRIVATE tests/fake_raylib src)
     target_link_libraries(test_table PRIVATE hanafuda_core)
