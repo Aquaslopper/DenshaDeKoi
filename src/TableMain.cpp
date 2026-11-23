@@ -171,15 +171,28 @@ int main() {
             if (overlay == TableOverlay::NONE && inspectingCard) {
                 desiredMagnification = 0.85f;
             } else if (overlay == TableOverlay::NONE && game.Dragging()) {
-                const float dx = canvas.x - TableLayout::ImageWidth * 0.5f;
-                const float dy = canvas.y - TableLayout::ImageHeight * 0.5f;
-                const float proximity = 1.0f - std::clamp(std::hypot(dx, dy) / 430.0f, 0.0f, 1.0f);
-                desiredMagnification = 0.20f * proximity;
+                const auto center = *game.DraggedCenter();
+                const auto cardScreen = TableLayout::Project(
+                    TableLayout::OnPlane(center.x, center.y, TableLayout::CardElevation));
+                // Perspective depth bands: no effect in the hand, then a restrained
+                // rise as the card travels toward the far side of the table.
+                if (cardScreen.y < 553.0f && cardScreen.y >= 437.0f)
+                    desiredMagnification = 0.19f * (553.0f - cardScreen.y) / 116.0f;
+                else if (cardScreen.y < 437.0f && cardScreen.y >= 338.0f)
+                    desiredMagnification = 0.20f + 0.05f * (437.0f - cardScreen.y) / 99.0f;
+                else if (cardScreen.y < 338.0f)
+                    desiredMagnification = 0.26f + 0.02f * std::clamp((338.0f - cardScreen.y) / 100.0f, 0.0f, 1.0f);
+                magnify.focus = cardScreen;
             }
             const float magnifyBlend = 1.0f - std::exp(-12.0f * dt);
-            magnify.amount += (desiredMagnification - magnify.amount) * magnifyBlend;
-            magnify.focus.x += (canvas.x - magnify.focus.x) * magnifyBlend;
-            magnify.focus.y += (canvas.y - magnify.focus.y) * magnifyBlend;
+            if (game.Dragging() && desiredMagnification == 0.0f)
+                magnify.amount = 0.0f;
+            else
+                magnify.amount += (desiredMagnification - magnify.amount) * magnifyBlend;
+            if (!game.Dragging()) {
+                magnify.focus.x += (canvas.x - magnify.focus.x) * magnifyBlend;
+                magnify.focus.y += (canvas.y - magnify.focus.y) * magnifyBlend;
+            }
 
             for (GameSfx cue : game.TakeSfx()) PlayGameSfx(sfx, cue);
             radio.Update();
