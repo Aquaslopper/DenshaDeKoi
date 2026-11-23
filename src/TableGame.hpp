@@ -8,6 +8,18 @@
 #include <string>
 #include <vector>
 
+enum class GameSfx {
+    CARD_DEAL,
+    CARD_FLIP,
+    CARD_PLACE,
+    CARD_MATCH,
+    CARD_CAPTURE,
+    KOI_KOI,
+    SHOUBU,
+    ROUND_WIN,
+    ROUND_LOSE
+};
+
 struct TableCard {
     int id = -1; // -1 means matte-black card back.
     TableLayout::Rect rect{};
@@ -54,6 +66,7 @@ public:
     [[nodiscard]] bool Dragging() const { return dragged_.has_value(); }
     [[nodiscard]] std::string Status() const;
     [[nodiscard]] TableLayout::Rect FieldRect(CardId id) const;
+    [[nodiscard]] std::vector<GameSfx> TakeSfx();
 
     // Xeno-koi-style drop target: edge gap <=10 plan pixels, with a guard
     // against predominantly overlapping a different month.
@@ -96,6 +109,9 @@ private:
     std::optional<Player> openingDealer_;
     float openingTimer_ = 0.0f;
     float dealElapsed_ = 0.0f;
+    int openingDealCue_ = 0;
+    bool secondDealerFlipCue_ = false;
+    std::vector<GameSfx> sfx_;
     std::array<int, 48> slots_{};
     std::array<int, 2> scores_{};
     int round_ = 1;

@@ -80,8 +80,8 @@ void DrawPauseRadioMenuImpl(const Viewport& map, const RadioStatus& radio,
     DrawRectangle(map.X(261), map.Y(216), map.W(838), map.H(6), orange);
     DrawRectangle(map.X(261), map.Y(222), map.W(838), map.H(4), Color{248, 248, 241, 255});
     DrawRectangle(map.X(261), map.Y(226), map.W(838), map.H(6), green);
-    HeadingText("PAUSE", map.X(282), map.Y(148), map.Font(50), WHITE);
-    HeadingText("MENU", map.X(440), map.Y(178), map.Font(24), WHITE);
+    HeadingText("RADIO", map.X(282), map.Y(148), map.Font(50), WHITE);
+    HeadingText("MENU", map.X(465), map.Y(178), map.Font(24), WHITE);
     MenuText("PAUSED", map.X(580), map.Y(183), map.Font(18), Color{171, 178, 207, 255});
     if (logo.id != 0) {
         DrawTexturePro(logo, {0, 0, static_cast<float>(logo.width), static_cast<float>(logo.height)},

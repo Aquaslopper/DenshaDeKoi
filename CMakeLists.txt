@@ -58,8 +58,10 @@ if(BUILD_DESKTOP_APP)
         src/TableMain.cpp
         src/TableScene.cpp
         src/ui/PauseRadioMenu.cpp
+        src/ui/PauseMenu.cpp
         src/RadioEngine.cpp
         src/SimpleRadio.cpp
+        src/SfxPlayer.cpp
     )
     configure_project_target(denshadekoi)
     target_include_directories(denshadekoi PRIVATE "${raylib_SOURCE_DIR}/src")
@@ -88,6 +90,8 @@ if(BUILD_DESKTOP_APP)
             "${CMAKE_CURRENT_SOURCE_DIR}/assets/koidenscha.png" "$<TARGET_FILE_DIR:denshadekoi>/koidenscha.png"
         COMMAND ${CMAKE_COMMAND} -E copy_directory
             "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts" "$<TARGET_FILE_DIR:denshadekoi>/fonts"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_CURRENT_SOURCE_DIR}/assets/sfx" "$<TARGET_FILE_DIR:denshadekoi>/sfx"
         VERBATIM
     )
     add_custom_command(TARGET denshadekoi_inspector POST_BUILD
@@ -111,6 +115,9 @@ if(BUILD_DESKTOP_APP)
         COMMAND ${CMAKE_COMMAND} -E copy_directory
             "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts"
             "$<TARGET_FILE_DIR:denshadekoi>/fonts"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_CURRENT_SOURCE_DIR}/assets/sfx"
+            "$<TARGET_FILE_DIR:denshadekoi>/sfx"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${CMAKE_CURRENT_SOURCE_DIR}/cards_atlas.png"
             "$<TARGET_FILE_DIR:denshadekoi_inspector>/cards_atlas.png"
@@ -121,7 +128,7 @@ endif()
 
 if(BUILD_TESTING)
     # Exercise the actual table rendering commands with a Raylib test double.
-    add_executable(test_table tests/test_table.cpp src/TableScene.cpp src/ui/PauseRadioMenu.cpp)
+    add_executable(test_table tests/test_table.cpp src/TableScene.cpp src/ui/PauseRadioMenu.cpp src/ui/PauseMenu.cpp)
     configure_project_target(test_table)
     target_include_directories(test_table PRIVATE tests/fake_raylib src)
     target_link_libraries(test_table PRIVATE hanafuda_core)
