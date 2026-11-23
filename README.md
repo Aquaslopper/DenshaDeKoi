@@ -2,7 +2,7 @@
 
 <img width="640" alt="densha de koi" src="https://github.com/user-attachments/assets/87438703-24a9-41f7-ba00-5640b9916e19" />
 
---------------------
+--
 A C++20 / Raylib Koi-Koi table with a GUI-independent Hanafuda database, deck, rules engine, and match controller.
 
 ## Build and run
