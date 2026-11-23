@@ -95,6 +95,10 @@ if(BUILD_DESKTOP_APP)
             "${CMAKE_CURRENT_SOURCE_DIR}/assets/options" "$<TARGET_FILE_DIR:denshadekoi>/options"
         COMMAND ${CMAKE_COMMAND} -E copy_directory
             "${CMAKE_CURRENT_SOURCE_DIR}/assets/sfx" "$<TARGET_FILE_DIR:denshadekoi>/sfx"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_CURRENT_SOURCE_DIR}/assets/title" "$<TARGET_FILE_DIR:denshadekoi>/title"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_CURRENT_SOURCE_DIR}/card-gallery" "$<TARGET_FILE_DIR:denshadekoi>/card-gallery"
         VERBATIM
     )
     add_custom_command(TARGET denshadekoi_inspector POST_BUILD
@@ -123,6 +127,12 @@ if(BUILD_DESKTOP_APP)
         COMMAND ${CMAKE_COMMAND} -E copy_directory
             "${CMAKE_CURRENT_SOURCE_DIR}/assets/sfx"
             "$<TARGET_FILE_DIR:denshadekoi>/sfx"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_CURRENT_SOURCE_DIR}/assets/title"
+            "$<TARGET_FILE_DIR:denshadekoi>/title"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_CURRENT_SOURCE_DIR}/card-gallery"
+            "$<TARGET_FILE_DIR:denshadekoi>/card-gallery"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${CMAKE_CURRENT_SOURCE_DIR}/cards_atlas.png"
             "$<TARGET_FILE_DIR:denshadekoi_inspector>/cards_atlas.png"

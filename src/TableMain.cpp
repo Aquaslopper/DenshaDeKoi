@@ -6,11 +6,17 @@
 #include "ui/PauseMenu.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <exception>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <string>
+#include <sstream>
+#include <stdexcept>
+#include <vector>
 
 namespace {
 TableLayout::Point2 CanvasPoint(Vector2 mouse) {
@@ -63,12 +69,63 @@ void PlayGameSfx(SfxPlayer& player, GameSfx cue) {
         case GameSfx::CARD_FLIP: player.Play(SfxId::CardFlip); break;
         case GameSfx::CARD_PLACE: player.Play(SfxId::CardPlace); break;
         case GameSfx::CARD_MATCH: player.Play(SfxId::CardMatch); break;
-        case GameSfx::CARD_CAPTURE: player.Play(SfxId::CardCapture); break;
         case GameSfx::KOI_KOI: player.Play(SfxId::KoiKoi); break;
         case GameSfx::SHOUBU: player.Play(SfxId::Shobu); break;
         case GameSfx::ROUND_WIN: player.Play(SfxId::RoundWin); break;
         case GameSfx::ROUND_LOSE: player.Play(SfxId::RoundLose); break;
     }
+}
+struct GalleryCard {
+    std::string id, kind, train, description;
+    int month = 1;
+};
+std::string JsonString(const std::string& object, const std::string& key) {
+    const std::string marker = std::string(1, '"') + key + '"';
+    auto pos = object.find(marker);
+    if (pos == std::string::npos) return {};
+    pos = object.find(':', pos + marker.size());
+    if (pos == std::string::npos || (pos = object.find('"', pos)) == std::string::npos) return {};
+    std::string value;
+    for (++pos; pos < object.size(); ++pos) {
+        const char c = object[pos];
+        if (c == '"') break;
+        if (c == '\\' && pos + 1 < object.size()) {
+            const char next = object[++pos];
+            value += next == 'n' ? ' ' : next;
+        } else value += c;
+    }
+    return value;
+}
+std::vector<GalleryCard> ReadGalleryCards(const std::filesystem::path& directory) {
+    std::vector<GalleryCard> cards;
+    std::ifstream csv(directory / "cards.csv");
+    std::string line;
+    std::getline(csv, line);
+    while (std::getline(csv, line)) {
+        std::stringstream row(line);
+        std::string file, month, type, kind;
+        std::getline(row, file, ','); std::getline(row, month, ',');
+        std::getline(row, type, ','); std::getline(row, kind, ',');
+        const auto slash = file.find_last_of('/');
+        const auto dot = file.find_last_of('.');
+        if (slash == std::string::npos || dot == std::string::npos) continue;
+        cards.push_back({file.substr(slash + 1, dot - slash - 1), kind, {}, {}, std::stoi(month)});
+    }
+    std::ifstream jsonFile(directory / "gallery_data.json");
+    const std::string json((std::istreambuf_iterator<char>(jsonFile)), std::istreambuf_iterator<char>());
+    for (auto& card : cards) {
+        const std::string marker = "\"id\": \"" + card.id + "\"";
+        auto begin = json.find(marker);
+        if (begin == std::string::npos) continue;
+        begin = json.rfind('{', begin);
+        const auto end = json.find('}', begin);
+        if (begin == std::string::npos || end == std::string::npos) continue;
+        const auto object = json.substr(begin, end - begin + 1);
+        card.train = JsonString(object, "train_model");
+        card.description = JsonString(object, "description");
+        if (card.description.empty()) card.description = JsonString(object, "motif_twist");
+    }
+    return cards;
 }
 } // namespace
 
@@ -107,6 +164,35 @@ int main() {
         if (IsAudioDeviceReady()) SetMasterVolume(options.masterVolume / 100.0f);
         sfx.SetVolume(options.sfxVolume / 100.0f);
         Ui::PauseMenu pause;
+        std::array<Texture2D, 4> titleArt{};
+        for (int i = 0; i < 4; ++i) {
+            const std::string path = (appDir / "title" / ("menu" + std::to_string(i + 1) + ".png")).string();
+            titleArt[static_cast<std::size_t>(i)] = LoadTexture(path.c_str());
+            if (titleArt[static_cast<std::size_t>(i)].id == 0)
+                throw std::runtime_error("Could not load title menu art: " + path);
+        }
+        std::size_t titleVariant = 0;
+        bool titleScreen = true;
+        bool galleryPlaceholder = false;
+        const auto galleryDirectory = appDir / "card-gallery";
+        const auto galleryCards = ReadGalleryCards(galleryDirectory);
+        std::array<Texture2D, 4> galleryTextures{};
+        Texture2D galleryRaw{};
+        int galleryMonth = 1, selectedGalleryCard = -1;
+        bool showingRaw = false, draggingGallery = false;
+        float galleryRotation = 0.0f, galleryZoom = 1.0f;
+        const auto loadGalleryMonth = [&](int month) {
+            for (auto& texture : galleryTextures) { if (texture.id) UnloadTexture(texture); texture = {}; }
+            if (galleryRaw.id) { UnloadTexture(galleryRaw); galleryRaw = {}; }
+            selectedGalleryCard = -1; showingRaw = false;
+            galleryMonth = month;
+            int slot = 0;
+            for (const auto& card : galleryCards) if (card.month == month && slot < 4) {
+                const auto path = galleryDirectory / "cards" / (card.id + ".jpg");
+                galleryTextures[static_cast<std::size_t>(slot++)] = LoadTexture(path.string().c_str());
+            }
+        };
+        loadGalleryMonth(galleryMonth);
         bool draggingVolume = false; // Radio's own channel slider.
         bool inspectingCard = false;
         MagnifyEffect magnify{};
@@ -125,6 +211,138 @@ int main() {
                 radio.Update();
                 BeginDrawing();
                 EndDrawing(); // Keep polling events while minimized.
+                continue;
+            }
+            if (titleScreen) {
+                if (galleryPlaceholder) {
+                    if (IsKeyPressed(KEY_ESCAPE) && selectedGalleryCard >= 0) selectedGalleryCard = -1;
+                    else if (IsKeyPressed(KEY_ESCAPE)) {
+                        galleryPlaceholder = false;
+                        titleVariant = (titleVariant + 1) % titleArt.size();
+                    }
+                    if (selectedGalleryCard >= 0) {
+                        if (IsKeyPressed(KEY_LEFT)) galleryRotation -= 8;
+                        if (IsKeyPressed(KEY_RIGHT)) galleryRotation += 8;
+                        galleryZoom = std::clamp(galleryZoom + GetMouseWheelMove() * 0.08f, 0.65f, 1.75f);
+                        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) draggingGallery = true;
+                        if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) draggingGallery = false;
+                        if (draggingGallery) galleryRotation += GetMouseDelta().x * 0.7f;
+                    } else {
+                        if (IsKeyPressed(KEY_LEFT)) loadGalleryMonth((galleryMonth + 10) % 12 + 1);
+                        if (IsKeyPressed(KEY_RIGHT)) loadGalleryMonth(galleryMonth % 12 + 1);
+                    }
+                }
+                BeginDrawing();
+                ClearBackground(BLACK);
+                const auto& art = titleArt[titleVariant];
+                DrawTexturePro(art, {0, 0, static_cast<float>(art.width), static_cast<float>(art.height)},
+                    {0, 0, static_cast<float>(display.width), static_cast<float>(display.height)},
+                    {0, 0}, 0, WHITE);
+                if (galleryPlaceholder) {
+                    const float sx = display.width / 1360.0f, sy = display.height / 768.0f;
+                    DrawRectangle(0, 0, display.width, display.height, Color{2, 7, 19, 208});
+                    const Rectangle panel{20*sx, 18*sy, 1320*sx, 732*sy};
+                    DrawRectangleRounded(panel, 0.025f, 8, Color{10, 19, 34, 247});
+                    DrawRectangleLinesEx(panel, 2*sx, Color{68, 206, 232, 255});
+                    DrawText("DENSHA DE GO!  /  CARD ARCHIVE", 48*sx, 34*sy, 24*sx, Color{115, 224, 239, 255});
+                    DrawText(TextFormat("MONTH %02d / 12", galleryMonth), 48*sx, 72*sy, 30*sx, WHITE);
+                    DrawText("ESC  BACK", 1160*sx, 40*sy, 17*sx, Color{178, 201, 215, 255});
+                    DrawLineEx({45*sx, 117*sy}, {1315*sx, 117*sy}, 2*sx, Color{55, 112, 134, 255});
+                    if (selectedGalleryCard < 0) {
+                        DrawText("SELECT A CARD", 48*sx, 132*sy, 17*sx, Color{147, 177, 192, 255});
+                        DrawText("<", 26*sx, 401*sy, 34*sx, SKYBLUE);
+                        DrawText(">", 1300*sx, 401*sy, 34*sx, SKYBLUE);
+                        int slot = 0;
+                        for (std::size_t i = 0; i < galleryCards.size(); ++i) {
+                            const auto& card = galleryCards[i];
+                            if (card.month != galleryMonth) continue;
+                            const float x = (72 + slot * 310) * sx;
+                            const Rectangle box{x, 174*sy, 252*sx, 388*sy};
+                            DrawRectangleRounded(box, 0.025f, 5, Color{17, 34, 51, 255});
+                            DrawRectangleLinesEx(box, 1.5f*sx, Color{70, 150, 175, 255});
+                            if (galleryTextures[static_cast<std::size_t>(slot)].id) {
+                                const auto& texture = galleryTextures[static_cast<std::size_t>(slot)];
+                                DrawTexturePro(texture, {0,0,float(texture.width),float(texture.height)},
+                                    {x+10*sx, 184*sy, 232*sx, 336*sy}, {0,0}, 0, WHITE);
+                            }
+                            DrawText(card.id.c_str(), x+10*sx, 531*sy, 18*sx, Color{103, 226, 239, 255});
+                            DrawText(card.kind.c_str(), x+63*sx, 531*sy, 17*sx, WHITE);
+                            ++slot;
+                        }
+                        DrawText("ARROWS  CHANGE MONTH     CLICK  INSPECT", 48*sx, 604*sy, 17*sx, Color{164, 185, 198, 255});
+                    } else {
+                        int slot = 0;
+                        const GalleryCard* card = nullptr;
+                        for (const auto& item : galleryCards) if (item.month == galleryMonth) {
+                            if (slot++ == selectedGalleryCard) { card = &item; break; }
+                        }
+                        if (card && galleryTextures[static_cast<std::size_t>(selectedGalleryCard)].id) {
+                            const auto& texture = galleryTextures[static_cast<std::size_t>(selectedGalleryCard)];
+                            const Texture2D shown = showingRaw && galleryRaw.id ? galleryRaw : texture;
+                            const float zoom = galleryZoom;
+                            DrawRectangleRounded({53*sx, 139*sy, 488*sx, 570*sy}, 0.02f, 5, Color{7, 13, 24, 255});
+                            DrawTexturePro(shown, {0,0,float(shown.width),float(shown.height)},
+                                {297*sx, 424*sy, 248*zoom*sx, 382*zoom*sy}, {124*zoom*sx,191*zoom*sy}, galleryRotation, WHITE);
+                            DrawText(card->id.c_str(), 573*sx, 158*sy, 34*sx, Color{103, 226, 239, 255});
+                            DrawText(card->kind.c_str(), 573*sx, 203*sy, 25*sx, WHITE);
+                            DrawText(card->train.empty() ? "Train details unavailable" : card->train.c_str(), 573*sx, 250*sy, 20*sx, Color{255, 205, 119, 255});
+                            DrawText("ARTWORK NOTES", 573*sx, 300*sy, 16*sx, Color{103, 226, 239, 255});
+                            std::string remaining = card->description.empty() ? "No description available." : card->description;
+                            int descriptionY = 328;
+                            while (!remaining.empty() && descriptionY < 520) {
+                                std::size_t count = std::min<std::size_t>(72, remaining.size());
+                                if (count < remaining.size()) {
+                                    const auto space = remaining.rfind(' ', count);
+                                    if (space != std::string::npos && space > 20) count = space;
+                                }
+                                DrawText(remaining.substr(0, count).c_str(), 573*sx, descriptionY*sy, 18*sx, Color{218, 226, 232, 255});
+                                remaining.erase(0, count);
+                                while (!remaining.empty() && remaining.front() == ' ') remaining.erase(0, 1);
+                                descriptionY += 25;
+                            }
+                            DrawText("HOLD + DRAG TO ROTATE   WHEEL TO ZOOM", 573*sx, 540*sy, 16*sx, Color{147, 177, 192, 255});
+                            DrawRectangleRounded({573*sx, 592*sy, 184*sx, 48*sy}, 0.1f, 5, showingRaw ? Color{137, 54, 69, 255} : Color{26, 94, 121, 255});
+                            DrawText(showingRaw ? "SHOW CARD ART" : "SHOW RAW", 594*sx, 607*sy, 18*sx, WHITE);
+                        }
+                    }
+                    if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+                        const Vector2 p = GetMousePosition();
+                        const float x = p.x / sx, y = p.y / sy;
+                        if (selectedGalleryCard >= 0 && x > 560 && y > 580 && y < 650) {
+                            showingRaw = !showingRaw;
+                            if (galleryRaw.id) { UnloadTexture(galleryRaw); galleryRaw = {}; }
+                            if (showingRaw) {
+                                int index = 0;
+                                for (const auto& item : galleryCards) if (item.month == galleryMonth) {
+                                    if (index++ == selectedGalleryCard) {
+                                        const auto rawPath = galleryDirectory / "raw" / (item.id + ".jpg");
+                                        galleryRaw = LoadTexture(rawPath.string().c_str());
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        else if (selectedGalleryCard < 0 && y > 160 && y < 575) {
+                            int slot = static_cast<int>((x - 72) / 310);
+                            if (slot >= 0 && slot < 4 && x >= 72 + slot*310 && x < 324 + slot*310) {
+                                selectedGalleryCard = slot; showingRaw = false; galleryRotation = 0; galleryZoom = 1;
+                            } else if (x < 65) loadGalleryMonth((galleryMonth + 10) % 12 + 1);
+                            else if (x > 1280) loadGalleryMonth(galleryMonth % 12 + 1);
+                        }
+                    }
+                } else if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+                    const Vector2 p = GetMousePosition();
+                    const float nx = p.x / display.width, ny = p.y / display.height;
+                    if (ny > 0.64f && ny < 0.88f) {
+                        if (nx < 0.29f) { titleScreen = false; overlay = TableOverlay::NONE; }
+                        else if (nx < 0.43f) { titleScreen = false; overlay = TableOverlay::PAUSE; }
+                        else if (nx < 0.58f) { titleScreen = false; overlay = TableOverlay::RADIO; }
+                        else if (nx < 0.72f) galleryPlaceholder = true;
+                        else if (nx < 0.88f) SetWindowShouldClose(true);
+                    }
+                }
+                EndDrawing();
+                if (!titleScreen) titleVariant = (titleVariant + 1) % titleArt.size();
                 continue;
             }
             if (overlay == TableOverlay::PAUSE && options.screenMode != ScreenMode::Fullscreen) desktop = MonitorSize();
@@ -218,6 +436,9 @@ int main() {
             scene.Draw(game, {overlay, radio.Status(), options, pause.Focus(), canvas}, magnify);
         }
         SaveOptions(optionsFile, options);
+        for (const auto& art : titleArt) if (art.id != 0) UnloadTexture(art);
+        for (const auto& texture : galleryTextures) if (texture.id != 0) UnloadTexture(texture);
+        if (galleryRaw.id != 0) UnloadTexture(galleryRaw);
     } catch (const std::exception& error) {
         std::fprintf(stderr, "%s\n", error.what());
         result = 1;
