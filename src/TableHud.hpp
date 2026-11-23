@@ -2,6 +2,7 @@
 
 #include "RadioEngine.hpp"
 #include "TableLayout.hpp"
+#include "GameOptions.hpp"
 
 #include <array>
 #include <cstddef>
@@ -31,15 +32,6 @@ inline constexpr Rect VolumeHitBox{698.0f, 240.0f, 290.0f, 48.0f};
 inline constexpr Rect NewMatchButton{278.0f, 607.0f, 190.0f, 54.0f};
 inline constexpr Rect ResumeBottomButton{886.0f, 607.0f, 190.0f, 54.0f};
 
-// Simple pause/options panel. This intentionally remains separate from the radio menu.
-inline constexpr Rect OptionsPanel{390.0f, 170.0f, 580.0f, 430.0f};
-inline constexpr Rect MasterVolumeBar{500.0f, 330.0f, 300.0f, 28.0f};
-inline constexpr Rect MasterVolumeHitBox{490.0f, 315.0f, 390.0f, 58.0f};
-inline constexpr Rect SfxVolumeBar{500.0f, 420.0f, 300.0f, 28.0f};
-inline constexpr Rect SfxVolumeHitBox{490.0f, 405.0f, 390.0f, 58.0f};
-inline constexpr Rect OptionsNewMatchButton{430.0f, 515.0f, 220.0f, 58.0f};
-inline constexpr Rect OptionsResumeButton{710.0f, 515.0f, 220.0f, 58.0f};
-
 inline constexpr std::size_t StationSlotCount = 6;
 [[nodiscard]] constexpr Rect StationButton(std::size_t index) {
     const std::size_t col = index % 2;
@@ -51,11 +43,14 @@ inline constexpr std::size_t StationSlotCount = 6;
 }
 } // namespace TableHud
 
+namespace Ui { enum class OptionRow; }
+
 enum class TableOverlay { NONE, RADIO, PAUSE };
 
 struct TableHudState {
     TableOverlay overlay = TableOverlay::NONE;
     RadioStatus radio{};
-    float masterVolume = 1.0f;
-    float sfxVolume = 1.0f;
+    GameOptions options{};
+    Ui::OptionRow focusedOption{}; // First row on opening the pause menu.
+    TableLayout::Point2 pointer{-1, -1};
 };

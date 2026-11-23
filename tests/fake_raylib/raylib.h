@@ -67,3 +67,9 @@ void BeginMode3D(Camera3D camera);
 void EndMode3D();
 
 void DrawRectangle(int x, int y, int width, int height, Color color);
+Vector2 MeasureTextEx(Font font, const char* text, float size, float spacing);
+void DrawLineEx(Vector2 start, Vector2 end, float thickness, Color color);
+void DrawTriangle(Vector2 a, Vector2 b, Vector2 c, Color color);
+void DrawRing(Vector2 center, float inner, float outer, float start, float end, int segments, Color color);
+void DrawRectangleRounded(Rectangle rect, float roundness, int segments, Color color);
+void DrawRectangleGradientV(int x, int y, int width, int height, Color top, Color bottom);

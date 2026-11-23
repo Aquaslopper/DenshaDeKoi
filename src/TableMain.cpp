@@ -3,6 +3,7 @@
 #include "TableScene.hpp"
 #include "SimpleRadio.hpp"
 #include "SfxPlayer.hpp"
+#include "ui/PauseMenu.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -26,6 +27,35 @@ TableLayout::Point2 PlanPoint(TableLayout::Point2 canvas) {
     p.x = std::clamp(p.x, -200.0f, TableLayout::PlanWidth + 200.0f);
     p.y = std::clamp(p.y, -200.0f, TableLayout::PlanHeight + 200.0f);
     return p;
+}
+Resolution MonitorSize() {
+    const int monitor = GetCurrentMonitor();
+    const Resolution size{GetMonitorWidth(monitor), GetMonitorHeight(monitor)};
+    return size.width > 0 && size.height > 0 ? size : Resolution{GetScreenWidth(), GetScreenHeight()};
+}
+
+void ApplyDisplay(GameOptions& options, Resolution desktop) {
+    const ScreenMode requested = options.screenMode;
+    // Leave the old mode first: raylib's borderless window owns its monitor
+    // size, while exclusive fullscreen chooses a video mode from the window size.
+    if (IsWindowState(FLAG_BORDERLESS_WINDOWED_MODE)) ToggleBorderlessWindowed();
+    if (IsWindowFullscreen() && requested != ScreenMode::Fullscreen) ToggleFullscreen();
+    if (requested == ScreenMode::Borderless) ToggleBorderlessWindowed();
+    else {
+        auto& r = options.resolution;
+        if (r.width > desktop.width || r.height > desktop.height) r = desktop;
+        if (IsWindowMaximized()) RestoreWindow();
+        SetWindowSize(r.width, r.height);
+        if (requested == ScreenMode::Fullscreen && !IsWindowFullscreen()) ToggleFullscreen();
+        if (requested == ScreenMode::Windowed) {
+            const auto origin = GetMonitorPosition(GetCurrentMonitor());
+            const auto pos = GetWindowPosition();
+            SetWindowPosition(static_cast<int>(std::clamp(pos.x, origin.x, origin.x + desktop.width - r.width)),
+                              static_cast<int>(std::clamp(pos.y, origin.y, origin.y + desktop.height - r.height)));
+        }
+    }
+    options.screenMode = IsWindowFullscreen() ? ScreenMode::Fullscreen :
+                         IsWindowState(FLAG_BORDERLESS_WINDOWED_MODE) ? ScreenMode::Borderless : ScreenMode::Windowed;
 }
 void PlayGameSfx(SfxPlayer& player, GameSfx cue) {
     switch (cue) {
@@ -63,92 +93,101 @@ int main() {
         const std::string logo = (appDir / "koidenscha.png").string();
         const std::string headingFont = (appDir / "fonts" / "Oxanium-Bold.ttf").string();
         const std::string bodyFont = (appDir / "fonts" / "Rajdhani-Bold.ttf").string();
-        const TableScene scene(background.c_str(), atlas.c_str(), logo.c_str(),
-                               headingFont.c_str(), bodyFont.c_str());
+        TableScene scene(background.c_str(), atlas.c_str(), logo.c_str(),
+                         headingFont.c_str(), bodyFont.c_str(), appDir / "options");
         TableGame game;
         SimpleRadio radio;
         SfxPlayer sfx(appDir / "sfx");
         TableOverlay overlay = TableOverlay::NONE;
-        float masterVolume = 1.0f;
-        float sfxVolume = 1.0f;
-        bool draggingVolume = false;
-        bool draggingMaster = false;
-        bool draggingSfx = false;
+        const auto optionsFile = OptionsFile();
+        GameOptions options = LoadOptions(optionsFile);
+        Resolution desktop = MonitorSize();
+        ApplyDisplay(options, desktop);
+        options.aaSamples = scene.SetAntiAliasing(options.aaSamples);
+        if (IsAudioDeviceReady()) SetMasterVolume(options.masterVolume / 100.0f);
+        sfx.SetVolume(options.sfxVolume / 100.0f);
+        Ui::PauseMenu pause;
+        bool draggingVolume = false; // Radio's own channel slider.
         bool inspectingCard = false;
         MagnifyEffect magnify{};
+        const auto setOverlay = [&](TableOverlay next) {
+            overlay = next;
+            draggingVolume = false;
+            inspectingCard = false;
+            pause = {};
+            if (next != TableOverlay::NONE) game.CancelDrag();
+        };
 
         while (!WindowShouldClose()) {
             const float dt = std::min(GetFrameTime(), 0.1f);
-
-            if (IsKeyPressed(KEY_ESCAPE) || IsKeyPressed(KEY_P)) {
-                overlay = overlay == TableOverlay::PAUSE ? TableOverlay::NONE : TableOverlay::PAUSE;
-                draggingVolume = draggingMaster = draggingSfx = false;
-                if (overlay != TableOverlay::NONE) {
-                    game.CancelDrag();
-                    inspectingCard = false;
-                }
+            const Resolution display{GetScreenWidth(), GetScreenHeight()};
+            if (display.width <= 0 || display.height <= 0) {
+                radio.Update();
+                BeginDrawing();
+                EndDrawing(); // Keep polling events while minimized.
+                continue;
             }
+            if (overlay == TableOverlay::PAUSE && options.screenMode != ScreenMode::Fullscreen) desktop = MonitorSize();
+            if (options.screenMode == ScreenMode::Windowed) options.resolution = display;
+            const bool pauseKey = IsKeyPressed(KEY_ESCAPE) || IsKeyPressed(KEY_P);
+            if (pauseKey) setOverlay(overlay == TableOverlay::PAUSE ? TableOverlay::NONE : TableOverlay::PAUSE);
             if (IsKeyPressed(KEY_M)) {
                 radio.ToggleMute();
             }
 
             const auto canvas = CanvasPoint(GetMousePosition());
+            const bool pressed = IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
             if (overlay != TableOverlay::NONE) {
-                if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-                    if (In(canvas, TableHud::RadioMenuButton)) {
-                        overlay = overlay == TableOverlay::RADIO ? TableOverlay::NONE : TableOverlay::RADIO;
-                    } else if (In(canvas, TableHud::PauseButton)) {
-                        overlay = overlay == TableOverlay::PAUSE ? TableOverlay::NONE : TableOverlay::PAUSE;
-                    } else if (overlay == TableOverlay::RADIO) {
-                        if (In(canvas, TableHud::ResumeBottomButton)) overlay = TableOverlay::NONE;
+                if (pressed && In(canvas, TableHud::RadioMenuButton)) {
+                    setOverlay(overlay == TableOverlay::RADIO ? TableOverlay::NONE : TableOverlay::RADIO);
+                } else if (pressed && In(canvas, TableHud::PauseButton)) {
+                    setOverlay(overlay == TableOverlay::PAUSE ? TableOverlay::NONE : TableOverlay::PAUSE);
+                } else if (overlay == TableOverlay::PAUSE) {
+                    const auto old = options;
+                    const auto movement = GetMouseDelta();
+                    const Ui::PauseInput input{canvas, movement.x != 0 || movement.y != 0, pressed,
+                        IsMouseButtonDown(MOUSE_BUTTON_LEFT), IsKeyPressed(KEY_DOWN) - IsKeyPressed(KEY_UP),
+                        IsKeyPressed(KEY_RIGHT) - IsKeyPressed(KEY_LEFT), IsKeyPressed(KEY_ENTER)};
+                    if (pause.Update(options, input, display, desktop)) setOverlay(TableOverlay::NONE);
+                    if (old.masterVolume != options.masterVolume && IsAudioDeviceReady())
+                        SetMasterVolume(options.masterVolume / 100.0f);
+                    if (old.sfxVolume != options.sfxVolume) sfx.SetVolume(options.sfxVolume / 100.0f);
+                    if (old.screenMode != options.screenMode || old.resolution != options.resolution)
+                        ApplyDisplay(options, desktop);
+                    if (old.aaSamples != options.aaSamples) options.aaSamples = scene.SetAntiAliasing(options.aaSamples);
+                } else {
+                    if (pressed) {
+                        if (In(canvas, TableHud::ResumeBottomButton)) setOverlay(TableOverlay::NONE);
                         else if (In(canvas, TableHud::RadioPowerButton)) radio.ToggleEnabled();
                         else if (In(canvas, TableHud::RadioMuteButton)) radio.ToggleMute();
                         else if (In(canvas, TableHud::VolumeHitBox)) draggingVolume = true;
                         else if (In(canvas, TableHud::NewMatchButton)) {
                             game = TableGame();
-                            overlay = TableOverlay::NONE;
+                            setOverlay(TableOverlay::NONE);
                         } else {
                             for (std::size_t i = 0; i < TableHud::StationSlotCount; ++i)
                                 if (In(canvas, TableHud::StationButton(i))) { radio.SelectStation(static_cast<int>(i)); break; }
                         }
-                    } else {
-                        if (In(canvas, TableHud::OptionsResumeButton)) overlay = TableOverlay::NONE;
-                        else if (In(canvas, TableHud::OptionsNewMatchButton)) {
-                            game = TableGame();
-                            overlay = TableOverlay::NONE;
-                        } else if (In(canvas, TableHud::MasterVolumeHitBox)) draggingMaster = true;
-                        else if (In(canvas, TableHud::SfxVolumeHitBox)) draggingSfx = true;
                     }
+                    if (draggingVolume && IsMouseButtonDown(MOUSE_BUTTON_LEFT))
+                        radio.SetVolume((canvas.x - TableHud::VolumeBar.x) / TableHud::VolumeBar.width);
+                    if (!IsMouseButtonDown(MOUSE_BUTTON_LEFT)) draggingVolume = false;
                 }
-                if (draggingVolume && IsMouseButtonDown(MOUSE_BUTTON_LEFT))
-                    radio.SetVolume((canvas.x - TableHud::VolumeBar.x) / TableHud::VolumeBar.width);
-                if (draggingMaster && IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
-                    masterVolume = std::clamp((canvas.x - TableHud::MasterVolumeBar.x) / TableHud::MasterVolumeBar.width, 0.0f, 1.0f);
-                    SetMasterVolume(masterVolume);
-                }
-                if (draggingSfx && IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
-                    sfxVolume = std::clamp((canvas.x - TableHud::SfxVolumeBar.x) / TableHud::SfxVolumeBar.width, 0.0f, 1.0f);
-                    sfx.SetVolume(sfxVolume);
-                }
-                if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT))
-                    draggingVolume = draggingMaster = draggingSfx = false;
-            } else {
+            } else if (!pauseKey) {
                 if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
                     if (game.Dragging()) game.CancelDrag();
                     else inspectingCard = game.HasCardAt(PlanPoint(canvas));
                 }
                 if (IsMouseButtonReleased(MOUSE_BUTTON_RIGHT)) inspectingCard = false;
-                if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+                if (pressed) {
                     if (game.AwaitingDealerChoice() && In(canvas, TableHud::DealerCardLeft)) {
                         game.SelectDealerCard(0);
                     } else if (game.AwaitingDealerChoice() && In(canvas, TableHud::DealerCardRight)) {
                         game.SelectDealerCard(1);
                     } else if (In(canvas, TableHud::RadioMenuButton)) {
-                        overlay = TableOverlay::RADIO;
-                        game.CancelDrag();
+                        setOverlay(TableOverlay::RADIO);
                     } else if (In(canvas, TableHud::PauseButton)) {
-                        overlay = TableOverlay::PAUSE;
-                        game.CancelDrag();
+                        setOverlay(TableOverlay::PAUSE);
                     } else if (game.Rules().GetPhase() == Phase::ROUND_END && In(canvas, TableHud::RoundEndButton)) {
                         if (game.MatchFinished()) game = TableGame();
                         else game.NextRound();
@@ -164,7 +203,7 @@ int main() {
                 }
                 if (game.Dragging()) game.PointerMove(PlanPoint(canvas));
                 if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) game.PointerUp(PlanPoint(canvas));
-                game.Update(dt);
+                if (overlay == TableOverlay::NONE) game.Update(dt);
             }
 
             const float desiredMagnification =
@@ -176,8 +215,9 @@ int main() {
 
             for (GameSfx cue : game.TakeSfx()) PlayGameSfx(sfx, cue);
             radio.Update();
-            scene.Draw(game, {overlay, radio.Status(), masterVolume, sfxVolume}, magnify);
+            scene.Draw(game, {overlay, radio.Status(), options, pause.Focus(), canvas}, magnify);
         }
+        SaveOptions(optionsFile, options);
     } catch (const std::exception& error) {
         std::fprintf(stderr, "%s\n", error.what());
         result = 1;
