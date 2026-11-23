@@ -11,6 +11,24 @@ using TableLayout::Point2;
 using TableLayout::Rect;
 void Check(bool ok, const char* text) { if (!ok) throw std::runtime_error(text); }
 Point2 Center(Rect r) { return {r.x+r.width/2, r.y+r.height/2}; }
+void TestOpeningPresentation() {
+    TableGame game;
+    Check(game.AwaitingDealerChoice() && game.DealerSelectionActive() && game.Busy(),
+          "New match must wait for dealer card selection");
+    game.SelectDealerCard(0);
+    Check(!game.AwaitingDealerChoice() && game.DealerSelectionActive(),
+          "Dealer selection did not begin reveal");
+    game.Update(3.39f);
+    Check(game.DealerSelectionActive(), "Dealer reveal ended before 3.4 seconds");
+    game.Update(0.02f);
+    Check(game.RoundIntroActive() && game.Busy(), "Deal and match intro did not start");
+    game.Update(1.49f);
+    Check(game.RoundIntroActive(), "Round intro ended before 1.5 seconds");
+    game.Update(0.02f);
+    Check(!game.RoundIntroActive() && !game.Busy() && game.Rules().ValidateConservation(),
+          "Opening presentation did not release gameplay");
+}
+
 void TestProjection() {
     for (float x : {0.f, 150.f, 420.f, 840.f}) for (float y : {0.f, 200.f, 500.f, 720.f}) {
         const auto p = TableLayout::Unproject(TableLayout::Project(TableLayout::OnPlane(x, y, TableLayout::CardElevation)));
@@ -278,6 +296,6 @@ void TestMatches() {
 }
 } // namespace
 int main() {
-    try { TestProjection(); TestReturnAndFreeze(); TestFlips(); TestStockAvoidsDeferredCapture(); TestDropTolerance(); TestMatches(); std::cout << "Table gameplay passed.\n"; return 0; }
+    try { TestOpeningPresentation(); TestProjection(); TestReturnAndFreeze(); TestFlips(); TestStockAvoidsDeferredCapture(); TestDropTolerance(); TestMatches(); std::cout << "Table gameplay passed.\n"; return 0; }
     catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }
 }

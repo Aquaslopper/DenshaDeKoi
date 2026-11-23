@@ -24,6 +24,7 @@ struct TableCard {
 // Match coordinator and presentation state; independent of Raylib and the clock.
 // Update() receives elapsed seconds; all rule decisions belong to the core.
 class TableGame {
+    enum class OpeningStage { DEALER_PICK, DEALER_REVEAL, ROUND_INTRO, PLAYING };
 public:
     TableGame();
     explicit TableGame(std::uint32_t seed);
@@ -34,13 +35,22 @@ public:
     void CancelDrag();
     void Choose(Decision decision);
     void NextRound();
+    void SelectDealerCard(int index);
 
     [[nodiscard]] std::vector<TableCard> Cards() const;
+    [[nodiscard]] bool AwaitingDealerChoice() const;
+    [[nodiscard]] bool DealerSelectionActive() const;
+    [[nodiscard]] const std::array<int, 2>& DealerCards() const { return dealerCards_; }
+    [[nodiscard]] int DealerChoice() const { return dealerChoice_; }
+    [[nodiscard]] std::optional<Player> OpeningDealer() const { return openingDealer_; }
+    [[nodiscard]] float OpeningTimer() const { return openingTimer_; }
+    [[nodiscard]] bool RoundIntroActive() const;
+    [[nodiscard]] float RoundIntroTimer() const { return openingTimer_; }
     [[nodiscard]] const KoiKoiStateMachine& Rules() const { return game_; }
     [[nodiscard]] const std::array<int, 2>& Scores() const { return scores_; }
     [[nodiscard]] int Round() const { return round_; }
     [[nodiscard]] bool MatchFinished() const { return finished_; }
-    [[nodiscard]] bool Busy() const { return animation_ != Animation::NONE; }
+    [[nodiscard]] bool Busy() const { return animation_ != Animation::NONE || openingStage_ != OpeningStage::PLAYING; }
     [[nodiscard]] bool Dragging() const { return dragged_.has_value(); }
     [[nodiscard]] std::string Status() const;
     [[nodiscard]] TableLayout::Rect FieldRect(CardId id) const;
@@ -64,6 +74,7 @@ private:
         float yaw = 0.0f;
     };
     void Start();
+    void StartRoundPresentation();
     void SyncField();
     [[nodiscard]] int FindFreeSlot(TableLayout::Point2 near) const;
     void StartHand(CardId id, TableLayout::Rect from, std::optional<CardId> target);
@@ -79,6 +90,12 @@ private:
     [[nodiscard]] float CaptureHeight(Player player, std::size_t countOffset = 0) const;
 
     KoiKoiStateMachine game_;
+    OpeningStage openingStage_ = OpeningStage::PLAYING;
+    std::array<int, 2> dealerCards_{};
+    int dealerChoice_ = -1;
+    std::optional<Player> openingDealer_;
+    float openingTimer_ = 0.0f;
+    float dealElapsed_ = 0.0f;
     std::array<int, 48> slots_{};
     std::array<int, 2> scores_{};
     int round_ = 1;

@@ -9,9 +9,11 @@
 namespace TableHud {
 using TableLayout::Rect;
 
-inline constexpr Rect KoiKoiButton{1010.0f, 20.0f, 145.0f, 40.0f};
-inline constexpr Rect ShobuButton{1165.0f, 20.0f, 145.0f, 40.0f};
-inline constexpr Rect RoundEndButton{1000.0f, 20.0f, 310.0f, 66.0f};
+inline constexpr Rect KoiKoiButton{505.0f, 336.0f, 165.0f, 48.0f};
+inline constexpr Rect ShobuButton{690.0f, 336.0f, 165.0f, 48.0f};
+inline constexpr Rect RoundEndButton{520.0f, 326.0f, 320.0f, 72.0f};
+inline constexpr Rect DealerCardLeft{420.0f, 205.0f, 176.0f, 286.0f};
+inline constexpr Rect DealerCardRight{764.0f, 205.0f, 176.0f, 286.0f};
 
 // Right-side Pause / Menu button, clear of all card slots and top-right decision banners.
 inline constexpr Rect PauseButton{1218.0f, 352.0f, 130.0f, 64.0f};

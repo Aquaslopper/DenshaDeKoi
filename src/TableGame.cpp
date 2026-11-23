@@ -57,11 +57,21 @@ Player DrawDealer(Deck& deck) {
         if (auto dealer = DetermineFirstDealer(a->id, b->id)) return *dealer;
     }
 }
-Player DrawDealer() { Deck deck; return DrawDealer(deck); }
 Player DrawDealer(std::uint32_t seed) { Deck deck(seed ^ 0x9e3779b9u); return DrawDealer(deck); }
+std::array<int, 2> DrawDealerCards() {
+    Deck deck;
+    deck.Shuffle();
+    for (;;) {
+        const auto first = deck.Draw();
+        const auto second = deck.Draw();
+        if (!first || !second) { deck.Reset(); deck.Shuffle(); continue; }
+        if (DetermineFirstDealer(first->id, second->id)) return {first->id, second->id};
+    }
+}
 } // namespace
 
-TableGame::TableGame() : game_(DrawDealer()) { Start(); }
+TableGame::TableGame() : game_(Player::PLAYER), openingStage_(OpeningStage::DEALER_PICK),
+                         dealerCards_(DrawDealerCards()) {}
 TableGame::TableGame(std::uint32_t seed) : game_(DrawDealer(seed), seed) { Start(); }
 
 void TableGame::Start() {
@@ -75,6 +85,30 @@ void TableGame::Start() {
     constexpr std::array<int, 8> initial{2, 3, 4, 5, 10, 11, 12, 13};
     for (std::size_t i = 0; i < field.size(); ++i) slots_[static_cast<std::size_t>(field[i])] = initial[i];
     RecordResult();
+}
+
+void TableGame::StartRoundPresentation() {
+    openingStage_ = OpeningStage::ROUND_INTRO;
+    openingTimer_ = 0.0f;
+    dealElapsed_ = 0.0f;
+}
+
+bool TableGame::AwaitingDealerChoice() const {
+    return openingStage_ == OpeningStage::DEALER_PICK;
+}
+bool TableGame::DealerSelectionActive() const {
+    return openingStage_ == OpeningStage::DEALER_PICK || openingStage_ == OpeningStage::DEALER_REVEAL;
+}
+bool TableGame::RoundIntroActive() const {
+    return openingStage_ == OpeningStage::ROUND_INTRO;
+}
+void TableGame::SelectDealerCard(int index) {
+    if (!AwaitingDealerChoice() || (index != 0 && index != 1)) return;
+    dealerChoice_ = index;
+    openingDealer_ = DetermineFirstDealer(dealerCards_[static_cast<std::size_t>(index)],
+                                          dealerCards_[static_cast<std::size_t>(1 - index)]);
+    openingStage_ = OpeningStage::DEALER_REVEAL;
+    openingTimer_ = 0.0f;
 }
 
 Rect TableGame::HandRect(Player player, std::size_t i) const {
@@ -347,6 +381,22 @@ void TableGame::RecordResult() {
 }
 void TableGame::Update(float seconds) {
     if (!std::isfinite(seconds) || seconds < 0) throw std::invalid_argument("Invalid frame time");
+    if (openingStage_ == OpeningStage::DEALER_PICK) return;
+    if (openingStage_ == OpeningStage::DEALER_REVEAL) {
+        openingTimer_ += seconds;
+        if (openingTimer_ >= 3.4f) {
+            game_ = KoiKoiStateMachine(*openingDealer_);
+            Start();
+            StartRoundPresentation();
+        }
+        return;
+    }
+    if (openingStage_ == OpeningStage::ROUND_INTRO) {
+        openingTimer_ += seconds;
+        dealElapsed_ += seconds;
+        if (openingTimer_ >= 1.5f) openingStage_ = OpeningStage::PLAYING;
+        return;
+    }
     if (Busy()) {
         elapsed_ += seconds;
         if (elapsed_ >= duration_) FinishAnimation();
@@ -422,6 +472,7 @@ void TableGame::NextRound() {
     if (Busy() || finished_ || game_.GetPhase() != Phase::ROUND_END) return;
     game_.StartNextRound(); ++round_; resultRecorded_ = false; stockReady_ = false; cpuDelay_ = 0;
     Start();
+    StartRoundPresentation();
 }
 
 std::vector<TableCard> TableGame::Cards() const {
@@ -560,6 +611,16 @@ std::vector<TableCard> TableGame::Cards() const {
 
         TableCard movingCard{id, r, flip, elev, flipAngle, pitch, roll, yaw, TableLayout::CardThickness, true};
         cards.push_back(movingCard);
+    }
+    if (openingStage_ == OpeningStage::ROUND_INTRO && dealElapsed_ < 0.45f) {
+        const float t = std::clamp(dealElapsed_ / 0.45f, 0.0f, 1.0f);
+        for (auto& card : cards) {
+            const bool stockCard = std::abs(card.rect.x - TableLayout::Stock.x) < 12.0f &&
+                                   std::abs(card.rect.y - TableLayout::Stock.y) < 12.0f;
+            if (stockCard) continue;
+            card.rect = Interpolate(TableLayout::Stock, card.rect, t);
+            card.elevation += 0.045f * std::sin(3.14159265f * t);
+        }
     }
     return cards;
 }
