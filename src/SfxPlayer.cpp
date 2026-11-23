@@ -38,10 +38,11 @@ SfxPlayer::~SfxPlayer() {
 void SfxPlayer::Play(SfxId id) {
     auto& entry = sounds_[static_cast<std::size_t>(id)];
     if (!entry.loaded) return;
-    SetSoundVolume(entry.sound, volume_);
     PlaySound(entry.sound);
 }
 
 void SfxPlayer::SetVolume(float volume) {
-    volume_ = std::clamp(volume, 0.0f, 1.0f);
+    volume = std::clamp(volume, 0.0f, 1.0f);
+    for (const auto& entry : sounds_)
+        if (entry.loaded) SetSoundVolume(entry.sound, volume);
 }

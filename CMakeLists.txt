@@ -56,6 +56,7 @@ if(BUILD_DESKTOP_APP)
 
     add_executable(denshadekoi
         src/TableMain.cpp
+        src/GameOptions.cpp
         src/TableScene.cpp
         src/ui/PauseRadioMenu.cpp
         src/ui/PauseMenu.cpp
@@ -91,6 +92,8 @@ if(BUILD_DESKTOP_APP)
         COMMAND ${CMAKE_COMMAND} -E copy_directory
             "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts" "$<TARGET_FILE_DIR:denshadekoi>/fonts"
         COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_CURRENT_SOURCE_DIR}/assets/options" "$<TARGET_FILE_DIR:denshadekoi>/options"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
             "${CMAKE_CURRENT_SOURCE_DIR}/assets/sfx" "$<TARGET_FILE_DIR:denshadekoi>/sfx"
         VERBATIM
     )
@@ -116,6 +119,8 @@ if(BUILD_DESKTOP_APP)
             "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts"
             "$<TARGET_FILE_DIR:denshadekoi>/fonts"
         COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_CURRENT_SOURCE_DIR}/assets/options" "$<TARGET_FILE_DIR:denshadekoi>/options"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
             "${CMAKE_CURRENT_SOURCE_DIR}/assets/sfx"
             "$<TARGET_FILE_DIR:denshadekoi>/sfx"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -128,11 +133,13 @@ endif()
 
 if(BUILD_TESTING)
     # Exercise the actual table rendering commands with a Raylib test double.
-    add_executable(test_table tests/test_table.cpp src/TableScene.cpp src/ui/PauseRadioMenu.cpp src/ui/PauseMenu.cpp)
+    add_executable(test_table tests/test_table.cpp tests/test_options.cpp src/GameOptions.cpp
+        src/TableScene.cpp src/ui/PauseRadioMenu.cpp src/ui/PauseMenu.cpp)
     configure_project_target(test_table)
     target_include_directories(test_table PRIVATE tests/fake_raylib src)
     target_link_libraries(test_table PRIVATE hanafuda_core)
     add_test(NAME table COMMAND test_table)
+    add_test(NAME pause_options COMMAND test_table --options)
 
     add_executable(test_table_game tests/test_table_game.cpp)
     configure_project_target(test_table_game)

@@ -16,11 +16,11 @@ cd build
 ./denshadekoi
 ```
 
-On multi-configuration generators, run the executable from its configuration directory (for example, `build/Debug`). CMake copies `cards_atlas.png` and `the-city.jpg` alongside the executables. Assets are loaded from that directory regardless of the current working directory.
+On multi-configuration generators, run the executable from its configuration directory (for example, `build/Debug`). CMake copies the game assets alongside the executables, including the two pause-menu textures in `options/`. Assets are loaded from that directory regardless of the current working directory.
 
 The former atlas inspector remains available as `denshadekoi_inspector` (or `denshadekoi_inspector.exe` on Windows). You can pass it an alternative packed atlas path as its first argument.
 
-To verify the rules, deck, table geometry and render commands, atlas, asset lookup, and inspector without Raylib, a window system, or network access (the table and inspector tests use Raylib test doubles):
+To verify the rules, deck, table geometry and render commands, pause options, atlas, asset lookup, and inspector without Raylib, a window system, or network access (the table and inspector tests use Raylib test doubles):
 
 ```sh
 cmake -S . -B build-headless -DBUILD_DESKTOP_APP=OFF -DBUILD_TESTING=ON
@@ -40,15 +40,28 @@ When Python 3 is available, CTest also checks the black frame pixels on every ca
 
 Drag a hand card onto a same-month field card; when two cards match, drop onto the desired one. If there is no match, drop it in the field. A far or invalid drop glides back to the hand; right-click cancels a drag. Matching accepts overlap or an edge gap of up to 10 pixels in the 840×720 table-plan coordinate system, with Xeno-koi's protection against mostly overlapping a non-matching card. After a hand play, the stock card flips and resolves; click the desired field card if the stock has two possible matches. When a yaku appears or grows, use the **Koi-Koi** or **Shobu** button. The player performs the card flight manually by dragging; CPU and stock cards use a slow 600 ms automatic flight. After that, every party uses the same snappy 150 ms table drop. Matches use a deliberately longer 500 ms capture hit freeze. A hand-card capture remains at its field contact point until the stock card has flipped and resolved; then every capture from both parts of the turn moves to the current player's capture pile in 500 ms.
 
-The baked station-and-table image is the fixed background. Cards occupy a horizontal 3D plane under a perspective camera calibrated to the painted table; opponent cards and the stock have solid-black backs, while card faces use the complete original atlas cells. The scene renders 1:1 at 1360×768 and resizing preserves its aspect ratio inside a letterbox. The HUD and action buttons are drawn in screen space, never into the scaled canvas. There is no dynamic zoom or turn-sensitive camera movement, so the baseline framing stays fixed; the full eight-card hand remains above the bottom edge. A crowded field uses a compact layout. Close the window or press Escape to exit.
+The baked station-and-table image is the fixed background. Cards occupy a horizontal 3D plane under a perspective camera calibrated to the painted table; opponent cards and the stock have solid-black backs, while card faces use the complete original atlas cells. The table uses a fixed logical canvas of 1360×768; resizing preserves its aspect ratio inside a letterbox. HUD and action buttons use screen-space coordinates. There is no dynamic zoom or turn-sensitive camera movement, so the baseline framing stays fixed; the full eight-card hand remains above the bottom edge. A crowded field uses a compact layout. Close the window to exit; Escape pauses or resumes the match.
 
 The CPU currently uses a simple first-available-match strategy and always banks a yaku, rather than Xeno-koi's full AI.
 
 The separate `denshadekoi_inspector` uses columns for months 1–12 and rows for card indices 0–3. Hover a card to see its identifiers; the white outline is drawn outside the card so its original black frame remains visible.
 
+## Pause / options
+
+Click **PAUSE** or press **Esc / P**. Drag the level meters, click a choice, or use **↑ / ↓** to select a row and **← / →** to adjust it. Click the illustrated **Resume** button (or select it and press **Enter**) to return to the same match.
+
+<img src="docs/pause-options.jpg" width="720" alt="In-game pause menu with six numbered option strips beside the Tokyo train" />
+
+- **Master Volume** controls the final mix, including radio. **Sound Effects** controls only the [optional WAV bank](assets/sfx/README.md).
+- **Card Hints** outlines matching field cards when hovering or dragging a playable hand card, and the legal targets when a stock card needs a choice. Switching hints off also hides the drag tip; it does not change legal moves or right-click inspection.
+- **Display Resolution** cycles through presets that fit the current monitor. **Screen Mode** switches between Windowed, Borderless and Fullscreen. Borderless uses the desktop size and disables the resolution arrows; exclusive fullscreen uses the nearest mode the display supports. The readout shows the current size, including manual window resizes.
+- **Anti-Aliasing** changes the table's supersampling density (2×, 3× or 4×). The world is downsampled before the UI is drawn; the camera, card positions and hit areas stay fixed.
+
+Changes take effect immediately. On normal exit, settings are saved in `DenshaDeKoi/options.txt` under `%APPDATA%` (Windows), `~/Library/Application Support` (macOS), or `$XDG_CONFIG_HOME` / `~/.config` (Linux). Delete this file to restore defaults.
+
 ## Internet radio
 
-The **MENU** button (or `ESC` / `P`) pauses the game and opens the J-Pop radio panel: six Asia DREAM Radio stations, a volume slider, and `M` to mute. Playback runs through Raylib's own `AudioStream`, so `InitAudioDevice()` must succeed; the console prints `[radio]` lines (state changes, connection errors, stream format) that make it obvious where a failure happens.
+The separate **RADIO** button pauses the game and opens the J-Pop radio panel: six Asia DREAM Radio stations, a volume slider, and `M` to mute. Playback runs through Raylib's own `AudioStream`, so `InitAudioDevice()` must succeed; the console prints `[radio]` lines (state changes, connection errors, stream format) that make it obvious where a failure happens.
 
 The stream stack is deliberately small: a background thread resolves the station's `.pls`, reads the SHOUTcast MP3 stream over WinHTTP (Windows, including HTTPS) or a plain HTTP/1.0 socket (Linux/macOS, HTTP only), decodes with the vendored `dr_mp3.h`, and pushes PCM into a mutex-protected queue. Playback starts once 1.5 s are buffered; if the connection drops, the engine reconnects and keeps playing from what is still buffered.
 

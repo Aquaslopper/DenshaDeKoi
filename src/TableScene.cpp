@@ -1,3 +1,4 @@
+#include "DeckRegister.hpp" // Parse the card enums before raylib's color macros.
 #include "TableScene.hpp"
 
 #include "TableLayout.hpp"
@@ -11,6 +12,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
+#include <numeric>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -284,6 +287,40 @@ void DrawDealerSelection(const ScreenMap& map, const TableGame& game) {
     }
 }
 
+// Read-only assistance: use visible hand cards and the rule engine's pending
+// choices. It never selects a card or participates in hit testing or scoring.
+void DrawCardHints(const TableGame& game, const std::vector<TableCard>& cards, TableLayout::Point2 pointer) {
+    const auto& rules = game.Rules();
+    if (game.Busy() || rules.CurrentPlayer() != Player::PLAYER) return;
+    const auto phase = rules.GetPhase();
+    int month = 0;
+    if (phase == Phase::AWAIT_HAND_PLAY) {
+        const auto plan = TableLayout::Unproject(pointer);
+        const auto& hand = rules.Hand(Player::PLAYER);
+        for (auto it = cards.rbegin(); it != cards.rend(); ++it) {
+            const auto r = it->rect;
+            if (plan.x >= r.x && plan.x <= r.x + r.width && plan.y >= r.y && plan.y <= r.y + r.height &&
+                std::find(hand.begin(), hand.end(), it->id) != hand.end()) {
+                month = DeckRegister::At(it->id).month;
+                break;
+            }
+        }
+        if (!month) return;
+    } else if (phase != Phase::AWAIT_DRAW_CHOICE) return;
+    for (int id : (month ? rules.Field() : rules.Choices())) {
+        if (month && DeckRegister::At(id).month != month) continue;
+        const Rect r = game.FieldRect(id);
+        const auto corner = [](float x, float y) {
+            const auto p = TableLayout::Project(TableLayout::OnPlane(x, y, TableLayout::CardElevation + TableLayout::CardThickness));
+            return Vector2{p.x, p.y};
+        };
+        const float l = r.x - 2, t = r.y - 2, b = r.y + r.height + 2, right = r.x + r.width + 2;
+        const std::array points{corner(l, t), corner(right, t), corner(right, b), corner(l, b)};
+        for (std::size_t i = 0; i < points.size(); ++i)
+            DrawLineEx(points[i], points[(i + 1) % points.size()], 2.0f, Color{255, 218, 53, 235});
+    }
+}
+
 // The HUD belongs to the screen, not the world canvas: it is drawn after the
 // world blit, in the same 1360x768 design space as the click rectangles.
 void DrawHud(const TableGame& game, const TableHudState& hud, Rectangle destination, float scale,
@@ -296,7 +333,8 @@ void DrawHud(const TableGame& game, const TableHudState& hud, Rectangle destinat
         "  -  CPU " + std::to_string(game.Scores()[PlayerIndex(Player::OPPONENT)]);
     DrawText(label.c_str(), map.X(20), map.Y(18), map.Font(22), WHITE);
     DrawText(game.Status().c_str(), map.X(20), map.Y(51), map.Font(19), WHITE);
-    DrawText("Drag a card to a match; right-click to cancel", map.X(20), map.Y(80), map.Font(15), LIGHTGRAY);
+    if (hud.options.cardHints)
+        DrawText("Drag a card to a match; right-click to cancel", map.X(20), map.Y(80), map.Font(15), LIGHTGRAY);
     if (game.Rules().GetPhase() == Phase::AWAIT_DECISION && game.Rules().CurrentPlayer() == Player::PLAYER && !game.Busy()) {
         DrawRectangle(map.X(TableHud::KoiKoiButton.x), map.Y(TableHud::KoiKoiButton.y),
                       map.W(TableHud::KoiKoiButton.width), map.H(TableHud::KoiKoiButton.height), Color{31, 75, 58, 245});
@@ -332,8 +370,6 @@ void DrawHud(const TableGame& game, const TableHudState& hud, Rectangle destinat
 
     if (hud.overlay == TableOverlay::RADIO) {
         Ui::DrawPauseRadioMenu(map, hud.radio, {logo, headingFont, bodyFont});
-    } else if (hud.overlay == TableOverlay::PAUSE) {
-        Ui::DrawPauseMenu(map, hud.masterVolume, hud.sfxVolume, {headingFont, bodyFont});
     }
 }
 
@@ -359,7 +395,8 @@ Font LoadMenuFont(const char* path, bool& owned) {
 } // namespace
 
 TableScene::TableScene(const char* backgroundPath, const char* atlasPath, const char* logoPath,
-                       const char* headingFontPath, const char* bodyFontPath) {
+                       const char* headingFontPath, const char* bodyFontPath,
+                       const std::filesystem::path& optionsDirectory) {
     try {
         background_ = LoadRequiredTexture(backgroundPath);
         atlas_ = LoadRequiredTexture(atlasPath);
@@ -370,6 +407,10 @@ TableScene::TableScene(const char* backgroundPath, const char* atlasPath, const 
             throw std::runtime_error("Card atlas must be a tightly packed 12x4 grid");
         SetTextureFilter(atlas_, TEXTURE_FILTER_POINT);
         cardBack_ = CreateMatteCardBackTexture();
+        optionsPanel_ = LoadRequiredTexture((optionsDirectory / "menu.png").string().c_str());
+        optionsStripe_ = LoadRequiredTexture((optionsDirectory / "setting-stripe.png").string().c_str());
+        SetTextureFilter(optionsPanel_, TEXTURE_FILTER_BILINEAR);
+        SetTextureFilter(optionsStripe_, TEXTURE_FILTER_BILINEAR);
         canvas_ = LoadRenderTexture(TableLayout::ImageWidth, TableLayout::ImageHeight);
         if (canvas_.id == 0 || canvas_.texture.id == 0)
             throw std::runtime_error("Could not create table render texture");
@@ -383,6 +424,8 @@ TableScene::TableScene(const char* backgroundPath, const char* atlasPath, const 
         if (ownsHeadingFont_) UnloadFont(headingFont_);
         if (magnifyShader_.id != 0) UnloadShader(magnifyShader_);
         if (canvas_.id != 0) UnloadRenderTexture(canvas_);
+        if (optionsStripe_.id != 0) UnloadTexture(optionsStripe_);
+        if (optionsPanel_.id != 0) UnloadTexture(optionsPanel_);
         if (cardBack_.id != 0) UnloadTexture(cardBack_);
         if (logo_.id != 0) UnloadTexture(logo_);
         if (atlas_.id != 0) UnloadTexture(atlas_);
@@ -395,29 +438,62 @@ TableScene::~TableScene() {
     if (ownsBodyFont_) UnloadFont(bodyFont_);
     UnloadShader(magnifyShader_);
     if (ownsHeadingFont_) UnloadFont(headingFont_);
+    if (sampledWorld_.id != 0) UnloadRenderTexture(sampledWorld_);
     UnloadRenderTexture(canvas_);
+    UnloadTexture(optionsStripe_);
+    UnloadTexture(optionsPanel_);
     UnloadTexture(cardBack_);
     UnloadTexture(logo_);
     UnloadTexture(atlas_);
     UnloadTexture(background_);
 }
 
+int TableScene::SetAntiAliasing(int samples) {
+    if (samples == aaSamples_ || samples < 2 || samples > 4) return aaSamples_;
+    // N scene samples per logical pixel (not N times each dimension). The
+    // bilinear resolve below downsamples by at most 2:1 on either axis.
+    // Allocate whole 85:48 blocks so the 3D projection aspect stays exact.
+    constexpr int units = std::gcd(TableLayout::ImageWidth, TableLayout::ImageHeight);
+    const int blocks = static_cast<int>(std::lround(units * std::sqrt(static_cast<float>(samples))));
+    auto target = LoadRenderTexture(blocks * (TableLayout::ImageWidth / units),
+                                    blocks * (TableLayout::ImageHeight / units));
+    if (!target.id || !target.texture.id || !target.depth.id || !rlFramebufferComplete(target.id)) {
+        if (target.id) UnloadRenderTexture(target);
+        std::fprintf(stderr, "[options] Could not allocate %dx anti-aliasing; keeping %dx.\n", samples, aaSamples_);
+        return aaSamples_;
+    }
+    SetTextureFilter(target.texture, TEXTURE_FILTER_BILINEAR);
+    if (sampledWorld_.id) UnloadRenderTexture(sampledWorld_);
+    sampledWorld_ = target;
+    return aaSamples_ = samples;
+}
+
 void TableScene::Draw(const TableGame& game, const TableHudState& hud,
                       const MagnifyEffect& magnify) const {
-    BeginTextureMode(canvas_);
+    const auto world = sampledWorld_.id ? sampledWorld_ : canvas_;
+    BeginTextureMode(world);
     ClearBackground(BLACK);
     DrawTexturePro(background_, {0, 0, static_cast<float>(background_.width), static_cast<float>(background_.height)},
-                   {0, 0, static_cast<float>(TableLayout::ImageWidth), static_cast<float>(TableLayout::ImageHeight)},
+                   {0, 0, static_cast<float>(world.texture.width), static_cast<float>(world.texture.height)},
                    {0, 0}, 0, WHITE);
     const Camera3D camera{{0, TableLayout::CameraHeight, 0},
                           {0, TableLayout::CameraHeight - std::sin(TableLayout::PitchRadians),
                            -std::cos(TableLayout::PitchRadians)},
                           {0, 1, 0}, TableLayout::FovDegrees, CAMERA_PERSPECTIVE};
+    const auto cards = game.Cards();
     BeginMode3D(camera);
-    DrawCards(atlas_, cardBack_, game.Cards());
+    DrawCards(atlas_, cardBack_, cards);
     EndMode3D();
     const Rectangle canvasDestination{0, 0, static_cast<float>(TableLayout::ImageWidth),
                                       static_cast<float>(TableLayout::ImageHeight)};
+    if (sampledWorld_.id) {
+        EndTextureMode();
+        BeginTextureMode(canvas_);
+        ClearBackground(BLACK);
+        DrawTexturePro(world.texture, {0, 0, float(world.texture.width), -float(world.texture.height)},
+                       canvasDestination, {0, 0}, 0, WHITE);
+    }
+    if (hud.options.cardHints && hud.overlay == TableOverlay::NONE) DrawCardHints(game, cards, hud.pointer);
     DrawHud(game, hud, canvasDestination, 1.0f, logo_, headingFont_, bodyFont_);
     if (game.DealerSelectionActive())
         DrawDealerSelection(ScreenMap{canvasDestination, 1.0f}, game);
@@ -443,5 +519,9 @@ void TableScene::Draw(const TableGame& game, const TableHudState& hud,
                                     -static_cast<float>(canvas_.texture.height)},
                    destination, {0, 0}, 0, WHITE);
     EndShaderMode();
+    // Keep the pause art above every game prompt and outside the inspection zoom.
+    if (hud.overlay == TableOverlay::PAUSE)
+        Ui::DrawPauseMenu({destination, scale}, hud.options, {GetScreenWidth(), GetScreenHeight()}, hud.focusedOption,
+                          {optionsPanel_, optionsStripe_, headingFont_, bodyFont_});
     EndDrawing();
 }

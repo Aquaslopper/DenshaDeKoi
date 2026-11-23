@@ -36,5 +36,4 @@ private:
         bool loaded = false;
     };
     std::array<Entry, static_cast<std::size_t>(SfxId::Count)> sounds_{};
-    float volume_ = 1.0f;
 };

@@ -1,6 +1,7 @@
 #include "TableLayout.hpp"
 #include "TableGame.hpp"
 #include "TableScene.hpp"
+#include "ui/PauseMenu.hpp"
 #include <raylib.h>
 
 #include <algorithm>
@@ -11,6 +12,8 @@
 #include <string>
 #include <vector>
 
+void TestOptions();
+
 namespace {
 struct Vertex { float x, y, z, u, v; Color color; unsigned int texture; };
 std::vector<Vertex> vertices;
@@ -18,6 +21,9 @@ std::vector<unsigned int> unloaded;
 std::vector<unsigned int> unloadedFonts;
 std::vector<Rectangle> destinations;
 std::vector<Rectangle> sources;
+std::vector<unsigned int> blits;
+std::vector<Resolution> renderSizes;
+int hintEdges = 0;
 Camera3D camera{};
 Color color{};
 float u = 0, v = 0;
@@ -26,14 +32,14 @@ int width = 1600, height = 900;
 int loads = 0, renderUnloads = 0;
 int draws = 0;
 std::vector<std::string> drawnTexts;
-bool failAtlas = false, invalidAtlas = false, failCanvas = false;
+bool failAtlas = false, invalidAtlas = false, failCanvas = false, failStripe = false;
 
 void Check(bool condition, const char* text) { if (!condition) throw std::runtime_error(text); }
 bool Near(float a, float b, float tolerance = 0.01f) { return std::abs(a - b) < tolerance; }
 void Reset() {
     vertices.clear(); unloaded.clear(); unloadedFonts.clear(); destinations.clear(); sources.clear();
-    drawnTexts.clear();
-    loads = renderUnloads = draws = 0; failAtlas = invalidAtlas = failCanvas = false;
+    drawnTexts.clear(); blits.clear(); renderSizes.clear(); hintEdges = 0;
+    loads = renderUnloads = draws = 0; failAtlas = invalidAtlas = failCanvas = failStripe = false;
 }
 void TestGeometry() {
     using namespace TableLayout;
@@ -68,7 +74,7 @@ void TestGeometry() {
 void TestDraw() {
     Reset();
     {
-        TableScene scene("city", "atlas", "logo", "heading", "body");
+        TableScene scene("city", "atlas", "logo", "heading", "body", "options");
         TableGame game(42);
         scene.Draw(game);
         const auto cards = game.Cards();
@@ -169,30 +175,110 @@ void TestDraw() {
               noOverlap(TableHud::VolumeHitBox, TableHud::RadioMuteButton),
               "Radio controls must not overlap each other or the station grid");
     }
-    Check(renderUnloads == 1 && unloaded == std::vector<unsigned int>({4, 5, 2, 1}) &&
+    Check(renderUnloads == 1 && unloaded == std::vector<unsigned int>({9, 8, 4, 5, 2, 1}) &&
           unloadedFonts == std::vector<unsigned int>({7, 6}), "Resources not released");
+}
+void TestPauseRendering() {
+    Reset();
+    TableScene scene("city", "atlas", "logo", "heading", "body", "options");
+    TableGame game; // Pause during the two-card dealer prompt.
+    TableHudState hud;
+    hud.overlay = TableOverlay::PAUSE;
+    hud.options.masterVolume = 43;
+    hud.options.sfxVolume = 67;
+    hud.focusedOption = Ui::OptionRow::AA;
+    for (Resolution size : {Resolution{680, 384}, Resolution{1200, 900}, Resolution{1920, 768}}) {
+        width = size.width; height = size.height;
+        drawnTexts.clear(); blits.clear(); destinations.clear();
+        scene.Draw(game, hud);
+        for (const char* text : {"Master Volume", "Sound Effects", "Card Hints", "Display Resolution", "Screen Mode",
+                                 "Anti-Aliasing", "43", "67", "ON", "OFF", "Windowed", "Borderless", "Fullscreen", "2x", "3x", "4x"})
+            Check(std::find(drawnTexts.begin(), drawnTexts.end(), text) != drawnTexts.end(), "Options text missing");
+        Check(std::count(blits.begin(), blits.end(), 8) == 1 && std::count(blits.begin(), blits.end(), 9) >= 6,
+              "Expected the supplied panel and six textured stripes");
+        const auto panel = destinations[std::find(blits.begin(), blits.end(), 8) - blits.begin()];
+        const float scale = std::min(width / 1360.0f, height / 768.0f);
+        Check(Near(panel.x + panel.width / 2, width / 2.0f) && Near(panel.width, Ui::PausePanel.width * scale) &&
+              Near(panel.y, (height - 768 * scale) / 2 + Ui::PausePanel.y * scale), "Pause artwork lost letterboxing");
+        Check(std::find(drawnTexts.begin(), drawnTexts.end(), "J-Pop Powerplay") == drawnTexts.end(), "Options must not draw radio presets");
+        Check(std::find(drawnTexts.begin(), drawnTexts.end(), "CLICK TO PICK") <
+              std::find(drawnTexts.begin(), drawnTexts.end(), "Master Volume"), "Game prompts must stay behind pause");
+    }
+    width = 1600; height = 900;
+    for (int n : {2, 3, 4}) {
+        Check(scene.SetAntiAliasing(n) == n, "Could not enable AA");
+        const auto r = renderSizes.back();
+        Check(r.width * 768 == r.height * 1360 && Near(float(r.width * r.height) / (1360 * 768), float(n), 0.08f),
+              "AA must increase scene pixel density without changing camera aspect");
+        const auto allocations = renderSizes.size();
+        Check(scene.SetAntiAliasing(n) == n && allocations == renderSizes.size(), "Unchanged AA must reuse its target");
+        destinations.clear(); sources.clear();
+        scene.Draw(game, hud);
+        Check(Near(destinations[0].width, r.width) && Near(sources[1].height, -r.height) &&
+              Near(destinations[1].width, 1360), "Supersampled world must resolve to the logical canvas");
+    }
+    failCanvas = true;
+    Check(scene.SetAntiAliasing(2) == 4, "Failed allocation must preserve the last working AA level");
+}
+
+void TestCardHints() {
+    Reset();
+    TableScene scene("city", "atlas", "logo", "heading", "body", "options");
+    // The standard library's shuffle differs between our Windows toolchains.
+    for (unsigned seed = 1; seed < 200; ++seed) {
+        TableGame game(seed);
+        if (game.Busy() || game.Rules().GetPhase() != Phase::AWAIT_HAND_PLAY ||
+            game.Rules().CurrentPlayer() != Player::PLAYER) continue;
+        TableHudState hud;
+        for (const auto& card : game.Cards()) {
+            const auto& hand = game.Rules().Hand(Player::PLAYER);
+            if (std::find(hand.begin(), hand.end(), card.id) == hand.end()) continue;
+            const auto& field = game.Rules().Field();
+            const int matches = std::count_if(field.begin(), field.end(), [&](int id) { return id / 4 == card.id / 4; });
+            if (!matches) continue;
+            hud.pointer = TableLayout::Project(TableLayout::OnPlane(card.rect.x + card.rect.width / 2,
+                                           card.rect.y + card.rect.height / 2, TableLayout::CardElevation));
+            scene.Draw(game, hud);
+            Check(hintEdges == matches * 4, "Show matching field cards for the hovered hand card");
+            hud.options.cardHints = false;
+            hintEdges = 0; drawnTexts.clear();
+            scene.Draw(game, hud);
+            Check(hintEdges == 0 && std::find(drawnTexts.begin(), drawnTexts.end(), "Drag a card to a match; right-click to cancel") == drawnTexts.end(),
+                  "Disabled card hints must suppress outlines and helper text");
+            return;
+        }
+    }
+    throw std::runtime_error("Hint test needs a playable hand match");
 }
 void TestFailures() {
     Reset(); failAtlas = true;
     bool threw = false;
-    try { TableScene scene("city", "atlas", "logo", "heading", "body"); } catch (const std::runtime_error&) { threw = true; }
+    try { TableScene scene("city", "atlas", "logo", "heading", "body", "options"); } catch (const std::runtime_error&) { threw = true; }
     Check(threw && unloaded == std::vector<unsigned int>{1}, "Atlas failure or background cleanup failed");
     Reset(); invalidAtlas = true;
     threw = false;
-    try { TableScene scene("city", "atlas", "logo", "heading", "body"); } catch (const std::runtime_error&) { threw = true; }
+    try { TableScene scene("city", "atlas", "logo", "heading", "body", "options"); } catch (const std::runtime_error&) { threw = true; }
     Check(threw && unloaded == std::vector<unsigned int>({5, 2, 1}), "Invalid atlas or texture cleanup failed");
+    Reset(); failStripe = true;
+    threw = false;
+    try { TableScene scene("city", "atlas", "logo", "heading", "body", "options"); }
+    catch (const std::runtime_error& e) { threw = std::string(e.what()).find("setting-stripe.png") != std::string::npos; }
+    Check(threw && unloaded == std::vector<unsigned int>({8, 4, 5, 2, 1}), "Missing stripe: identify the file and release the panel");
     Reset(); failCanvas = true;
     threw = false;
-    try { TableScene scene("city", "atlas", "logo", "heading", "body"); } catch (const std::runtime_error&) { threw = true; }
-    Check(threw && unloaded == std::vector<unsigned int>({4, 5, 2, 1}) && renderUnloads == 0, "Canvas failure or texture cleanup failed");
+    try { TableScene scene("city", "atlas", "logo", "heading", "body", "options"); } catch (const std::runtime_error&) { threw = true; }
+    Check(threw && unloaded == std::vector<unsigned int>({9, 8, 4, 5, 2, 1}) && renderUnloads == 0, "Canvas failure or texture cleanup failed");
 }
 } // namespace
 
-Texture2D LoadTexture(const char*) {
+Texture2D LoadTexture(const char* path) {
     ++loads;
     if (loads == 2 && failAtlas) return {};
     if (loads == 1) return {1, 1360, 768, 1, 0};
     if (loads == 2) return {2, invalidAtlas ? 2147 : 2148, 1056, 1, 0};
+    if (std::filesystem::path(path).filename() == "menu.png") return {8, 1205, 763, 1, 0};
+    if (std::filesystem::path(path).filename() == "setting-stripe.png")
+        return failStripe ? Texture2D{} : Texture2D{9, 810, 63, 1, 0};
     return {5, 187, 82, 1, 0};
 }
 Texture2D LoadTextureFromImage(Image img) {
@@ -211,7 +297,11 @@ void DrawTextEx(Font, const char* text, Vector2, float, float, Color) {
 }
 void UnloadTexture(Texture2D t) { unloaded.push_back(t.id); }
 void SetTextureFilter(Texture2D, int) {}
-RenderTexture2D LoadRenderTexture(int w, int h) { return failCanvas ? RenderTexture2D{} : RenderTexture2D{3, {4,w,h,1,0}, {}}; }
+RenderTexture2D LoadRenderTexture(int w, int h) {
+    renderSizes.push_back({w, h});
+    return failCanvas ? RenderTexture2D{} : RenderTexture2D{3, {4,w,h,1,0}, {10,w,h,1,0}};
+}
+bool rlFramebufferComplete(unsigned int) { return true; }
 void UnloadRenderTexture(RenderTexture2D) { ++renderUnloads; }
 void BeginTextureMode(RenderTexture2D) {}
 void EndTextureMode() {}
@@ -227,11 +317,19 @@ void ClearBackground(Color) {}
 void DrawText(const char* text, int, int, int, Color) { if (text) drawnTexts.emplace_back(text); }
 void DrawRectangle(int, int, int, int, Color) {}
 void DrawRectangleLinesEx(Rectangle, float, Color) {}
+Vector2 MeasureTextEx(Font, const char* text, float size, float) { return {std::string(text).size() * size / 2, size}; }
+void DrawLineEx(Vector2, Vector2, float, Color c) { if (c.r == 255 && c.g == 218) ++hintEdges; }
+void DrawTriangle(Vector2, Vector2, Vector2, Color) {}
+void DrawRing(Vector2, float, float, float, float, int, Color) {}
+void DrawRectangleRounded(Rectangle, float, int, Color) {}
+void DrawRectangleGradientV(int, int, int, int, Color, Color) {}
 int GetScreenWidth() { return width; }
 int GetScreenHeight() { return height; }
 void BeginDrawing() {}
 void EndDrawing() {}
-void DrawTexturePro(Texture2D, Rectangle src, Rectangle dst, Vector2, float, Color) { sources.push_back(src); destinations.push_back(dst); }
+void DrawTexturePro(Texture2D texture, Rectangle src, Rectangle dst, Vector2, float, Color) {
+    blits.push_back(texture.id); sources.push_back(src); destinations.push_back(dst);
+}
 unsigned int rlGetTextureIdDefault() { return 99; }
 void rlSetTexture(unsigned int id) { textureId = id; }
 void rlBegin(int) {}
@@ -240,7 +338,13 @@ void rlColor4ub(unsigned char r, unsigned char g, unsigned char b, unsigned char
 void rlTexCoord2f(float x, float y) { u = x; v = y; }
 void rlVertex3f(float x, float y, float z) { vertices.push_back({x,y,z,u,v,color,textureId}); }
 
-int main() {
-    try { TestGeometry(); TestDraw(); TestFailures(); std::cout << "Table layout and rendering commands passed.\n"; return 0; }
+int main(int argc, char** argv) {
+    try {
+        if (argc == 2 && std::string(argv[1]) == "--options") {
+            TestOptions(); TestPauseRendering(); TestCardHints();
+            std::cout << "Pause options, artwork, hints and anti-aliasing passed.\n";
+            return 0;
+        }
+        TestGeometry(); TestDraw(); TestFailures(); std::cout << "Table layout and rendering commands passed.\n"; return 0; }
     catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }
 }
