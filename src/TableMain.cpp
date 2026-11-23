@@ -69,6 +69,7 @@ void PlayGameSfx(SfxPlayer& player, GameSfx cue) {
         case GameSfx::CARD_FLIP: player.Play(SfxId::CardFlip); break;
         case GameSfx::CARD_PLACE: player.Play(SfxId::CardPlace); break;
         case GameSfx::CARD_MATCH: player.Play(SfxId::CardMatch); break;
+        case GameSfx::CARD_CAPTURE: player.Play(SfxId::CardCapture); break;
         case GameSfx::KOI_KOI: player.Play(SfxId::KoiKoi); break;
         case GameSfx::SHOUBU: player.Play(SfxId::Shobu); break;
         case GameSfx::ROUND_WIN: player.Play(SfxId::RoundWin); break;
