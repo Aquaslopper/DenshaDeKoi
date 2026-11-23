@@ -12,7 +12,8 @@ using TableLayout::Point2;
 using TableLayout::Rect;
 
 constexpr float CardFlightSeconds = 0.60f;
-constexpr float CaptureFlightSeconds = 0.15f;
+constexpr float TableDropSeconds = 0.15f;
+constexpr float CaptureFlightSeconds = 0.50f;
 constexpr float CaptureHitFreezeSeconds = 0.50f;
 
 bool Contains(Rect r, Point2 p) {
@@ -223,7 +224,7 @@ void TableGame::StartHand(CardId id, Rect from, std::optional<CardId> target) {
     } else {
         playerSnap_ = false;
         moving_ = {{id, from, dest, TableLayout::CardElevation + 0.042f, toElev}};
-        BeginAnimation(Animation::HAND_MOVE, CardFlightSeconds);
+        BeginAnimation(Animation::HAND_MOVE, TableDropSeconds);
     }
 }
 void TableGame::StartStockMove(std::optional<CardId> target) {
