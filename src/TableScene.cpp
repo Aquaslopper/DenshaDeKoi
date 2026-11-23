@@ -264,8 +264,12 @@ struct ScreenMap {
 
 
 // ---------- Retro pause-menu chrome helpers (share the pixel-mock look) ----------
-constexpr float SilkAscCap = 0.33f; // (1.03 - 0.70) em for Silkscreen
-constexpr float VtAscCap = 0.24f;   // (0.80 - 0.56) em for VT323
+// Raylib places the glyph bitmap at pos.y + offsetY*scale with offsetY baked at
+// base size; measured with stbtt, ink top lands at capTop - A*size + F(size).
+// A = F/size averages 0.28 for Silkscreen and 0.215 for VT323 (previously 0.33/0.24,
+// which drew every string 1-2 px too high).
+constexpr float SilkAscCap = 0.28f;
+constexpr float VtAscCap = 0.215f;
 
 Color LerpColor(Color a, Color b, float t) {
     const auto mix = [t](unsigned char ca, unsigned char cb) {
@@ -383,9 +387,11 @@ void DrawArrow(const ScreenMap& map, float x, float cy) {
     const auto pt = [&map](float px, float py) {
         return Vector2{static_cast<float>(map.X(px)), static_cast<float>(map.Y(py))};
     };
-    DrawTriangle(pt(x - 2, cy - 22), pt(x + 40, cy), pt(x - 2, cy + 22), Color{138, 90, 0, 255});
-    DrawTriangle(pt(x, cy - 20), pt(x + 38, cy), pt(x + 10, cy), Color{253, 199, 38, 255});
-    DrawTriangle(pt(x, cy + 20), pt(x + 38, cy), pt(x + 10, cy), Color{253, 199, 38, 255});
+    // NOTE: Raylib culls one triangle winding inside DrawTriangle, so both
+    // triangles are ordered to keep a negative signed area (they render).
+    // Solid right-pointing triangle: dark border, yellow core.
+    DrawTriangle(pt(x, cy + 18), pt(x + 32, cy), pt(x, cy - 18), Color{138, 90, 0, 255});
+    DrawTriangle(pt(x + 7, cy + 11), pt(x + 25, cy), pt(x + 7, cy - 11), Color{253, 199, 38, 255});
 }
 
 std::string FormatTenths(float seconds) {
