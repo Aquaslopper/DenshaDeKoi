@@ -42,7 +42,7 @@ jobs:
               src/KoiKoiStateMachine.cpp|src/KoiKoiStateMachine.hpp|\
               src/TableGame.cpp|src/TableGame.hpp|src/Deck.cpp|src/Deck.hpp|src/DeckRegister.hpp|\
               src/CardData.hpp|src/AtlasLayout.hpp|src/AtlasManager.cpp|src/AtlasManager.hpp|cards_atlas.png|\
-              src/TableLayout.hpp|src/TableScene.cpp|src/TableScene.hpp|src/TableHud.hpp)
+              assets/koidenscha.png|assets/fonts/*|src/TableLayout.hpp|src/TableScene.cpp|src/TableScene.hpp|src/TableHud.hpp)
                 return 0 ;;
               *) return 1 ;;
             esac

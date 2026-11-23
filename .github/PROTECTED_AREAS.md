@@ -20,8 +20,10 @@ This protects dealing, captures, scoring, combinations, turns, Koi-Koi decisions
 - `src/AtlasLayout.hpp`
 - `src/AtlasManager.cpp`, `src/AtlasManager.hpp`
 - `cards_atlas.png`
+- `assets/koidenscha.png`
+- `assets/fonts/`
 
-This protects every card's identity, atlas coordinates, dimensions, artwork, and rendering lookup.
+This protects every card's identity, atlas coordinates, dimensions, artwork, rendering lookup, and the supplied game logo.
 
 ## Table layout and camera
 

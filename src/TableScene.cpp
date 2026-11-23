@@ -267,83 +267,119 @@ std::string FormatTenths(float seconds) {
     return std::to_string(tenths / 10) + "." + std::to_string(tenths % 10) + "s";
 }
 
-void DrawPauseMenu(const ScreenMap& map, const TableHudState& hud) {
-    DrawRectangle(map.X(0), map.Y(0), map.W(TableLayout::ImageWidth), map.H(TableLayout::ImageHeight),
-                  Color{8, 12, 18, 175});
-    DrawBox(map, TableHud::PausePanel, Color{17, 23, 32, 246}, Color{98, 124, 148, 255}, 2.0f);
+void DrawPauseMenu(const ScreenMap& map, const TableHudState& hud, Texture2D logo,
+                   Font headingFont, Font bodyFont) {
+    constexpr Color navy{8, 31, 122, 255};
+    constexpr Color blue{20, 29, 176, 255};
+    constexpr Color ink{27, 31, 40, 255};
+    constexpr Color paper{224, 225, 221, 255};
+    constexpr Color button{43, 49, 61, 255};
+    constexpr Color green{0, 111, 67, 255};
+    constexpr Color orange{242, 103, 25, 255};
 
-    DrawText("PAUSED", map.X(336), map.Y(100), map.Font(28), WHITE);
-    DrawText("J-Pop Internet Radio (.pls)", map.X(462), map.Y(108), map.Font(18), Color{172, 206, 224, 255});
-    DrawBox(map, TableHud::ResumeTopButton, Color{38, 78, 64, 245}, Color{102, 174, 144, 255});
-    DrawText("RESUME", map.X(912), map.Y(113), map.Font(19), WHITE);
+    const auto textWith = [](Font font, const char* text, int x, int y, int size, Color color) {
+        DrawTextEx(font, text, {static_cast<float>(x), static_cast<float>(y)},
+                   static_cast<float>(size), std::max(1.0f, size * 0.025f), color);
+    };
+    const auto MenuText = [&](const char* text, int x, int y, int size, Color color) {
+        textWith(bodyFont, text, x, y, size, color);
+    };
+    const auto HeadingText = [&](const char* text, int x, int y, int size, Color color) {
+        textWith(headingFont, text, x, y, size, color);
+    };
+
+    DrawRectangle(map.X(0), map.Y(0), map.W(TableLayout::ImageWidth), map.H(TableLayout::ImageHeight),
+                  Color{8, 12, 18, 145});
+
+    // Heavy shadow and double outline make the panel read like an arcade cabinet UI.
+    const auto panel = TableHud::PausePanel;
+    DrawRectangle(map.X(panel.x + 8.0f), map.Y(panel.y + 9.0f), map.W(panel.width), map.H(panel.height),
+                  Color{4, 7, 13, 185});
+    DrawBox(map, panel, paper, Color{245, 245, 239, 255}, 4.0f);
+    DrawRectangleLinesEx(map.Rec({panel.x + 5.0f, panel.y + 5.0f, panel.width - 10.0f, panel.height - 10.0f}),
+                         std::max(1.0f, 2.0f * map.scale), ink);
+
+    // Blue masthead, then the orange/white/green Densha stripes from the mock-up.
+    DrawRectangle(map.X(261), map.Y(134), map.W(838), map.H(82), navy);
+    DrawRectangle(map.X(261), map.Y(216), map.W(838), map.H(6), orange);
+    DrawRectangle(map.X(261), map.Y(222), map.W(838), map.H(4), Color{248, 248, 241, 255});
+    DrawRectangle(map.X(261), map.Y(226), map.W(838), map.H(6), green);
+    HeadingText("PAUSE", map.X(282), map.Y(148), map.Font(50), WHITE);
+    HeadingText("MENU", map.X(440), map.Y(178), map.Font(24), WHITE);
+    MenuText("PAUSED", map.X(580), map.Y(183), map.Font(18), Color{171, 178, 207, 255});
+    if (logo.id != 0) {
+        DrawTexturePro(logo, {0, 0, static_cast<float>(logo.width), static_cast<float>(logo.height)},
+                       map.Rec({890.0f, 137.0f, 174.0f, 76.0f}), {0, 0}, 0, WHITE);
+    }
 
     const bool radioOn = hud.radio.enabled;
-    const Color powerFill = radioOn ? Color{31, 86, 66, 245} : Color{46, 54, 66, 245};
-    const Color powerBorder = radioOn ? Color{96, 184, 146, 255} : Color{96, 110, 126, 255};
-    DrawBox(map, TableHud::RadioPowerButton, powerFill, powerBorder);
-    DrawText(radioOn ? "RADIO: ON" : "RADIO: OFF", map.X(349), map.Y(175), map.Font(18), WHITE);
+    MenuText("BGM", map.X(286), map.Y(257), map.Font(21), navy);
+    DrawBox(map, TableHud::RadioPowerButton, radioOn ? green : blue,
+            radioOn ? Color{0, 74, 42, 255} : Color{102, 108, 137, 255}, 2.0f);
+    HeadingText(radioOn ? "ON" : "OFF", map.X(417), map.Y(255), map.Font(24), WHITE);
 
-    const Color muteFill = hud.radio.muted ? Color{112, 54, 46, 245} : Color{40, 49, 60, 245};
-    const Color muteBorder = hud.radio.muted ? Color{206, 114, 102, 255} : Color{96, 110, 126, 255};
-    DrawBox(map, TableHud::RadioMuteButton, muteFill, muteBorder);
-    DrawText(hud.radio.muted ? "MUTED" : "MUTE", map.X(496), map.Y(175), map.Font(17), WHITE);
+    DrawBox(map, TableHud::RadioMuteButton, hud.radio.muted ? Color{142, 48, 44, 255} : Color{104, 106, 111, 255},
+            ink, 2.0f);
+    HeadingText(hud.radio.muted ? "MUTED" : "MUTE", map.X(541), map.Y(255), map.Font(23), ink);
 
-    // Volume slider
-    DrawBox(map, TableHud::VolumeBar, Color{26, 33, 44, 255}, Color{84, 104, 124, 255}, 1.0f);
+    // Segmented volume meter.
     const float vol = std::clamp(hud.radio.volume, 0.0f, 1.0f);
-    if (vol > 0.0f) {
-        const Color fillCol = hud.radio.muted ? Color{108, 114, 122, 220} : Color{98, 178, 152, 255};
-        DrawRectangle(map.X(TableHud::VolumeBar.x + 2.0f), map.Y(TableHud::VolumeBar.y + 2.0f),
-                      map.W(std::max(2.0f, (TableHud::VolumeBar.width - 4.0f) * vol)),
-                      map.H(TableHud::VolumeBar.height - 4.0f), fillCol);
+    constexpr int segments = 18;
+    for (int i = 0; i < segments; ++i) {
+        const bool active = static_cast<float>(i + 1) / segments <= vol + 0.001f;
+        DrawRectangle(map.X(TableHud::VolumeBar.x + i * 15.0f), map.Y(TableHud::VolumeBar.y),
+                      map.W(9.0f), map.H(TableHud::VolumeBar.height),
+                      active ? (hud.radio.muted ? Color{117, 121, 124, 255} : green)
+                             : Color{139, 143, 146, 255});
     }
-    const float knobX = TableHud::VolumeBar.x + vol * (TableHud::VolumeBar.width - 10.0f);
-    DrawRectangle(map.X(knobX), map.Y(TableHud::VolumeBar.y - 3.0f), map.W(10.0f), map.H(26.0f), WHITE);
     const int volPct = static_cast<int>(std::lround(vol * 100.0f));
-    DrawText((std::to_string(volPct) + "%").c_str(), map.X(974), map.Y(175), map.Font(18), WHITE);
+    MenuText((std::to_string(volPct) + "%").c_str(), map.X(1007), map.Y(255), map.Font(21), navy);
 
-    // Live station & stream metadata readout
     const std::string stationLabel = hud.radio.stationName.empty() ? "J-Pop Powerplay" : hud.radio.stationName;
     const std::string statusBadge = hud.radio.statusText.empty() ? "Radio off" : hud.radio.statusText;
-    Color badgeColor = LIGHTGRAY;
-    if (hud.radio.state == RadioState::PLAYING) badgeColor = Color{130, 228, 182, 255};
+    Color badgeColor = Color{73, 74, 78, 255};
+    if (hud.radio.state == RadioState::PLAYING) badgeColor = green;
     else if (hud.radio.state == RadioState::CONNECTING || hud.radio.state == RadioState::BUFFERING)
-        badgeColor = Color{240, 206, 126, 255};
-    else if (hud.radio.state == RadioState::FAILED) badgeColor = Color{236, 122, 112, 255};
+        badgeColor = Color{178, 115, 0, 255};
+    else if (hud.radio.state == RadioState::FAILED) badgeColor = Color{173, 43, 38, 255};
 
-    DrawText(("Station: " + stationLabel).c_str(), map.X(338), map.Y(230), map.Font(18), WHITE);
-    DrawText(("[" + statusBadge + "]").c_str(), map.X(338), map.Y(258), map.Font(15), badgeColor);
+    MenuText("STATION", map.X(286), map.Y(309), map.Font(18), navy);
+    MenuText(stationLabel.c_str(), map.X(386), map.Y(306), map.Font(22), ink);
+    MenuText(("[" + statusBadge + "]").c_str(), map.X(386), map.Y(336), map.Font(16), badgeColor);
     if (radioOn) {
-        DrawText(("buffered " + FormatTenths(hud.radio.bufferedSec)).c_str(), map.X(880), map.Y(258),
-                 map.Font(15), Color{172, 194, 214, 255});
+        MenuText(("BUFFER " + FormatTenths(hud.radio.bufferedSec)).c_str(), map.X(887), map.Y(336),
+                 map.Font(13), Color{92, 94, 98, 255});
     }
 
-    // 2x3 preset .pls station grid
     const auto& stations = DefaultRadioStations();
     for (std::size_t i = 0; i < stations.size() && i < TableHud::StationSlotCount; ++i) {
         const auto box = TableHud::StationButton(i);
-        const bool selected = (hud.radio.stationIndex == static_cast<int>(i));
-        const Color fill = selected
-            ? (radioOn ? Color{31, 70, 62, 245} : Color{42, 54, 70, 245})
-            : Color{28, 35, 46, 240};
-        const Color border = selected ? Color{122, 198, 170, 255} : Color{72, 88, 108, 220};
-        DrawBox(map, box, fill, border);
-        DrawText(stations[i].name.c_str(), map.X(box.x + 14.0f), map.Y(box.y + 12.0f), map.Font(18), WHITE);
-        DrawText((stations[i].subtitle + "  [.pls]").c_str(),
-                 map.X(box.x + 14.0f), map.Y(box.y + 37.0f), map.Font(14),
-                 selected ? Color{196, 232, 216, 255} : LIGHTGRAY);
+        const bool selected = hud.radio.stationIndex == static_cast<int>(i);
+        DrawBox(map, box, selected ? blue : button, selected ? Color{7, 13, 76, 255} : ink, 2.0f);
+        if (selected) {
+            DrawRectangle(map.X(box.x + 2.0f), map.Y(box.y + 19.0f), map.W(12.0f), map.H(26.0f),
+                          Color{255, 204, 25, 255});
+        }
+        HeadingText(stations[i].name.c_str(), map.X(box.x + 39.0f), map.Y(box.y + 8.0f), map.Font(21), WHITE);
+        MenuText((stations[i].subtitle + "  [pls]").c_str(), map.X(box.x + 39.0f), map.Y(box.y + 36.0f),
+                 map.Font(16), Color{225, 226, 228, 255});
     }
 
-    DrawBox(map, TableHud::NewMatchButton, Color{94, 48, 42, 245}, Color{168, 96, 86, 255});
-    DrawText("NEW MATCH", map.X(364), map.Y(625), map.Font(18), WHITE);
-    DrawText("ESC / P: Pause   M: Mute", map.X(546), map.Y(627), map.Font(15), LIGHTGRAY);
-    DrawBox(map, TableHud::ResumeBottomButton, Color{31, 75, 58, 245}, Color{96, 174, 144, 255});
-    DrawText("RESUME GAME", map.X(872), map.Y(625), map.Font(18), WHITE);
+    DrawRectangle(map.X(261), map.Y(597), map.W(838), map.H(2.0f), ink);
+    MenuText("START NEW MATCH", map.X(296), map.Y(617), map.Font(12), ink);
+    MenuText("NEW MATCH", map.X(296), map.Y(640), map.Font(16), ink);
+    MenuText("OPEN MENU", map.X(520), map.Y(617), map.Font(12), ink);
+    MenuText("ESC / P: PAUSE", map.X(520), map.Y(640), map.Font(15), ink);
+    MenuText("TOGGLE VOLUME", map.X(722), map.Y(617), map.Font(12), ink);
+    MenuText("M: MUTE", map.X(722), map.Y(640), map.Font(15), ink);
+    MenuText("RETURN TO GAME", map.X(922), map.Y(617), map.Font(12), ink);
+    MenuText("RESUME GAME", map.X(922), map.Y(640), map.Font(15), ink);
 }
 
 // The HUD belongs to the screen, not the world canvas: it is drawn after the
 // world blit, in the same 1360x768 design space as the click rectangles.
-void DrawHud(const TableGame& game, const TableHudState& hud, Rectangle destination, float scale) {
+void DrawHud(const TableGame& game, const TableHudState& hud, Rectangle destination, float scale,
+             Texture2D logo, Font headingFont, Font bodyFont) {
     const ScreenMap map{destination, scale};
     DrawRectangle(map.X(8), map.Y(8), map.W(500), map.H(102), Color{15, 20, 27, 220});
     const std::string label = "ROUND " + std::to_string(game.Round()) + " / " +
@@ -389,7 +425,7 @@ void DrawHud(const TableGame& game, const TableHudState& hud, Rectangle destinat
              map.Font(14), subColor);
 
     if (hud.paused) {
-        DrawPauseMenu(map, hud);
+        DrawPauseMenu(map, hud, logo, headingFont, bodyFont);
     }
 }
 
@@ -401,12 +437,27 @@ Texture2D LoadRequiredTexture(const char* path) {
     }
     return texture;
 }
+
+Font LoadMenuFont(const char* path, bool& owned) {
+    const Font fallback = GetFontDefault();
+    if (!FileExists(path)) {
+        owned = false;
+        return fallback;
+    }
+    Font font = LoadFontEx(path, 64, nullptr, 0);
+    owned = font.texture.id != 0 && font.texture.id != fallback.texture.id;
+    return owned ? font : fallback;
+}
 } // namespace
 
-TableScene::TableScene(const char* backgroundPath, const char* atlasPath) {
+TableScene::TableScene(const char* backgroundPath, const char* atlasPath, const char* logoPath,
+                       const char* headingFontPath, const char* bodyFontPath) {
     try {
         background_ = LoadRequiredTexture(backgroundPath);
         atlas_ = LoadRequiredTexture(atlasPath);
+        logo_ = LoadRequiredTexture(logoPath);
+        headingFont_ = LoadMenuFont(headingFontPath, ownsHeadingFont_);
+        bodyFont_ = LoadMenuFont(bodyFontPath, ownsBodyFont_);
         if (atlas_.width % 12 != 0 || atlas_.height % 4 != 0)
             throw std::runtime_error("Card atlas must be a tightly packed 12x4 grid");
         SetTextureFilter(atlas_, TEXTURE_FILTER_POINT);
@@ -416,8 +467,11 @@ TableScene::TableScene(const char* backgroundPath, const char* atlasPath) {
             throw std::runtime_error("Could not create table render texture");
         SetTextureFilter(canvas_.texture, TEXTURE_FILTER_BILINEAR);
     } catch (...) {
+        if (ownsBodyFont_) UnloadFont(bodyFont_);
+        if (ownsHeadingFont_) UnloadFont(headingFont_);
         if (canvas_.id != 0) UnloadRenderTexture(canvas_);
         if (cardBack_.id != 0) UnloadTexture(cardBack_);
+        if (logo_.id != 0) UnloadTexture(logo_);
         if (atlas_.id != 0) UnloadTexture(atlas_);
         if (background_.id != 0) UnloadTexture(background_);
         throw;
@@ -425,8 +479,11 @@ TableScene::TableScene(const char* backgroundPath, const char* atlasPath) {
 }
 
 TableScene::~TableScene() {
+    if (ownsBodyFont_) UnloadFont(bodyFont_);
+    if (ownsHeadingFont_) UnloadFont(headingFont_);
     UnloadRenderTexture(canvas_);
     UnloadTexture(cardBack_);
+    UnloadTexture(logo_);
     UnloadTexture(atlas_);
     UnloadTexture(background_);
 }
@@ -459,6 +516,6 @@ void TableScene::Draw(const TableGame& game, const TableHudState& hud) const {
     DrawTexturePro(canvas_.texture, {0, 0, static_cast<float>(canvas_.texture.width),
                                     -static_cast<float>(canvas_.texture.height)},
                    destination, {0, 0}, 0, WHITE);
-    DrawHud(game, hud, destination, scale);
+    DrawHud(game, hud, destination, scale, logo_, headingFont_, bodyFont_);
     EndDrawing();
 }

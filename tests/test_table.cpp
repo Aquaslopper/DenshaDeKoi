@@ -15,6 +15,7 @@ namespace {
 struct Vertex { float x, y, z, u, v; Color color; unsigned int texture; };
 std::vector<Vertex> vertices;
 std::vector<unsigned int> unloaded;
+std::vector<unsigned int> unloadedFonts;
 std::vector<Rectangle> destinations;
 std::vector<Rectangle> sources;
 Camera3D camera{};
@@ -30,7 +31,7 @@ bool failAtlas = false, invalidAtlas = false, failCanvas = false;
 void Check(bool condition, const char* text) { if (!condition) throw std::runtime_error(text); }
 bool Near(float a, float b, float tolerance = 0.01f) { return std::abs(a - b) < tolerance; }
 void Reset() {
-    vertices.clear(); unloaded.clear(); destinations.clear(); sources.clear();
+    vertices.clear(); unloaded.clear(); unloadedFonts.clear(); destinations.clear(); sources.clear();
     drawnTexts.clear();
     loads = renderUnloads = draws = 0; failAtlas = invalidAtlas = failCanvas = false;
 }
@@ -67,7 +68,7 @@ void TestGeometry() {
 void TestDraw() {
     Reset();
     {
-        TableScene scene("city", "atlas");
+        TableScene scene("city", "atlas", "logo", "heading", "body");
         TableGame game(42);
         scene.Draw(game);
         const auto cards = game.Cards();
@@ -161,28 +162,29 @@ void TestDraw() {
                                [&](const std::string& s) { return s.find(needle) != std::string::npos; });
         };
         Check(hasText("PAUSED") && hasText("J-Pop Powerplay") && hasText("75%") &&
-              hasText("Live") && hasText("buffered 2.8s") && hasText("J-Pop Sakura"),
+              hasText("Live") && hasText("BUFFER 2.8s") && hasText("J-Pop Sakura"),
               "Pause menu must render the radio state, station presets, volume and buffer readout");
         Check(noOverlap(TableHud::VolumeHitBox, TableHud::StationButton(0)) &&
               noOverlap(TableHud::RadioPowerButton, TableHud::RadioMuteButton) &&
               noOverlap(TableHud::VolumeHitBox, TableHud::RadioMuteButton),
               "Radio controls must not overlap each other or the station grid");
     }
-    Check(renderUnloads == 1 && unloaded == std::vector<unsigned int>({4, 2, 1}), "Resources not released");
+    Check(renderUnloads == 1 && unloaded == std::vector<unsigned int>({4, 5, 2, 1}) &&
+          unloadedFonts == std::vector<unsigned int>({7, 6}), "Resources not released");
 }
 void TestFailures() {
     Reset(); failAtlas = true;
     bool threw = false;
-    try { TableScene scene("city", "atlas"); } catch (const std::runtime_error&) { threw = true; }
+    try { TableScene scene("city", "atlas", "logo", "heading", "body"); } catch (const std::runtime_error&) { threw = true; }
     Check(threw && unloaded == std::vector<unsigned int>{1}, "Atlas failure or background cleanup failed");
     Reset(); invalidAtlas = true;
     threw = false;
-    try { TableScene scene("city", "atlas"); } catch (const std::runtime_error&) { threw = true; }
-    Check(threw && unloaded == std::vector<unsigned int>({2, 1}), "Invalid atlas or texture cleanup failed");
+    try { TableScene scene("city", "atlas", "logo", "heading", "body"); } catch (const std::runtime_error&) { threw = true; }
+    Check(threw && unloaded == std::vector<unsigned int>({5, 2, 1}), "Invalid atlas or texture cleanup failed");
     Reset(); failCanvas = true;
     threw = false;
-    try { TableScene scene("city", "atlas"); } catch (const std::runtime_error&) { threw = true; }
-    Check(threw && unloaded == std::vector<unsigned int>({4, 2, 1}) && renderUnloads == 0, "Canvas failure or texture cleanup failed");
+    try { TableScene scene("city", "atlas", "logo", "heading", "body"); } catch (const std::runtime_error&) { threw = true; }
+    Check(threw && unloaded == std::vector<unsigned int>({4, 5, 2, 1}) && renderUnloads == 0, "Canvas failure or texture cleanup failed");
 }
 } // namespace
 
@@ -190,11 +192,22 @@ Texture2D LoadTexture(const char*) {
     ++loads;
     if (loads == 2 && failAtlas) return {};
     if (loads == 1) return {1, 1360, 768, 1, 0};
-    return {2, invalidAtlas ? 2147 : 2148, 1056, 1, 0};
+    if (loads == 2) return {2, invalidAtlas ? 2147 : 2148, 1056, 1, 0};
+    return {5, 187, 82, 1, 0};
 }
 Texture2D LoadTextureFromImage(Image img) {
     Check(img.data != nullptr && img.width == 179 && img.height == 264, "Invalid matte back image");
     return {4, img.width, img.height, 1, img.format};
+}
+bool FileExists(const char*) { return true; }
+Font LoadFontEx(const char* name, int size, int*, int) {
+    const unsigned int id = std::string(name) == "heading" ? 6u : 7u;
+    return {size, 96, 0, {id, 256, 256, 1, 0}, nullptr, nullptr};
+}
+Font GetFontDefault() { return {10, 96, 0, {98, 128, 128, 1, 0}, nullptr, nullptr}; }
+void UnloadFont(Font font) { unloadedFonts.push_back(font.texture.id); }
+void DrawTextEx(Font, const char* text, Vector2, float, float, Color) {
+    if (text) drawnTexts.emplace_back(text);
 }
 void UnloadTexture(Texture2D t) { unloaded.push_back(t.id); }
 void SetTextureFilter(Texture2D, int) {}
