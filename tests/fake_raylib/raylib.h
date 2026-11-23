@@ -6,7 +6,7 @@ struct Rectangle { float x, y, width, height; };
 struct Color { unsigned char r, g, b, a; };
 struct Texture2D { unsigned int id; int width, height, mipmaps, format; };
 struct Image { void* data; int width, height, mipmaps, format; };
-struct Font { int baseSize; Texture2D texture; };
+struct Font { int baseSize; Texture2D texture; void* recs; void* glyphs; };
 inline constexpr int PIXELFORMAT_UNCOMPRESSED_R8G8B8A8 = 7;
 Texture2D LoadTextureFromImage(Image image);
 inline constexpr Color WHITE{255, 255, 255, 255};

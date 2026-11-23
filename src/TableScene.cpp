@@ -310,15 +310,13 @@ void DrawSilk(const ScreenMap& map, Font font, const char* text, float x, float 
 }
 
 void DrawVt(const ScreenMap& map, Font font, const char* text, float x, float capTop,
-            float size, Color color, bool bold = false, bool shadow = false) {
+            float size, Color color, bool shadow = false) {
     const Vector2 pos{static_cast<float>(map.X(x)),
                       static_cast<float>(map.Y(capTop - VtAscCap * size))};
     const float fs = static_cast<float>(map.W(size));
     if (shadow)
         DrawTextEx(font, text, {pos.x + 2.0f * map.scale, pos.y + 2.0f * map.scale},
                    fs, 0.0f, Color{10, 10, 14, 200});
-    if (bold)
-        DrawTextEx(font, text, {pos.x + 1.0f * map.scale, pos.y}, fs, 0.0f, color);
     DrawTextEx(font, text, pos, fs, 0.0f, color);
 }
 
@@ -482,14 +480,14 @@ void DrawPauseMenu(const ScreenMap& map, const TableHudState& hud, const TableSc
         }
     }
     const std::string pct = std::to_string(static_cast<int>(std::lround(vol * 100.0f))) + "%";
-    DrawVt(map, assets.vt28, pct.c_str(), 1032.0f, 229.0f, 28.0f, navy, true);
+    DrawVt(map, assets.vt28, pct.c_str(), 1032.0f, 229.0f, 28.0f, navy);
 
     // STATION readout: navy label, big black name, bracketed live status.
     DrawSilk(map, assets.title16, "STATION", 292.0f, 286.0f, 16.0f, navy);
     const std::string stationLabel =
         hud.radio.stationName.empty() ? "J-Pop Powerplay" : hud.radio.stationName;
     DrawVt(map, assets.vt42, stationLabel.c_str(), 400.0f, 270.0f, 42.0f,
-           Color{16, 16, 19, 255}, true);
+           Color{16, 16, 19, 255});
     std::string status = hud.radio.statusText.empty() ? "Radio off" : hud.radio.statusText;
     if (hud.radio.enabled && hud.radio.state == RadioState::PLAYING && hud.radio.bufferedSec > 0.05f)
         status += " - buffered " + FormatTenths(hud.radio.bufferedSec);
@@ -506,11 +504,11 @@ void DrawPauseMenu(const ScreenMap& map, const TableHudState& hud, const TableSc
         const float maxW = box.x + box.width - textX - 12.0f;
         DrawVt(map, assets.vt28, stations[i].name.c_str(), textX, box.y + 10.0f,
                VtFit(assets.vt28, stations[i].name.c_str(), 28.0f, maxW),
-               white, true, true);
+               white, true);
         const std::string sub = stations[i].subtitle + "  [pls]";
         DrawVt(map, assets.vt21, sub.c_str(), textX, box.y + 38.0f,
                VtFit(assets.vt21, sub.c_str(), 21.0f, maxW),
-               selected ? Color{233, 236, 250, 255} : Color{201, 205, 214, 255}, false, true);
+               selected ? Color{233, 236, 250, 255} : Color{201, 205, 214, 255}, true);
         if (selected) DrawArrow(map, box.x + 12.0f, box.y + box.height * 0.5f);
     }
 
@@ -538,7 +536,7 @@ void DrawPauseMenu(const ScreenMap& map, const TableHudState& hud, const TableSc
         DrawVt(map, assets.vt24, footerCols[c].line1, TableHud::FooterColX[c], 600.0f, 24.0f,
                Color{40, 40, 44, 255});
         DrawVt(map, assets.vt24, footerCols[c].line2, TableHud::FooterColX[c], 622.0f, 24.0f,
-               Color{18, 18, 20, 255}, true);
+               Color{18, 18, 20, 255});
     }
     // Bottom white frame + 1 px outer edge.
     DrawRectangle(map.X(PX), map.Y(650), map.W(PW), map.H(3), Color{242, 243, 246, 255});
@@ -602,42 +600,78 @@ void DrawHud(const TableGame& game, const TableHudState& hud, const TableSceneUi
     }
 }
 
-Font LoadFontOrDefault(const char* path, int size) {
-    Font font = LoadFontEx(path, size, nullptr, 0);
-    if (font.texture.id == 0 || font.texture.width <= 0 || font.texture.height <= 0) {
-        std::fprintf(stderr, "[ui] could not load font '%s'; using the default font\n", path);
+// Raylib silently falls back to its built-in 10 px font when a TTF cannot be
+// loaded (LoadFontFromMemory returns GetFontDefault() in that case), so a
+// plain texture-id check is not enough to detect failure. Comparing the
+// glyph table pointer against the default font catches both cases.
+bool IsCustomFont(Font font) {
+    const Font fallback = GetFontDefault();
+    return font.texture.id != 0 && font.glyphs != nullptr && font.glyphs != fallback.glyphs;
+}
+
+// The assets may sit next to the executable (CMake copies them there), in the
+// working directory ("fonts/..."), or in the repository layout ("assets/fonts/...").
+// Try them in order and report every attempt when none works.
+std::string ResolveAssetPath(const char* relativePath, const char* kind) {
+    const std::filesystem::path appDir(GetApplicationDirectory());
+    const std::filesystem::path candidates[] = {
+        appDir / relativePath,
+        std::filesystem::path(relativePath),
+        std::filesystem::path("assets") / relativePath,
+    };
+    for (const auto& candidate : candidates) {
+        std::error_code ec;
+        if (std::filesystem::exists(candidate, ec)) return candidate.string();
+    }
+    std::fprintf(stderr, "[ui] %s '%s' not found; searched:\n", kind, relativePath);
+    for (const auto& candidate : candidates)
+        std::fprintf(stderr, "[ui]   - %s\n", candidate.string().c_str());
+    return {};
+}
+
+Font LoadFontOrDefault(const char* relativePath, int size) {
+    const std::string path = ResolveAssetPath(relativePath, "font");
+    if (path.empty()) return GetFontDefault();
+    Font font = LoadFontEx(path.c_str(), size, nullptr, 0);
+    if (!IsCustomFont(font)) {
+        std::fprintf(stderr, "[ui] font '%s' failed to load; using the default font\n", path.c_str());
         return GetFontDefault();
     }
     SetTextureFilter(font.texture, TEXTURE_FILTER_BILINEAR);
+    std::fprintf(stderr, "[ui] font '%s' loaded (%d px)\n", path.c_str(), size);
     return font;
 }
 
 void ReleaseFont(Font font) {
     // The shared Raylib default font is owned by Raylib itself; never unload it.
-    if (font.texture.id != 0 && font.texture.id != GetFontDefault().texture.id) UnloadFont(font);
+    if (IsCustomFont(font)) UnloadFont(font);
 }
 
 TableSceneUiAssets LoadPauseAssets() {
-    const std::filesystem::path appDir(GetApplicationDirectory());
-    const std::string fontsDir = (appDir / "fonts").string();
     TableSceneUiAssets assets;
-    assets.title64 = LoadFontOrDefault((fontsDir + "/Silkscreen-Bold.ttf").c_str(), 64);
-    assets.title32 = LoadFontOrDefault((fontsDir + "/Silkscreen-Bold.ttf").c_str(), 32);
-    assets.title24 = LoadFontOrDefault((fontsDir + "/Silkscreen-Bold.ttf").c_str(), 24);
-    assets.title16 = LoadFontOrDefault((fontsDir + "/Silkscreen-Bold.ttf").c_str(), 16);
-    assets.vt42 = LoadFontOrDefault((fontsDir + "/VT323.ttf").c_str(), 42);
-    assets.vt28 = LoadFontOrDefault((fontsDir + "/VT323.ttf").c_str(), 28);
-    assets.vt25 = LoadFontOrDefault((fontsDir + "/VT323.ttf").c_str(), 25);
-    assets.vt24 = LoadFontOrDefault((fontsDir + "/VT323.ttf").c_str(), 24);
-    assets.vt21 = LoadFontOrDefault((fontsDir + "/VT323.ttf").c_str(), 21);
-    const std::string logoPath = (appDir / "densha-logo.png").string();
+    assets.title64 = LoadFontOrDefault("fonts/Silkscreen-Bold.ttf", 64);
+    assets.title32 = LoadFontOrDefault("fonts/Silkscreen-Bold.ttf", 32);
+    assets.title24 = LoadFontOrDefault("fonts/Silkscreen-Bold.ttf", 24);
+    assets.title16 = LoadFontOrDefault("fonts/Silkscreen-Bold.ttf", 16);
+    assets.vt42 = LoadFontOrDefault("fonts/VT323.ttf", 42);
+    assets.vt28 = LoadFontOrDefault("fonts/VT323.ttf", 28);
+    assets.vt25 = LoadFontOrDefault("fonts/VT323.ttf", 25);
+    assets.vt24 = LoadFontOrDefault("fonts/VT323.ttf", 24);
+    assets.vt21 = LoadFontOrDefault("fonts/VT323.ttf", 21);
+    const std::string logoPath = ResolveAssetPath("densha-logo.png", "logo");
+    if (logoPath.empty()) {
+        assets.logoValid = false;
+        return assets;
+    }
     assets.logo = LoadTexture(logoPath.c_str());
     if (assets.logo.id == 0 || assets.logo.width <= 0 || assets.logo.height <= 0) {
-        std::fprintf(stderr, "[ui] could not load logo '%s'; title bar will render text only\n",
+        std::fprintf(stderr, "[ui] logo '%s' failed to load; title bar will render text only\n",
                      logoPath.c_str());
         assets.logoValid = false;
     } else {
         SetTextureFilter(assets.logo, TEXTURE_FILTER_BILINEAR);
+        std::fprintf(stderr, "[ui] logo '%s' loaded (%dx%d)\n", logoPath.c_str(),
+                     assets.logo.width, assets.logo.height);
         assets.logoValid = true;
     }
     return assets;

@@ -112,6 +112,8 @@ if(BUILD_TESTING)
     target_include_directories(test_table PRIVATE tests/fake_raylib src)
     target_link_libraries(test_table PRIVATE hanafuda_core)
     add_test(NAME table COMMAND test_table)
+    # Run from the repo root so the asset fallback path (assets/fonts, assets/) is exercised.
+    set_tests_properties(table PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 
     add_executable(test_table_game tests/test_table_game.cpp)
     configure_project_target(test_table_game)

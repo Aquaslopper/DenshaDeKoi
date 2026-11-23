@@ -211,8 +211,11 @@ void DrawTriangle(Vector2, Vector2, Vector2, Color) {}
 Vector2 GetMousePosition() { return {0, 0}; }
 const char* GetApplicationDirectory() { return ""; }
 bool CheckCollisionPointRec(Vector2, Rectangle) { return false; }
-Font GetFontDefault() { return {16, {9, 16, 16, 1, 0}}; }
-Font LoadFontEx(const char*, int fontSize, int*, int) { return {fontSize, {9, fontSize, fontSize, 1, 0}}; }
+Font GetFontDefault() { static int defaultGlyphs; return {10, {9, 9, 16, 1, 0}, nullptr, &defaultGlyphs}; }
+Font LoadFontEx(const char*, int fontSize, int*, int) {
+    static int loadedGlyphs; // fresh pointer per call: never the default font's glyph table
+    return {fontSize, {9, fontSize, fontSize, 1, 0}, nullptr, &loadedGlyphs};
+}
 void UnloadFont(Font) {}
 Vector2 MeasureTextEx(Font, const char* text, float fontSize, float) {
     return {static_cast<float>(std::strlen(text)) * fontSize * 0.5f, fontSize};
