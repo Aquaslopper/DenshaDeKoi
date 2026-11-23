@@ -8,8 +8,13 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
+#include <filesystem>
+#include <initializer_list>
+#include <iterator>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -257,9 +262,132 @@ struct ScreenMap {
     }
 };
 
-void DrawBox(const ScreenMap& map, TableLayout::Rect r, Color fill, Color border, float borderPx = 1.5f) {
-    DrawRectangle(map.X(r.x), map.Y(r.y), map.W(r.width), map.H(r.height), fill);
-    DrawRectangleLinesEx(map.Rec(r), std::max(1.0f, borderPx * map.scale), border);
+
+// ---------- Retro pause-menu chrome helpers (share the pixel-mock look) ----------
+constexpr float SilkAscCap = 0.33f; // (1.03 - 0.70) em for Silkscreen
+constexpr float VtAscCap = 0.24f;   // (0.80 - 0.56) em for VT323
+
+Color LerpColor(Color a, Color b, float t) {
+    const auto mix = [t](unsigned char ca, unsigned char cb) {
+        return static_cast<unsigned char>(std::lround(ca + (cb - ca) * t));
+    };
+    return {mix(a.r, b.r), mix(a.g, b.g), mix(a.b, b.b), mix(a.a, b.a)};
+}
+
+void DrawVGradient(const ScreenMap& map, TableLayout::Rect r,
+                   std::initializer_list<std::pair<float, Color>> stops) {
+    const int bands = 48;
+    const float bandH = r.height / static_cast<float>(bands);
+    for (int i = 0; i < bands; ++i) {
+        const float t = (static_cast<float>(i) + 0.5f) / static_cast<float>(bands);
+        const auto* begin = stops.begin();
+        const auto* end = stops.end();
+        Color color = begin->second;
+        for (const auto* it = begin; it != end; ++it) {
+            const auto* next = std::next(it);
+            if (next == end) { color = it->second; break; }
+            if (t <= next->first) {
+                const float span = next->first - it->first;
+                const float f = span > 1e-6f ? (t - it->first) / span : 0.0f;
+                color = LerpColor(it->second, next->second, std::clamp(f, 0.0f, 1.0f));
+                break;
+            }
+        }
+        const float y = r.y + static_cast<float>(i) * bandH;
+        DrawRectangle(map.X(r.x), map.Y(y), map.W(r.width), map.H(bandH + 0.75f), color);
+    }
+}
+
+void DrawSilk(const ScreenMap& map, Font font, const char* text, float x, float capTop,
+              float size, Color color, bool shadow = false) {
+    const Vector2 pos{static_cast<float>(map.X(x)),
+                      static_cast<float>(map.Y(capTop - SilkAscCap * size))};
+    const float fs = static_cast<float>(map.W(size));
+    if (shadow)
+        DrawTextEx(font, text, {pos.x + 2.0f * map.scale, pos.y + 2.0f * map.scale},
+                   fs, 0.0f, Color{0, 10, 45, 255});
+    DrawTextEx(font, text, pos, fs, 0.0f, color);
+}
+
+void DrawVt(const ScreenMap& map, Font font, const char* text, float x, float capTop,
+            float size, Color color, bool bold = false, bool shadow = false) {
+    const Vector2 pos{static_cast<float>(map.X(x)),
+                      static_cast<float>(map.Y(capTop - VtAscCap * size))};
+    const float fs = static_cast<float>(map.W(size));
+    if (shadow)
+        DrawTextEx(font, text, {pos.x + 2.0f * map.scale, pos.y + 2.0f * map.scale},
+                   fs, 0.0f, Color{10, 10, 14, 200});
+    if (bold)
+        DrawTextEx(font, text, {pos.x + 1.0f * map.scale, pos.y}, fs, 0.0f, color);
+    DrawTextEx(font, text, pos, fs, 0.0f, color);
+}
+
+float VtFit(Font font, const char* text, float size, float maxWidth) {
+    float s = size;
+    while (s > 12.0f) {
+        if (MeasureTextEx(font, text, s, 0.0f).x <= maxWidth) break;
+        s -= 1.0f;
+    }
+    return s;
+}
+
+enum class ButtonKind { Selected, Idle, Off, Mute };
+
+void DrawChromeButton(const ScreenMap& map, TableLayout::Rect r, ButtonKind kind,
+                      bool muted = false) {
+    const Color outer{11, 13, 18, 255};
+    DrawRectangle(map.X(r.x), map.Y(r.y), map.W(r.width), map.H(r.height), outer);
+    if (kind == ButtonKind::Selected) {
+        DrawRectangle(map.X(r.x + 2), map.Y(r.y + 2), map.W(r.width - 4), map.H(r.height - 4),
+                      Color{245, 246, 250, 255});
+        DrawVGradient(map, {r.x + 5, r.y + 5, r.width - 10, r.height - 10},
+                      {{0.0f, {0, 19, 198, 255}}, {1.0f, {0, 10, 156, 255}}});
+        return;
+    }
+    if (kind == ButtonKind::Off) {
+        DrawRectangle(map.X(r.x + 2), map.Y(r.y + 2), map.W(r.width - 4), map.H(r.height - 4),
+                      Color{199, 203, 230, 255});
+        DrawVGradient(map, {r.x + 4, r.y + 4, r.width - 8, r.height - 8},
+                      {{0.0f, {10, 31, 122, 255}}, {1.0f, {1, 18, 115, 255}}});
+        return;
+    }
+    if (kind == ButtonKind::Mute) {
+        DrawRectangle(map.X(r.x + 2), map.Y(r.y + 2), map.W(r.width - 4), map.H(2),
+                      Color{205, 209, 216, 255});
+        DrawRectangle(map.X(r.x + 2), map.Y(r.y + 2), map.W(2), map.H(r.height - 4),
+                      Color{205, 209, 216, 255});
+        DrawRectangle(map.X(r.x + 2), map.Y(r.y + r.height - 4), map.W(r.width - 4), map.H(2),
+                      Color{56, 59, 66, 255});
+        DrawRectangle(map.X(r.x + r.width - 4), map.Y(r.y + 2), map.W(2), map.H(r.height - 4),
+                      Color{56, 59, 66, 255});
+        if (muted)
+            DrawVGradient(map, {r.x + 4, r.y + 4, r.width - 8, r.height - 8},
+                          {{0.0f, {110, 74, 66, 255}}, {1.0f, {88, 60, 55, 255}}});
+        else
+            DrawVGradient(map, {r.x + 4, r.y + 4, r.width - 8, r.height - 8},
+                          {{0.0f, {106, 110, 120, 255}}, {1.0f, {94, 98, 107, 255}}});
+        return;
+    }
+    // Idle: light top-left bevel, dark bottom-right bevel, slate face.
+    DrawRectangle(map.X(r.x + 2), map.Y(r.y + 2), map.W(r.width - 4), map.H(2),
+                  Color{90, 98, 114, 255});
+    DrawRectangle(map.X(r.x + 2), map.Y(r.y + 2), map.W(2), map.H(r.height - 4),
+                  Color{90, 98, 114, 255});
+    DrawRectangle(map.X(r.x + 2), map.Y(r.y + r.height - 4), map.W(r.width - 4), map.H(2),
+                  Color{25, 29, 37, 255});
+    DrawRectangle(map.X(r.x + r.width - 4), map.Y(r.y + 2), map.W(2), map.H(r.height - 4),
+                  Color{25, 29, 37, 255});
+    DrawVGradient(map, {r.x + 4, r.y + 4, r.width - 8, r.height - 8},
+                  {{0.0f, {53, 59, 73, 255}}, {1.0f, {43, 48, 59, 255}}});
+}
+
+void DrawArrow(const ScreenMap& map, float x, float cy) {
+    const auto pt = [&map](float px, float py) {
+        return Vector2{static_cast<float>(map.X(px)), static_cast<float>(map.Y(py))};
+    };
+    DrawTriangle(pt(x - 2, cy - 22), pt(x + 40, cy), pt(x - 2, cy + 22), Color{138, 90, 0, 255});
+    DrawTriangle(pt(x, cy - 20), pt(x + 38, cy), pt(x + 10, cy), Color{253, 199, 38, 255});
+    DrawTriangle(pt(x, cy + 20), pt(x + 38, cy), pt(x + 10, cy), Color{253, 199, 38, 255});
 }
 
 std::string FormatTenths(float seconds) {
@@ -267,84 +395,167 @@ std::string FormatTenths(float seconds) {
     return std::to_string(tenths / 10) + "." + std::to_string(tenths % 10) + "s";
 }
 
-void DrawPauseMenu(const ScreenMap& map, const TableHudState& hud) {
-    DrawRectangle(map.X(0), map.Y(0), map.W(TableLayout::ImageWidth), map.H(TableLayout::ImageHeight),
-                  Color{8, 12, 18, 175});
-    DrawBox(map, TableHud::PausePanel, Color{17, 23, 32, 246}, Color{98, 124, 148, 255}, 2.0f);
+void DrawPauseMenu(const ScreenMap& map, const TableHudState& hud, const TableSceneUiAssets& assets) {
+    // (The dim layer itself is drawn by DrawHud before the score strip, so the
+    // strip and edge chip stay lit like in the mock.)
+    const float PX = TableHud::PausePanel.x, PYi = TableHud::PausePanel.y;
+    const float PW = TableHud::PausePanel.width, PH = TableHud::PausePanel.height;
+    const float RIGHT = PX + PW;
+    const Color navy{21, 27, 95, 255};
+    const Color white{255, 255, 255, 255};
 
-    DrawText("PAUSED", map.X(336), map.Y(100), map.Font(28), WHITE);
-    DrawText("J-Pop Internet Radio (.pls)", map.X(462), map.Y(108), map.Font(18), Color{172, 206, 224, 255});
-    DrawBox(map, TableHud::ResumeTopButton, Color{38, 78, 64, 245}, Color{102, 174, 144, 255});
-    DrawText("RESUME", map.X(912), map.Y(113), map.Font(19), WHITE);
+    // Drop shadow, 1 px outer edge, white frame.
+    DrawRectangle(map.X(PX + 5), map.Y(PYi + 7), map.W(PW), map.H(PH), Color{0, 0, 0, 90});
+    DrawRectangle(map.X(PX - 1), map.Y(PYi - 1), map.W(PW + 2), map.H(PH + 2), Color{16, 16, 20, 255});
+    DrawRectangle(map.X(PX), map.Y(PYi), map.W(PW), map.H(PH), Color{242, 243, 246, 255});
 
+    // Navy title bar with an orange/green stripe underneath.
+    DrawVGradient(map, {PX + 3, PYi + 3, PW - 6, 80.0f},
+                  {{0.0f, {2, 23, 116, 255}}, {1.0f, {1, 15, 88, 255}}});
+    DrawRectangle(map.X(PX + 3), map.Y(183), map.W(PW - 6), map.H(9), Color{248, 146, 46, 255});
+    DrawRectangle(map.X(PX + 3), map.Y(192), map.W(PW - 6), map.H(1), Color{122, 62, 12, 255});
+    DrawRectangle(map.X(PX + 3), map.Y(193), map.W(PW - 6), map.H(8), Color{13, 104, 48, 255});
+    DrawRectangle(map.X(PX + 3), map.Y(201), map.W(PW - 6), map.H(1), Color{5, 46, 21, 255});
+
+    // Light-grey body with the mock's faint horizontal scanlines.
+    DrawVGradient(map, {PX + 3, 202, PW - 6, 374},
+                  {{0.00f, {168, 169, 167, 255}}, {0.35f, {183, 184, 182, 255}},
+                   {0.60f, {191, 192, 190, 255}}, {0.80f, {181, 182, 180, 255}},
+                   {1.00f, {170, 171, 169, 255}}});
+    for (float y = 202.0f; y < 576.0f; y += 4.0f)
+        DrawRectangle(map.X(PX + 3), map.Y(y), map.W(PW - 6), std::max(1, map.H(1.0f)),
+                      Color{0, 0, 0, 14});
+
+    // Title bar: PAUSE + MENU (stacked, bottom-aligned), PAUSED, and the wordmark.
+    DrawSilk(map, assets.title64, "PAUSE", 278.0f, 117.0f, 64.0f, white, true);
+    const float pauseW = MeasureTextEx(assets.title64, "PAUSE", 64.0f, 0.0f).x;
+    const float menuX = 278.0f + pauseW + 30.0f;
+    DrawSilk(map, assets.title32, "MENU", menuX, 139.4f, 32.0f, white, true);
+    const float menuW = MeasureTextEx(assets.title32, "MENU", 32.0f, 0.0f).x;
+    DrawSilk(map, assets.title24, "PAUSED", menuX + menuW + 24.0f, 145.0f, 24.0f,
+             Color{156, 168, 196, 255}, true);
+    if (assets.logoValid) {
+        const float lh = 64.0f;
+        const float lw = lh * static_cast<float>(assets.logo.width) /
+                         static_cast<float>(assets.logo.height);
+        const Rectangle src{0.0f, 0.0f, static_cast<float>(assets.logo.width),
+                            static_cast<float>(assets.logo.height)};
+        const Rectangle dst{static_cast<float>(map.X(RIGHT - 22.0f - lw)),
+                            static_cast<float>(map.Y(112.0f)),
+                            lw * map.scale, lh * map.scale};
+        DrawTexturePro(assets.logo, src, dst, {0.0f, 0.0f}, 0.0f, WHITE);
+    }
+
+    // BGM row: blue OFF/ON power toggle, chunky MUTE bevel button, segmented meter.
     const bool radioOn = hud.radio.enabled;
-    const Color powerFill = radioOn ? Color{31, 86, 66, 245} : Color{46, 54, 66, 245};
-    const Color powerBorder = radioOn ? Color{96, 184, 146, 255} : Color{96, 110, 126, 255};
-    DrawBox(map, TableHud::RadioPowerButton, powerFill, powerBorder);
-    DrawText(radioOn ? "RADIO: ON" : "RADIO: OFF", map.X(349), map.Y(175), map.Font(18), WHITE);
-
-    const Color muteFill = hud.radio.muted ? Color{112, 54, 46, 245} : Color{40, 49, 60, 245};
-    const Color muteBorder = hud.radio.muted ? Color{206, 114, 102, 255} : Color{96, 110, 126, 255};
-    DrawBox(map, TableHud::RadioMuteButton, muteFill, muteBorder);
-    DrawText(hud.radio.muted ? "MUTED" : "MUTE", map.X(496), map.Y(175), map.Font(17), WHITE);
-
-    // Volume slider
-    DrawBox(map, TableHud::VolumeBar, Color{26, 33, 44, 255}, Color{84, 104, 124, 255}, 1.0f);
+    DrawSilk(map, assets.title24, "BGM", 292.0f, 224.0f, 24.0f, navy);
+    DrawChromeButton(map, TableHud::RadioPowerButton, ButtonKind::Off);
+    {
+        const auto& b = TableHud::RadioPowerButton;
+        const char* label = radioOn ? "ON" : "OFF";
+        const float tw = MeasureTextEx(assets.title24, label, 24.0f, 0.0f).x;
+        DrawSilk(map, assets.title24, label, b.x + (b.width - tw) * 0.5f, b.y + 11.0f, 24.0f, white);
+    }
+    DrawChromeButton(map, TableHud::RadioMuteButton, ButtonKind::Mute, hud.radio.muted);
+    {
+        const auto& b = TableHud::RadioMuteButton;
+        const char* label = hud.radio.muted ? "MUTED" : "MUTE";
+        const float tw = MeasureTextEx(assets.title24, label, 24.0f, 0.0f).x;
+        DrawSilk(map, assets.title24, label, b.x + (b.width - tw) * 0.5f, b.y + 11.0f, 24.0f,
+                 Color{20, 20, 25, 255});
+    }
     const float vol = std::clamp(hud.radio.volume, 0.0f, 1.0f);
-    if (vol > 0.0f) {
-        const Color fillCol = hud.radio.muted ? Color{108, 114, 122, 220} : Color{98, 178, 152, 255};
-        DrawRectangle(map.X(TableHud::VolumeBar.x + 2.0f), map.Y(TableHud::VolumeBar.y + 2.0f),
-                      map.W(std::max(2.0f, (TableHud::VolumeBar.width - 4.0f) * vol)),
-                      map.H(TableHud::VolumeBar.height - 4.0f), fillCol);
+    const int filled = static_cast<int>(std::lround(vol * 20.0f));
+    const auto& meter = TableHud::VolumeMeter;
+    for (int i = 0; i < 20; ++i) {
+        const float sx = meter.x + static_cast<float>(i) * 14.0f;
+        if (i < filled) {
+            DrawRectangle(map.X(sx), map.Y(meter.y), map.W(8.0f), map.H(meter.height),
+                          Color{15, 92, 51, 255});
+            DrawRectangle(map.X(sx), map.Y(meter.y), map.W(8.0f), std::max(1, map.H(2.5f)),
+                          Color{23, 120, 70, 255});
+        } else {
+            DrawRectangle(map.X(sx), map.Y(meter.y), map.W(8.0f), map.H(meter.height),
+                          Color{106, 110, 117, 255});
+            DrawRectangle(map.X(sx), map.Y(meter.y + meter.height - 2.5f), map.W(8.0f),
+                          std::max(1, map.H(2.5f)), Color{84, 88, 95, 255});
+        }
     }
-    const float knobX = TableHud::VolumeBar.x + vol * (TableHud::VolumeBar.width - 10.0f);
-    DrawRectangle(map.X(knobX), map.Y(TableHud::VolumeBar.y - 3.0f), map.W(10.0f), map.H(26.0f), WHITE);
-    const int volPct = static_cast<int>(std::lround(vol * 100.0f));
-    DrawText((std::to_string(volPct) + "%").c_str(), map.X(974), map.Y(175), map.Font(18), WHITE);
+    const std::string pct = std::to_string(static_cast<int>(std::lround(vol * 100.0f))) + "%";
+    DrawVt(map, assets.vt28, pct.c_str(), 1032.0f, 229.0f, 28.0f, navy, true);
 
-    // Live station & stream metadata readout
-    const std::string stationLabel = hud.radio.stationName.empty() ? "J-Pop Powerplay" : hud.radio.stationName;
-    const std::string statusBadge = hud.radio.statusText.empty() ? "Radio off" : hud.radio.statusText;
-    Color badgeColor = LIGHTGRAY;
-    if (hud.radio.state == RadioState::PLAYING) badgeColor = Color{130, 228, 182, 255};
-    else if (hud.radio.state == RadioState::CONNECTING || hud.radio.state == RadioState::BUFFERING)
-        badgeColor = Color{240, 206, 126, 255};
-    else if (hud.radio.state == RadioState::FAILED) badgeColor = Color{236, 122, 112, 255};
+    // STATION readout: navy label, big black name, bracketed live status.
+    DrawSilk(map, assets.title16, "STATION", 292.0f, 286.0f, 16.0f, navy);
+    const std::string stationLabel =
+        hud.radio.stationName.empty() ? "J-Pop Powerplay" : hud.radio.stationName;
+    DrawVt(map, assets.vt42, stationLabel.c_str(), 400.0f, 270.0f, 42.0f,
+           Color{16, 16, 19, 255}, true);
+    std::string status = hud.radio.statusText.empty() ? "Radio off" : hud.radio.statusText;
+    if (hud.radio.enabled && hud.radio.state == RadioState::PLAYING && hud.radio.bufferedSec > 0.05f)
+        status += " - buffered " + FormatTenths(hud.radio.bufferedSec);
+    DrawVt(map, assets.vt25, ("[" + status + "]").c_str(), 433.0f, 302.0f, 25.0f,
+           Color{24, 24, 28, 255});
 
-    DrawText(("Station: " + stationLabel).c_str(), map.X(338), map.Y(230), map.Font(18), WHITE);
-    DrawText(("[" + statusBadge + "]").c_str(), map.X(338), map.Y(258), map.Font(15), badgeColor);
-    if (radioOn) {
-        DrawText(("buffered " + FormatTenths(hud.radio.bufferedSec)).c_str(), map.X(880), map.Y(258),
-                 map.Font(15), Color{172, 194, 214, 255});
-    }
-
-    // 2x3 preset .pls station grid
+    // 2x3 preset .pls station grid with chunky beveled chrome.
     const auto& stations = DefaultRadioStations();
     for (std::size_t i = 0; i < stations.size() && i < TableHud::StationSlotCount; ++i) {
         const auto box = TableHud::StationButton(i);
-        const bool selected = (hud.radio.stationIndex == static_cast<int>(i));
-        const Color fill = selected
-            ? (radioOn ? Color{31, 70, 62, 245} : Color{42, 54, 70, 245})
-            : Color{28, 35, 46, 240};
-        const Color border = selected ? Color{122, 198, 170, 255} : Color{72, 88, 108, 220};
-        DrawBox(map, box, fill, border);
-        DrawText(stations[i].name.c_str(), map.X(box.x + 14.0f), map.Y(box.y + 12.0f), map.Font(18), WHITE);
-        DrawText((stations[i].subtitle + "  [.pls]").c_str(),
-                 map.X(box.x + 14.0f), map.Y(box.y + 37.0f), map.Font(14),
-                 selected ? Color{196, 232, 216, 255} : LIGHTGRAY);
+        const bool selected = hud.radio.stationIndex == static_cast<int>(i);
+        DrawChromeButton(map, box, selected ? ButtonKind::Selected : ButtonKind::Idle);
+        const float textX = box.x + (selected ? 88.0f : 51.0f);
+        const float maxW = box.x + box.width - textX - 12.0f;
+        DrawVt(map, assets.vt28, stations[i].name.c_str(), textX, box.y + 10.0f,
+               VtFit(assets.vt28, stations[i].name.c_str(), 28.0f, maxW),
+               white, true, true);
+        const std::string sub = stations[i].subtitle + "  [pls]";
+        DrawVt(map, assets.vt21, sub.c_str(), textX, box.y + 38.0f,
+               VtFit(assets.vt21, sub.c_str(), 21.0f, maxW),
+               selected ? Color{233, 236, 250, 255} : Color{201, 205, 214, 255}, false, true);
+        if (selected) DrawArrow(map, box.x + 12.0f, box.y + box.height * 0.5f);
     }
 
-    DrawBox(map, TableHud::NewMatchButton, Color{94, 48, 42, 245}, Color{168, 96, 86, 255});
-    DrawText("NEW MATCH", map.X(364), map.Y(625), map.Font(18), WHITE);
-    DrawText("ESC / P: Pause   M: Mute", map.X(546), map.Y(627), map.Font(15), LIGHTGRAY);
-    DrawBox(map, TableHud::ResumeBottomButton, Color{31, 75, 58, 245}, Color{96, 174, 144, 255});
-    DrawText("RESUME GAME", map.X(872), map.Y(625), map.Font(18), WHITE);
+    // Footer divider: light line over a black groove.
+    DrawRectangle(map.X(PX + 3), map.Y(576), map.W(PW - 6), map.H(2), Color{232, 232, 232, 255});
+    DrawRectangle(map.X(PX + 3), map.Y(578), map.W(PW - 6), map.H(4), Color{16, 16, 20, 255});
+    // Footer bar: the first column starts a new match, the last resumes; the
+    // middle two are static hotkey hints.
+    const struct { const char* line1; const char* line2; } footerCols[4] = {
+        {"START NEW MATCH", "NEW MATCH"},
+        {"OPEN MENU", "ESC / P : PAUSE"},
+        {"TOGGLE VOLUME", "M : MUTE"},
+        {"RETURN TO GAME", "RESUME GAME"},
+    };
+    const Vector2 mouse = GetMousePosition();
+    for (int c = 0; c < 4; ++c) {
+        if (c == 0 && CheckCollisionPointRec(mouse, map.Rec(TableHud::FooterNewMatch)))
+            DrawRectangle(map.X(TableHud::FooterNewMatch.x), map.Y(TableHud::FooterNewMatch.y),
+                          map.W(TableHud::FooterNewMatch.width), map.H(TableHud::FooterNewMatch.height),
+                          Color{255, 255, 255, 38});
+        if (c == 3 && CheckCollisionPointRec(mouse, map.Rec(TableHud::FooterResume)))
+            DrawRectangle(map.X(TableHud::FooterResume.x), map.Y(TableHud::FooterResume.y),
+                          map.W(TableHud::FooterResume.width), map.H(TableHud::FooterResume.height),
+                          Color{255, 255, 255, 38});
+        DrawVt(map, assets.vt24, footerCols[c].line1, TableHud::FooterColX[c], 600.0f, 24.0f,
+               Color{40, 40, 44, 255});
+        DrawVt(map, assets.vt24, footerCols[c].line2, TableHud::FooterColX[c], 622.0f, 24.0f,
+               Color{18, 18, 20, 255}, true);
+    }
+    // Bottom white frame + 1 px outer edge.
+    DrawRectangle(map.X(PX), map.Y(650), map.W(PW), map.H(3), Color{242, 243, 246, 255});
+    DrawRectangle(map.X(PX - 1), map.Y(653), map.W(PW + 2), map.H(1.5f), Color{16, 16, 20, 255});
 }
 
 // The HUD belongs to the screen, not the world canvas: it is drawn after the
 // world blit, in the same 1360x768 design space as the click rectangles.
-void DrawHud(const TableGame& game, const TableHudState& hud, Rectangle destination, float scale) {
+void DrawHud(const TableGame& game, const TableHudState& hud, const TableSceneUiAssets& assets,
+             Rectangle destination, float scale) {
     const ScreenMap map{destination, scale};
+    // The mock dims the frozen table but keeps the score strip and the
+    // right-edge chip fully lit on top of the dim layer.
+    if (hud.paused) {
+        DrawRectangle(map.X(0), map.Y(0), map.W(TableLayout::ImageWidth), map.H(TableLayout::ImageHeight),
+                      Color{8, 12, 18, 175});
+    }
     DrawRectangle(map.X(8), map.Y(8), map.W(500), map.H(102), Color{15, 20, 27, 220});
     const std::string label = "ROUND " + std::to_string(game.Round()) + " / " +
         std::to_string(TableLayout::MatchRounds) +
@@ -353,7 +564,8 @@ void DrawHud(const TableGame& game, const TableHudState& hud, Rectangle destinat
     DrawText(label.c_str(), map.X(20), map.Y(18), map.Font(22), WHITE);
     DrawText(game.Status().c_str(), map.X(20), map.Y(51), map.Font(19), WHITE);
     DrawText("Drag a card to a match; right-click to cancel", map.X(20), map.Y(80), map.Font(15), LIGHTGRAY);
-    if (game.Rules().GetPhase() == Phase::AWAIT_DECISION && game.Rules().CurrentPlayer() == Player::PLAYER && !game.Busy()) {
+    if (!hud.paused && game.Rules().GetPhase() == Phase::AWAIT_DECISION &&
+        game.Rules().CurrentPlayer() == Player::PLAYER && !game.Busy()) {
         DrawRectangle(map.X(TableHud::KoiKoiButton.x), map.Y(TableHud::KoiKoiButton.y),
                       map.W(TableHud::KoiKoiButton.width), map.H(TableHud::KoiKoiButton.height), Color{31, 75, 58, 245});
         DrawRectangle(map.X(TableHud::ShobuButton.x), map.Y(TableHud::ShobuButton.y),
@@ -361,36 +573,87 @@ void DrawHud(const TableGame& game, const TableHudState& hud, Rectangle destinat
         DrawText("KOI-KOI", map.X(1030), map.Y(30), map.Font(20), WHITE);
         DrawText("SHOBU", map.X(1190), map.Y(30), map.Font(20), WHITE);
     }
-    if (game.Rules().GetPhase() == Phase::ROUND_END) {
+    if (!hud.paused && game.Rules().GetPhase() == Phase::ROUND_END) {
         DrawRectangle(map.X(TableHud::RoundEndButton.x), map.Y(TableHud::RoundEndButton.y),
                       map.W(TableHud::RoundEndButton.width), map.H(TableHud::RoundEndButton.height), Color{15, 20, 27, 235});
         DrawText(game.MatchFinished() ? "MATCH OVER" : "NEXT ROUND", map.X(1020), map.Y(27), map.Font(20), WHITE);
         DrawText(game.MatchFinished() ? "Click to restart" : "Click to continue", map.X(1020), map.Y(55), map.Font(16), LIGHTGRAY);
     }
 
-    // Right-side Pause / Radio Menu button
+    // Right-edge chip: "II RESUME / J-POP RADIO" while paused, else "MENU / J-POP RADIO".
     const bool liveRadio = hud.radio.enabled && !hud.radio.muted;
-    const Color pauseFill = hud.paused ? Color{34, 62, 56, 240} : Color{15, 20, 27, 230};
-    const Color pauseBorder = liveRadio ? Color{102, 186, 152, 240} : Color{95, 118, 138, 220};
-    DrawBox(map, TableHud::PauseButton, pauseFill, pauseBorder, 1.5f);
-    // Twin pause bars icon
-    DrawRectangle(map.X(TableHud::PauseButton.x + 14.0f), map.Y(TableHud::PauseButton.y + 14.0f),
-                  map.W(5.0f), map.H(18.0f), WHITE);
-    DrawRectangle(map.X(TableHud::PauseButton.x + 23.0f), map.Y(TableHud::PauseButton.y + 14.0f),
-                  map.W(5.0f), map.H(18.0f), WHITE);
-    DrawText(hud.paused ? "RESUME" : "MENU",
-             map.X(TableHud::PauseButton.x + 36.0f), map.Y(TableHud::PauseButton.y + 14.0f),
-             map.Font(19), WHITE);
+    const auto& chip = TableHud::PauseButton;
+    DrawRectangle(map.X(chip.x), map.Y(chip.y), map.W(chip.width), map.H(chip.height),
+                  Color{14, 20, 32, 235});
+    DrawRectangleLinesEx(map.Rec(chip), std::max(1.0f, 1.0f * map.scale), Color{58, 74, 94, 255});
+    // Twin pause-bars icon
+    DrawRectangle(map.X(chip.x + 12), map.Y(chip.y + 15), map.W(5), map.H(16), Color{200, 205, 214, 255});
+    DrawRectangle(map.X(chip.x + 21), map.Y(chip.y + 15), map.W(5), map.H(16), Color{200, 205, 214, 255});
+    DrawSilk(map, assets.title16, hud.paused ? "RESUME" : "MENU", chip.x + 34.0f, chip.y + 12.0f, 16.0f,
+             Color{200, 205, 214, 255});
     const char* subLabel = hud.radio.enabled
         ? (hud.radio.muted ? "RADIO MUTED" : (hud.radio.state == RadioState::PLAYING ? "J-POP LIVE" : "RADIO ..."))
         : "J-POP RADIO";
-    const Color subColor = liveRadio ? Color{130, 228, 182, 255} : LIGHTGRAY;
-    DrawText(subLabel, map.X(TableHud::PauseButton.x + 14.0f), map.Y(TableHud::PauseButton.y + 40.0f),
-             map.Font(14), subColor);
+    DrawVt(map, assets.vt21, subLabel, chip.x + 12.0f, chip.y + 40.0f, 21.0f,
+           liveRadio ? Color{53, 214, 176, 255} : LIGHTGRAY);
 
     if (hud.paused) {
-        DrawPauseMenu(map, hud);
+        DrawPauseMenu(map, hud, assets);
     }
+}
+
+Font LoadFontOrDefault(const char* path, int size) {
+    Font font = LoadFontEx(path, size, nullptr, 0);
+    if (font.texture.id == 0 || font.texture.width <= 0 || font.texture.height <= 0) {
+        std::fprintf(stderr, "[ui] could not load font '%s'; using the default font\n", path);
+        return GetFontDefault();
+    }
+    SetTextureFilter(font.texture, TEXTURE_FILTER_BILINEAR);
+    return font;
+}
+
+void ReleaseFont(Font font) {
+    // The shared Raylib default font is owned by Raylib itself; never unload it.
+    if (font.texture.id != 0 && font.texture.id != GetFontDefault().texture.id) UnloadFont(font);
+}
+
+TableSceneUiAssets LoadPauseAssets() {
+    const std::filesystem::path appDir(GetApplicationDirectory());
+    const std::string fontsDir = (appDir / "fonts").string();
+    TableSceneUiAssets assets;
+    assets.title64 = LoadFontOrDefault((fontsDir + "/Silkscreen-Bold.ttf").c_str(), 64);
+    assets.title32 = LoadFontOrDefault((fontsDir + "/Silkscreen-Bold.ttf").c_str(), 32);
+    assets.title24 = LoadFontOrDefault((fontsDir + "/Silkscreen-Bold.ttf").c_str(), 24);
+    assets.title16 = LoadFontOrDefault((fontsDir + "/Silkscreen-Bold.ttf").c_str(), 16);
+    assets.vt42 = LoadFontOrDefault((fontsDir + "/VT323.ttf").c_str(), 42);
+    assets.vt28 = LoadFontOrDefault((fontsDir + "/VT323.ttf").c_str(), 28);
+    assets.vt25 = LoadFontOrDefault((fontsDir + "/VT323.ttf").c_str(), 25);
+    assets.vt24 = LoadFontOrDefault((fontsDir + "/VT323.ttf").c_str(), 24);
+    assets.vt21 = LoadFontOrDefault((fontsDir + "/VT323.ttf").c_str(), 21);
+    const std::string logoPath = (appDir / "densha-logo.png").string();
+    assets.logo = LoadTexture(logoPath.c_str());
+    if (assets.logo.id == 0 || assets.logo.width <= 0 || assets.logo.height <= 0) {
+        std::fprintf(stderr, "[ui] could not load logo '%s'; title bar will render text only\n",
+                     logoPath.c_str());
+        assets.logoValid = false;
+    } else {
+        SetTextureFilter(assets.logo, TEXTURE_FILTER_BILINEAR);
+        assets.logoValid = true;
+    }
+    return assets;
+}
+
+void ReleasePauseAssets(TableSceneUiAssets& assets) {
+    if (assets.logoValid) UnloadTexture(assets.logo);
+    ReleaseFont(assets.vt21);
+    ReleaseFont(assets.vt24);
+    ReleaseFont(assets.vt25);
+    ReleaseFont(assets.vt28);
+    ReleaseFont(assets.vt42);
+    ReleaseFont(assets.title16);
+    ReleaseFont(assets.title24);
+    ReleaseFont(assets.title32);
+    ReleaseFont(assets.title64);
 }
 
 Texture2D LoadRequiredTexture(const char* path) {
@@ -415,7 +678,9 @@ TableScene::TableScene(const char* backgroundPath, const char* atlasPath) {
         if (canvas_.id == 0 || canvas_.texture.id == 0)
             throw std::runtime_error("Could not create table render texture");
         SetTextureFilter(canvas_.texture, TEXTURE_FILTER_BILINEAR);
+        assets_ = LoadPauseAssets();
     } catch (...) {
+        ReleasePauseAssets(assets_);
         if (canvas_.id != 0) UnloadRenderTexture(canvas_);
         if (cardBack_.id != 0) UnloadTexture(cardBack_);
         if (atlas_.id != 0) UnloadTexture(atlas_);
@@ -429,6 +694,7 @@ TableScene::~TableScene() {
     UnloadTexture(cardBack_);
     UnloadTexture(atlas_);
     UnloadTexture(background_);
+    ReleasePauseAssets(assets_);
 }
 
 void TableScene::Draw(const TableGame& game, const TableHudState& hud) const {
@@ -459,6 +725,6 @@ void TableScene::Draw(const TableGame& game, const TableHudState& hud) const {
     DrawTexturePro(canvas_.texture, {0, 0, static_cast<float>(canvas_.texture.width),
                                     -static_cast<float>(canvas_.texture.height)},
                    destination, {0, 0}, 0, WHITE);
-    DrawHud(game, hud, destination, scale);
+    DrawHud(game, hud, assets_, destination, scale);
     EndDrawing();
 }

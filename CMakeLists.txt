@@ -70,6 +70,10 @@ if(BUILD_DESKTOP_APP)
             "${CMAKE_CURRENT_SOURCE_DIR}/cards_atlas.png" "$<TARGET_FILE_DIR:denshadekoi>/cards_atlas.png"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${CMAKE_CURRENT_SOURCE_DIR}/assets/the-city.jpg" "$<TARGET_FILE_DIR:denshadekoi>/the-city.jpg"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/assets/densha-logo.png" "$<TARGET_FILE_DIR:denshadekoi>/densha-logo.png"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts" "$<TARGET_FILE_DIR:denshadekoi>/fonts"
         VERBATIM
     )
     add_custom_command(TARGET denshadekoi_inspector POST_BUILD
@@ -87,6 +91,12 @@ if(BUILD_DESKTOP_APP)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${CMAKE_CURRENT_SOURCE_DIR}/assets/the-city.jpg"
             "$<TARGET_FILE_DIR:denshadekoi>/the-city.jpg"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/assets/densha-logo.png"
+            "$<TARGET_FILE_DIR:denshadekoi>/densha-logo.png"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts"
+            "$<TARGET_FILE_DIR:denshadekoi>/fonts"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${CMAKE_CURRENT_SOURCE_DIR}/cards_atlas.png"
             "$<TARGET_FILE_DIR:denshadekoi_inspector>/cards_atlas.png"

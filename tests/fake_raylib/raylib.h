@@ -1,11 +1,12 @@
 #pragma once
 
-// Minimal Raylib interface for exercising the inspector without a graphics context.
+// Minimal Raylib interface for exercising the TableScene without a graphics context.
 struct Vector2 { float x, y; };
 struct Rectangle { float x, y, width, height; };
 struct Color { unsigned char r, g, b, a; };
 struct Texture2D { unsigned int id; int width, height, mipmaps, format; };
 struct Image { void* data; int width, height, mipmaps, format; };
+struct Font { int baseSize; Texture2D texture; };
 inline constexpr int PIXELFORMAT_UNCOMPRESSED_R8G8B8A8 = 7;
 Texture2D LoadTextureFromImage(Image image);
 inline constexpr Color WHITE{255, 255, 255, 255};
@@ -32,6 +33,13 @@ void SetTextureFilter(Texture2D texture, int filter);
 void DrawTexturePro(Texture2D texture, Rectangle source, Rectangle dest, Vector2 origin,
                     float rotation, Color tint);
 
+Font GetFontDefault();
+Font LoadFontEx(const char* fileName, int fontSize, int* codepoints, int codepointCount);
+void UnloadFont(Font font);
+Vector2 MeasureTextEx(Font font, const char* text, float fontSize, float spacing);
+void DrawTextEx(Font font, const char* text, Vector2 position, float fontSize,
+                float spacing, Color tint);
+
 // Additional interfaces used by the perspective table preview tests.
 struct Vector3 { float x, y, z; };
 struct Camera3D { Vector3 position, target, up; float fovy; int projection; };
@@ -51,4 +59,5 @@ void EndTextureMode();
 void BeginMode3D(Camera3D camera);
 void EndMode3D();
 
+void DrawTriangle(Vector2 v1, Vector2 v2, Vector2 v3, Color color);
 void DrawRectangle(int x, int y, int width, int height, Color color);

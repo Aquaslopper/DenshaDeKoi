@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstring>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -168,7 +169,7 @@ void TestDraw() {
               noOverlap(TableHud::VolumeHitBox, TableHud::RadioMuteButton),
               "Radio controls must not overlap each other or the station grid");
     }
-    Check(renderUnloads == 1 && unloaded == std::vector<unsigned int>({4, 2, 1}), "Resources not released");
+    Check(renderUnloads == 1 && unloaded == std::vector<unsigned int>({4, 2, 1, 3}), "Resources not released");
 }
 void TestFailures() {
     Reset(); failAtlas = true;
@@ -190,7 +191,8 @@ Texture2D LoadTexture(const char*) {
     ++loads;
     if (loads == 2 && failAtlas) return {};
     if (loads == 1) return {1, 1360, 768, 1, 0};
-    return {2, invalidAtlas ? 2147 : 2148, 1056, 1, 0};
+    if (loads == 2) return {2, invalidAtlas ? 2147 : 2148, 1056, 1, 0};
+    return {3, 717, 294, 1, 0}; // densha-logo.png
 }
 Texture2D LoadTextureFromImage(Image img) {
     Check(img.data != nullptr && img.width == 179 && img.height == 264, "Invalid matte back image");
@@ -205,6 +207,17 @@ void EndTextureMode() {}
 void BeginMode3D(Camera3D c) { camera = c; }
 void EndMode3D() {}
 void ClearBackground(Color) {}
+void DrawTriangle(Vector2, Vector2, Vector2, Color) {}
+Vector2 GetMousePosition() { return {0, 0}; }
+const char* GetApplicationDirectory() { return ""; }
+bool CheckCollisionPointRec(Vector2, Rectangle) { return false; }
+Font GetFontDefault() { return {16, {9, 16, 16, 1, 0}}; }
+Font LoadFontEx(const char*, int fontSize, int*, int) { return {fontSize, {9, fontSize, fontSize, 1, 0}}; }
+void UnloadFont(Font) {}
+Vector2 MeasureTextEx(Font, const char* text, float fontSize, float) {
+    return {static_cast<float>(std::strlen(text)) * fontSize * 0.5f, fontSize};
+}
+void DrawTextEx(Font, const char* text, Vector2, float, float, Color) { if (text) drawnTexts.emplace_back(text); }
 void DrawText(const char* text, int, int, int, Color) { if (text) drawnTexts.emplace_back(text); }
 void DrawRectangle(int, int, int, int, Color) {}
 void DrawRectangleLinesEx(Rectangle, float, Color) {}

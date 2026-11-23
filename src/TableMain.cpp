@@ -67,8 +67,7 @@ int main() {
             if (paused) {
                 if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
                     if (In(canvas, TableHud::PauseButton) ||
-                        In(canvas, TableHud::ResumeTopButton) ||
-                        In(canvas, TableHud::ResumeBottomButton)) {
+                        In(canvas, TableHud::FooterResume)) {
                         paused = false;
                         draggingVolume = false;
                     } else if (In(canvas, TableHud::RadioPowerButton)) {
@@ -77,8 +76,8 @@ int main() {
                         radio.ToggleMute();
                     } else if (In(canvas, TableHud::VolumeHitBox)) {
                         draggingVolume = true;
-                        radio.SetVolume((canvas.x - TableHud::VolumeBar.x) / TableHud::VolumeBar.width);
-                    } else if (In(canvas, TableHud::NewMatchButton)) {
+                        radio.SetVolume(std::clamp((canvas.x - TableHud::VolumeMeter.x) / TableHud::VolumeMeter.width, 0.0f, 1.0f));
+                    } else if (In(canvas, TableHud::FooterNewMatch)) {
                         game = TableGame();
                         paused = false;
                         draggingVolume = false;
@@ -92,7 +91,7 @@ int main() {
                     }
                 }
                 if (draggingVolume && IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
-                    radio.SetVolume((canvas.x - TableHud::VolumeBar.x) / TableHud::VolumeBar.width);
+                    radio.SetVolume(std::clamp((canvas.x - TableHud::VolumeMeter.x) / TableHud::VolumeMeter.width, 0.0f, 1.0f));
                 }
                 if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) {
                     draggingVolume = false;
