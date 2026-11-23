@@ -108,8 +108,22 @@ Rect TableGame::FieldRect(CardId id) const {
 int TableGame::FindFreeSlot(Point2 near) const {
     std::array<bool, TableLayout::FieldSlotCount> used{};
     for (int slot : slots_) if (slot >= 0) used[static_cast<std::size_t>(slot)] = true;
-    float best = std::numeric_limits<float>::infinity(); int found = -1;
     const bool compact = compactField_ || game_.Field().size() >= 16;
+
+    // Deferred captures are already removed from the rules field, but remain
+    // visibly on the table until the stock card resolves. Their positions are
+    // therefore occupied and must not be offered to an unmatched stock card.
+    for (std::size_t i = 0; i < used.size(); ++i) {
+        const Rect candidate = TableLayout::FieldSlot(i, compact);
+        for (const auto& deferred : deferredCapture_) {
+            if (Contains(candidate, Center(deferred.rect))) {
+                used[i] = true;
+                break;
+            }
+        }
+    }
+
+    float best = std::numeric_limits<float>::infinity(); int found = -1;
     for (std::size_t i = 0; i < used.size(); ++i) if (!used[i]) {
         // Prefer the reference layout until its slots are full.
         if (!compact && i >= 16) continue;

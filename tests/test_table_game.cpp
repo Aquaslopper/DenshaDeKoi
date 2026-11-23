@@ -155,6 +155,68 @@ void TestFlips() {
     }
     Check(cpuChecked && stockChecked, "Could not exercise both flip types");
 }
+void TestStockAvoidsDeferredCapture() {
+    for (unsigned seed = 1; seed < 2000; ++seed) {
+        TableGame game(seed);
+        if (game.Rules().GetPhase() != Phase::AWAIT_HAND_PLAY ||
+            game.Rules().CurrentPlayer() != Player::PLAYER) continue;
+
+        const auto hand = game.Rules().Hand(Player::PLAYER);
+        const auto field = game.Rules().Field();
+        std::size_t handIndex = 0;
+        std::optional<int> target;
+        for (; handIndex < hand.size() && !target; ++handIndex) {
+            for (int fieldCard : field) {
+                if (DeckRegister::At(fieldCard).month == DeckRegister::At(hand[handIndex]).month) {
+                    target = fieldCard;
+                    break;
+                }
+            }
+        }
+        if (!target) continue;
+        --handIndex;
+
+        game.PointerDown(Center(TableLayout::PlayerHand[handIndex]));
+        const Point2 destination = Center(game.FieldRect(*target));
+        game.PointerMove(destination);
+        game.PointerUp(destination);
+        game.Update(0.16f);
+        game.Update(0.501f);
+        if (game.Rules().GetPhase() != Phase::REVEAL_DRAW) continue;
+
+        game.Update(0.0f); // reveal pending stock card and start its flip
+        const int stockCard = *game.Rules().PendingCard();
+        const bool stockMatches = std::any_of(game.Rules().Field().begin(), game.Rules().Field().end(),
+            [stockCard](int fieldCard) {
+                return DeckRegister::At(fieldCard).month == DeckRegister::At(stockCard).month;
+            });
+        if (stockMatches) continue;
+
+        game.Update(0.51f); // finish flip
+        game.Update(0.0f);  // start stock table drop
+        game.Update(0.16f); // settle unmatched stock card into a free slot
+        const Rect stockRect = game.FieldRect(stockCard);
+        const auto captured = game.Rules().Captured(Player::PLAYER);
+        const auto cards = game.Cards();
+        for (int capturedId : captured) {
+            const auto shown = std::find_if(cards.begin(), cards.end(), [capturedId](const TableCard& card) {
+                return card.id == capturedId;
+            });
+            if (shown == cards.end()) continue;
+            const float overlapW = std::max(0.0f, std::min(stockRect.x + stockRect.width,
+                                                          shown->rect.x + shown->rect.width) -
+                                                std::max(stockRect.x, shown->rect.x));
+            const float overlapH = std::max(0.0f, std::min(stockRect.y + stockRect.height,
+                                                          shown->rect.y + shown->rect.height) -
+                                                std::max(stockRect.y, shown->rect.y));
+            Check(overlapW * overlapH < stockRect.width * stockRect.height * 0.1f,
+                  "Unmatched stock card landed on deferred hand capture");
+        }
+        return;
+    }
+    throw std::runtime_error("No unmatched stock fixture after hand capture");
+}
+
 void TestDropTolerance() {
     for (unsigned seed = 1; seed < 1000; ++seed) {
         TableGame game(seed);
@@ -213,6 +275,6 @@ void TestMatches() {
 }
 } // namespace
 int main() {
-    try { TestProjection(); TestReturnAndFreeze(); TestFlips(); TestDropTolerance(); TestMatches(); std::cout << "Table gameplay passed.\n"; return 0; }
+    try { TestProjection(); TestReturnAndFreeze(); TestFlips(); TestStockAvoidsDeferredCapture(); TestDropTolerance(); TestMatches(); std::cout << "Table gameplay passed.\n"; return 0; }
     catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }
 }
