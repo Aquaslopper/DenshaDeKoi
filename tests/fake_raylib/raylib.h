@@ -42,6 +42,7 @@ void DrawTexturePro(Texture2D texture, Rectangle source, Rectangle dest, Vector2
 struct Vector3 { float x, y, z; };
 struct Camera3D { Vector3 position, target, up; float fovy; int projection; };
 struct RenderTexture2D { unsigned int id; Texture2D texture, depth; };
+struct Shader { unsigned int id; int* locs; };
 inline constexpr Color BLACK{0, 0, 0, 255};
 inline constexpr int TEXTURE_FILTER_BILINEAR = 1;
 inline constexpr int CAMERA_PERSPECTIVE = 0;
@@ -54,6 +55,14 @@ RenderTexture2D LoadRenderTexture(int width, int height);
 void UnloadRenderTexture(RenderTexture2D target);
 void BeginTextureMode(RenderTexture2D target);
 void EndTextureMode();
+Shader LoadShaderFromMemory(const char* vertexCode, const char* fragmentCode);
+void UnloadShader(Shader shader);
+int GetShaderLocation(Shader shader, const char* uniformName);
+void SetShaderValue(Shader shader, int location, const void* value, int uniformType);
+void BeginShaderMode(Shader shader);
+void EndShaderMode();
+inline constexpr int SHADER_UNIFORM_FLOAT = 0;
+inline constexpr int SHADER_UNIFORM_VEC2 = 1;
 void BeginMode3D(Camera3D camera);
 void EndMode3D();
 

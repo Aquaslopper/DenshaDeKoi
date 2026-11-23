@@ -5,6 +5,7 @@
 #include "SfxPlayer.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <exception>
 #include <filesystem>
@@ -73,6 +74,8 @@ int main() {
         bool draggingVolume = false;
         bool draggingMaster = false;
         bool draggingSfx = false;
+        bool inspectingCard = false;
+        MagnifyEffect magnify{};
 
         while (!WindowShouldClose()) {
             const float dt = std::min(GetFrameTime(), 0.1f);
@@ -80,7 +83,10 @@ int main() {
             if (IsKeyPressed(KEY_ESCAPE) || IsKeyPressed(KEY_P)) {
                 overlay = overlay == TableOverlay::PAUSE ? TableOverlay::NONE : TableOverlay::PAUSE;
                 draggingVolume = draggingMaster = draggingSfx = false;
-                if (overlay != TableOverlay::NONE) game.CancelDrag();
+                if (overlay != TableOverlay::NONE) {
+                    game.CancelDrag();
+                    inspectingCard = false;
+                }
             }
             if (IsKeyPressed(KEY_M)) {
                 radio.ToggleMute();
@@ -127,7 +133,11 @@ int main() {
                 if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT))
                     draggingVolume = draggingMaster = draggingSfx = false;
             } else {
-                if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) game.CancelDrag();
+                if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
+                    if (game.Dragging()) game.CancelDrag();
+                    else inspectingCard = game.HasCardAt(PlanPoint(canvas));
+                }
+                if (IsMouseButtonReleased(MOUSE_BUTTON_RIGHT)) inspectingCard = false;
                 if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
                     if (game.AwaitingDealerChoice() && In(canvas, TableHud::DealerCardLeft)) {
                         game.SelectDealerCard(0);
@@ -157,9 +167,23 @@ int main() {
                 game.Update(dt);
             }
 
+            float desiredMagnification = 0.0f;
+            if (overlay == TableOverlay::NONE && inspectingCard) {
+                desiredMagnification = 0.85f;
+            } else if (overlay == TableOverlay::NONE && game.Dragging()) {
+                const float dx = canvas.x - TableLayout::ImageWidth * 0.5f;
+                const float dy = canvas.y - TableLayout::ImageHeight * 0.5f;
+                const float proximity = 1.0f - std::clamp(std::hypot(dx, dy) / 430.0f, 0.0f, 1.0f);
+                desiredMagnification = 0.20f * proximity;
+            }
+            const float magnifyBlend = 1.0f - std::exp(-12.0f * dt);
+            magnify.amount += (desiredMagnification - magnify.amount) * magnifyBlend;
+            magnify.focus.x += (canvas.x - magnify.focus.x) * magnifyBlend;
+            magnify.focus.y += (canvas.y - magnify.focus.y) * magnifyBlend;
+
             for (GameSfx cue : game.TakeSfx()) PlayGameSfx(sfx, cue);
             radio.Update();
-            scene.Draw(game, {overlay, radio.Status(), masterVolume, sfxVolume});
+            scene.Draw(game, {overlay, radio.Status(), masterVolume, sfxVolume}, magnify);
         }
     } catch (const std::exception& error) {
         std::fprintf(stderr, "%s\n", error.what());

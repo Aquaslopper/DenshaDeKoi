@@ -66,6 +66,7 @@ public:
     [[nodiscard]] bool Dragging() const { return dragged_.has_value(); }
     [[nodiscard]] std::string Status() const;
     [[nodiscard]] TableLayout::Rect FieldRect(CardId id) const;
+    [[nodiscard]] bool HasCardAt(TableLayout::Point2 p) const;
     [[nodiscard]] std::vector<GameSfx> TakeSfx();
 
     // Xeno-koi-style drop target: edge gap <=10 plan pixels, with a guard
