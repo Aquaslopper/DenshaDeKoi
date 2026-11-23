@@ -11,9 +11,9 @@ namespace {
 using TableLayout::Point2;
 using TableLayout::Rect;
 
-constexpr float CardFlightSeconds = 0.60f;
+constexpr float CardFlightSeconds = 0.15f;
 constexpr float CaptureFlightSeconds = 0.50f;
-constexpr float CaptureHitFreezeSeconds = 0.15f;
+constexpr float CaptureHitFreezeSeconds = 0.50f;
 
 bool Contains(Rect r, Point2 p) {
     return p.x >= r.x && p.x <= r.x + r.width && p.y >= r.y && p.y <= r.y + r.height;
