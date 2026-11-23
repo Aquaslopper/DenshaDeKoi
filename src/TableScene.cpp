@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <initializer_list>
 #include <iterator>
 #include <stdexcept>
@@ -615,8 +616,46 @@ bool IsCustomFont(Font font) {
     return font.texture.id != 0 && font.glyphs != nullptr && font.glyphs != fallback.glyphs;
 }
 
-Font LoadEmbeddedFont(const unsigned char* data, unsigned int dataSize, int fontSize) {
-    Font font = LoadFontFromMemory(".ttf", data, static_cast<int>(dataSize), fontSize, nullptr, 0);
+// Minimal strict base64 decoder for the blobs in src/EmbeddedAssets.cpp (no
+// whitespace; '=' padding is tolerated at the end).
+std::vector<unsigned char> DecodeBase64(const char* text) {
+    static signed char table[256] = {};
+    static bool tableReady = false;
+    if (!tableReady) {
+        std::memset(table, -1, sizeof(table));
+        int value = 0;
+        for (char c = 'A'; c <= 'Z'; ++c, ++value) table[static_cast<unsigned char>(c)] = static_cast<signed char>(value);
+        for (char c = 'a'; c <= 'z'; ++c, ++value) table[static_cast<unsigned char>(c)] = static_cast<signed char>(value);
+        for (char c = '0'; c <= '9'; ++c, ++value) table[static_cast<unsigned char>(c)] = static_cast<signed char>(value);
+        table[static_cast<unsigned char>('+')] = static_cast<signed char>(value++);
+        table[static_cast<unsigned char>('/')] = static_cast<signed char>(value);
+        tableReady = true;
+    }
+    std::vector<unsigned char> out;
+    if (text == nullptr) return out;
+    unsigned int acc = 0;
+    int bits = 0;
+    for (const char* it = text; *it != '\0'; ++it) {
+        const signed char v = table[static_cast<unsigned char>(*it)];
+        if (v < 0) continue; // skip '=' padding
+        acc = (acc << 6) | static_cast<unsigned int>(v);
+        bits += 6;
+        if (bits >= 8) {
+            bits -= 8;
+            out.push_back(static_cast<unsigned char>((acc >> bits) & 0xFF));
+        }
+    }
+    return out;
+}
+
+Font LoadEmbeddedFont(const char* base64, unsigned int expectedSize, int fontSize) {
+    const std::vector<unsigned char> bytes = DecodeBase64(base64);
+    if (bytes.empty() || bytes.size() != expectedSize) {
+        std::fprintf(stderr, "[ui] embedded font is corrupt; using the default font\n");
+        return GetFontDefault();
+    }
+    Font font = LoadFontFromMemory(".ttf", bytes.data(), static_cast<int>(bytes.size()), fontSize,
+                                   nullptr, 0);
     if (!IsCustomFont(font)) {
         std::fprintf(stderr, "[ui] embedded font failed to load; using the default font\n");
         return GetFontDefault();
@@ -634,17 +673,19 @@ TableSceneUiAssets LoadPauseAssets() {
     // Everything is embedded in the binary, so the pause menu renders the
     // same no matter how the executable was deployed.
     TableSceneUiAssets assets;
-    assets.title64 = LoadEmbeddedFont(EmbeddedAssets::kSilkscreenBoldTtf, EmbeddedAssets::kSilkscreenBoldTtf_Size, 64);
-    assets.title32 = LoadEmbeddedFont(EmbeddedAssets::kSilkscreenBoldTtf, EmbeddedAssets::kSilkscreenBoldTtf_Size, 32);
-    assets.title24 = LoadEmbeddedFont(EmbeddedAssets::kSilkscreenBoldTtf, EmbeddedAssets::kSilkscreenBoldTtf_Size, 24);
-    assets.title16 = LoadEmbeddedFont(EmbeddedAssets::kSilkscreenBoldTtf, EmbeddedAssets::kSilkscreenBoldTtf_Size, 16);
-    assets.vt42 = LoadEmbeddedFont(EmbeddedAssets::kVt323Ttf, EmbeddedAssets::kVt323Ttf_Size, 42);
-    assets.vt28 = LoadEmbeddedFont(EmbeddedAssets::kVt323Ttf, EmbeddedAssets::kVt323Ttf_Size, 28);
-    assets.vt25 = LoadEmbeddedFont(EmbeddedAssets::kVt323Ttf, EmbeddedAssets::kVt323Ttf_Size, 25);
-    assets.vt24 = LoadEmbeddedFont(EmbeddedAssets::kVt323Ttf, EmbeddedAssets::kVt323Ttf_Size, 24);
-    assets.vt21 = LoadEmbeddedFont(EmbeddedAssets::kVt323Ttf, EmbeddedAssets::kVt323Ttf_Size, 21);
-    Image image = LoadImageFromMemory(".png", EmbeddedAssets::kDenshaLogoPng,
-                                      static_cast<int>(EmbeddedAssets::kDenshaLogoPng_Size));
+    assets.title64 = LoadEmbeddedFont(EmbeddedAssets::kSilkscreenBoldTtf, EmbeddedAssets::kSilkscreenBoldTtfSize, 64);
+    assets.title32 = LoadEmbeddedFont(EmbeddedAssets::kSilkscreenBoldTtf, EmbeddedAssets::kSilkscreenBoldTtfSize, 32);
+    assets.title24 = LoadEmbeddedFont(EmbeddedAssets::kSilkscreenBoldTtf, EmbeddedAssets::kSilkscreenBoldTtfSize, 24);
+    assets.title16 = LoadEmbeddedFont(EmbeddedAssets::kSilkscreenBoldTtf, EmbeddedAssets::kSilkscreenBoldTtfSize, 16);
+    assets.vt42 = LoadEmbeddedFont(EmbeddedAssets::kVt323Ttf, EmbeddedAssets::kVt323TtfSize, 42);
+    assets.vt28 = LoadEmbeddedFont(EmbeddedAssets::kVt323Ttf, EmbeddedAssets::kVt323TtfSize, 28);
+    assets.vt25 = LoadEmbeddedFont(EmbeddedAssets::kVt323Ttf, EmbeddedAssets::kVt323TtfSize, 25);
+    assets.vt24 = LoadEmbeddedFont(EmbeddedAssets::kVt323Ttf, EmbeddedAssets::kVt323TtfSize, 24);
+    assets.vt21 = LoadEmbeddedFont(EmbeddedAssets::kVt323Ttf, EmbeddedAssets::kVt323TtfSize, 21);
+    const std::vector<unsigned char> logoBytes = DecodeBase64(EmbeddedAssets::kDenshaLogoPng);
+    Image image = {nullptr, 0, 0, 1, 0};
+    if (!logoBytes.empty() && logoBytes.size() == EmbeddedAssets::kDenshaLogoPngSize)
+        image = LoadImageFromMemory(".png", logoBytes.data(), static_cast<int>(logoBytes.size()));
     if (image.data != nullptr && image.width > 0 && image.height > 0) {
         assets.logo = LoadTextureFromImage(image);
         UnloadImage(image);

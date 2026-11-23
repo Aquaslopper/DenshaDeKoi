@@ -20,11 +20,11 @@ like the fonts; regenerate via `tools/embed_assets.py`.
 
 ## Regenerating `src/EmbeddedAssets.hpp`
 
-The fonts and the wordmark are compiled straight into the game (the pause menu
-must render even when no asset folder ships with the executable). After
-changing any of these files, regenerate the embedded arrays with:
+The fonts and the wordmark are compiled straight into the game as base64
+blobs (the pause menu must render even when no asset folder ships with the
+executable). After changing any of these files, regenerate them with:
 
     python3 tools/embed_assets.py
 
-The generated `src/EmbeddedAssets.hpp` is committed on purpose; the header
-documents what it contains.
+The generator writes `src/EmbeddedAssets.cpp`/`src/EmbeddedAssets.hpp`
+(verified byte-for-byte) and both files are committed on purpose.

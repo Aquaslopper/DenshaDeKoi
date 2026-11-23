@@ -44,6 +44,7 @@ if(BUILD_DESKTOP_APP)
     add_executable(denshadekoi
         src/TableMain.cpp
         src/TableScene.cpp
+        src/EmbeddedAssets.cpp
         src/RadioEngine.cpp
         src/SimpleRadio.cpp
     )
@@ -97,7 +98,7 @@ endif()
 
 if(BUILD_TESTING)
     # Exercise the actual table rendering commands with a Raylib test double.
-    add_executable(test_table tests/test_table.cpp src/TableScene.cpp)
+    add_executable(test_table tests/test_table.cpp src/TableScene.cpp src/EmbeddedAssets.cpp)
     configure_project_target(test_table)
     target_include_directories(test_table PRIVATE tests/fake_raylib src)
     target_link_libraries(test_table PRIVATE hanafuda_core)
