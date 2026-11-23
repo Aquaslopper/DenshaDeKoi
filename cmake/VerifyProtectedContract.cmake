@@ -30,7 +30,11 @@ foreach(entry IN LISTS entries)
         message(FATAL_ERROR "Protected file is missing: ${relative_path}")
     endif()
 
-    file(SHA256 "${full_path}" actual)
+    # Git checks text files out with CRLF on Windows runners. Hash normalized
+    # content so the same approved source passes on Windows, Linux, and macOS.
+    file(READ "${full_path}" content)
+    string(REPLACE "\r\n" "\n" content "${content}")
+    string(SHA256 actual "${content}")
     if(NOT actual STREQUAL expected)
         message(FATAL_ERROR
             "PROTECTED CONTRACT CHANGED: ${relative_path}\n"
