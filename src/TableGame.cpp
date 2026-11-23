@@ -95,6 +95,13 @@ void TableGame::StartRoundPresentation() {
     openingStage_ = OpeningStage::ROUND_INTRO;
     openingTimer_ = 0.0f;
     dealElapsed_ = 0.0f;
+    openingDealCue_ = 0;
+}
+
+std::vector<GameSfx> TableGame::TakeSfx() {
+    std::vector<GameSfx> result;
+    result.swap(sfx_);
+    return result;
 }
 
 bool TableGame::AwaitingDealerChoice() const {
@@ -113,6 +120,8 @@ void TableGame::SelectDealerCard(int index) {
                                           dealerCards_[static_cast<std::size_t>(1 - index)]);
     openingStage_ = OpeningStage::DEALER_REVEAL;
     openingTimer_ = 0.0f;
+    secondDealerFlipCue_ = false;
+    sfx_.push_back(GameSfx::CARD_FLIP);
 }
 
 Rect TableGame::HandRect(Player player, std::size_t i) const {
@@ -196,6 +205,14 @@ std::optional<CardId> TableGame::FindDropTarget(CardId card, Rect drop) const {
 
 void TableGame::BeginAnimation(Animation type, float duration) {
     animation_ = type; elapsed_ = 0; duration_ = duration;
+    switch (type) {
+        case Animation::CPU_FLIP: case Animation::STOCK_FLIP: sfx_.push_back(GameSfx::CARD_FLIP); break;
+        case Animation::CARD_FLIGHT: sfx_.push_back(GameSfx::CARD_DEAL); break;
+        case Animation::HAND_MOVE: case Animation::STOCK_MOVE: sfx_.push_back(GameSfx::CARD_PLACE); break;
+        case Animation::HIT_FREEZE: sfx_.push_back(GameSfx::CARD_MATCH); break;
+        case Animation::CAPTURE: sfx_.push_back(GameSfx::CARD_CAPTURE); break;
+        default: break;
+    }
 }
 void TableGame::PointerDown(Point2 p) {
     if (Busy() || finished_) return;
@@ -379,6 +396,8 @@ void TableGame::FinishAnimation() {
 void TableGame::RecordResult() {
     if (game_.GetPhase() == Phase::ROUND_END && !resultRecorded_) {
         for (std::size_t i = 0; i < scores_.size(); ++i) scores_[i] += game_.Result()->points[i];
+        sfx_.push_back(game_.Result()->points[0] > game_.Result()->points[1]
+                           ? GameSfx::ROUND_WIN : GameSfx::ROUND_LOSE);
         resultRecorded_ = true;
         finished_ = round_ == TableLayout::MatchRounds;
     }
@@ -388,6 +407,10 @@ void TableGame::Update(float seconds) {
     if (openingStage_ == OpeningStage::DEALER_PICK) return;
     if (openingStage_ == OpeningStage::DEALER_REVEAL) {
         openingTimer_ += seconds;
+        if (!secondDealerFlipCue_ && openingTimer_ >= 0.45f) {
+            secondDealerFlipCue_ = true;
+            sfx_.push_back(GameSfx::CARD_FLIP);
+        }
         if (openingTimer_ >= 3.4f) {
             game_ = KoiKoiStateMachine(*openingDealer_);
             Start();
@@ -398,6 +421,12 @@ void TableGame::Update(float seconds) {
     if (openingStage_ == OpeningStage::ROUND_INTRO) {
         openingTimer_ += seconds;
         dealElapsed_ += seconds;
+        constexpr int OpeningCardCount = 24;
+        while (openingDealCue_ < OpeningCardCount &&
+               dealElapsed_ >= static_cast<float>(openingDealCue_) * 0.04f) {
+            sfx_.push_back(GameSfx::CARD_DEAL);
+            ++openingDealCue_;
+        }
         if (openingTimer_ >= 1.5f) openingStage_ = OpeningStage::PLAYING;
         return;
     }
@@ -469,6 +498,7 @@ void TableGame::Update(float seconds) {
 }
 void TableGame::Choose(Decision decision) {
     if (!Busy() && !finished_ && game_.GetPhase() == Phase::AWAIT_DECISION && game_.CurrentPlayer() == Player::PLAYER) {
+        sfx_.push_back(decision == Decision::KOI_KOI ? GameSfx::KOI_KOI : GameSfx::SHOUBU);
         game_.ChooseDecision(decision); RecordResult();
     }
 }

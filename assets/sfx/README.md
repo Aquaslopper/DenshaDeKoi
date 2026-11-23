@@ -17,7 +17,4 @@ file simply stays silent. Names are lowercase and must match exactly:
 
 Use WAV files with the exact names above. The build copies this directory beside the game executable as `sfx/`.
 
-`SfxPlayer` provides the loading, playback, and volume interface. This change
-does not add or alter any UI and does not connect sounds to the radio controls.
-The gameplay sound slots can be synchronized with their final animation events
-without changing asset paths or filenames.
+The sounds are triggered by their matching gameplay events. SFX volume remains separate from the radio volume.

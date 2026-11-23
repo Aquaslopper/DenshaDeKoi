@@ -26,6 +26,19 @@ TableLayout::Point2 PlanPoint(TableLayout::Point2 canvas) {
     p.y = std::clamp(p.y, -200.0f, TableLayout::PlanHeight + 200.0f);
     return p;
 }
+void PlayGameSfx(SfxPlayer& player, GameSfx cue) {
+    switch (cue) {
+        case GameSfx::CARD_DEAL: player.Play(SfxId::CardDeal); break;
+        case GameSfx::CARD_FLIP: player.Play(SfxId::CardFlip); break;
+        case GameSfx::CARD_PLACE: player.Play(SfxId::CardPlace); break;
+        case GameSfx::CARD_MATCH: player.Play(SfxId::CardMatch); break;
+        case GameSfx::CARD_CAPTURE: player.Play(SfxId::CardCapture); break;
+        case GameSfx::KOI_KOI: player.Play(SfxId::KoiKoi); break;
+        case GameSfx::SHOUBU: player.Play(SfxId::Shobu); break;
+        case GameSfx::ROUND_WIN: player.Play(SfxId::RoundWin); break;
+        case GameSfx::ROUND_LOSE: player.Play(SfxId::RoundLose); break;
+    }
+}
 } // namespace
 
 int main() {
@@ -144,6 +157,7 @@ int main() {
                 game.Update(dt);
             }
 
+            for (GameSfx cue : game.TakeSfx()) PlayGameSfx(sfx, cue);
             radio.Update();
             scene.Draw(game, {overlay, radio.Status(), masterVolume, sfxVolume});
         }
