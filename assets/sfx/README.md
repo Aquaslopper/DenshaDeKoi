@@ -1,0 +1,25 @@
+# DenshaDeKoi sound effects
+
+Place your own **WAV** files in this directory. All files are optional; a missing
+file simply stays silent. Names are lowercase and must match exactly:
+
+| File | Sound slot |
+|---|---|
+| `card_deal.wav` | a card leaving the stock |
+| `card_flip.wav` | revealing a card |
+| `card_place.wav` | a card landing on the table |
+| `card_match.wav` | a successful month match |
+| `card_capture.wav` | cards moving to a capture pile |
+| `koi_koi.wav` | choosing Koi-Koi |
+| `shobu.wav` | choosing Shobu |
+| `round_win.wav` | player wins a round |
+| `round_lose.wav` | CPU wins a round |
+
+Recommended delivery format: PCM WAV, 44.1 or 48 kHz, 16-bit, mono or stereo.
+Keep short transient effects trimmed tightly and leave their peak below 0 dBFS.
+The build copies this complete directory beside the game executable as `sfx/`.
+
+`SfxPlayer` provides the loading, playback, and volume interface. This change
+does not add or alter any UI and does not connect sounds to the radio controls.
+The gameplay sound slots can be synchronized with their final animation events
+without changing asset paths or filenames.

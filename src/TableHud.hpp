@@ -16,8 +16,9 @@ inline constexpr Rect RoundEndButton{520.0f, 326.0f, 320.0f, 72.0f};
 inline constexpr Rect DealerCardLeft{490.0f, 315.0f, 155.0f, 190.0f};
 inline constexpr Rect DealerCardRight{715.0f, 315.0f, 175.0f, 190.0f};
 
-// Right-side Pause / Menu button, clear of all card slots and top-right decision banners.
-inline constexpr Rect PauseButton{1218.0f, 352.0f, 130.0f, 64.0f};
+// Separate right-side entry points. Icon artwork can replace the temporary labels later.
+inline constexpr Rect RadioMenuButton{1266.0f, 322.0f, 76.0f, 58.0f};
+inline constexpr Rect PauseButton{1266.0f, 390.0f, 76.0f, 58.0f};
 
 // Centered Pause & Internet Radio overlay in 1360x768 HUD space.
 // Dimensions follow the supplied blue/white arcade-style menu mock-up.
@@ -30,6 +31,15 @@ inline constexpr Rect VolumeHitBox{698.0f, 240.0f, 290.0f, 48.0f};
 inline constexpr Rect NewMatchButton{278.0f, 607.0f, 190.0f, 54.0f};
 inline constexpr Rect ResumeBottomButton{886.0f, 607.0f, 190.0f, 54.0f};
 
+// Simple pause/options panel. This intentionally remains separate from the radio menu.
+inline constexpr Rect OptionsPanel{390.0f, 170.0f, 580.0f, 430.0f};
+inline constexpr Rect MasterVolumeBar{500.0f, 330.0f, 300.0f, 28.0f};
+inline constexpr Rect MasterVolumeHitBox{490.0f, 315.0f, 390.0f, 58.0f};
+inline constexpr Rect SfxVolumeBar{500.0f, 420.0f, 300.0f, 28.0f};
+inline constexpr Rect SfxVolumeHitBox{490.0f, 405.0f, 390.0f, 58.0f};
+inline constexpr Rect OptionsNewMatchButton{430.0f, 515.0f, 220.0f, 58.0f};
+inline constexpr Rect OptionsResumeButton{710.0f, 515.0f, 220.0f, 58.0f};
+
 inline constexpr std::size_t StationSlotCount = 6;
 [[nodiscard]] constexpr Rect StationButton(std::size_t index) {
     const std::size_t col = index % 2;
@@ -41,7 +51,11 @@ inline constexpr std::size_t StationSlotCount = 6;
 }
 } // namespace TableHud
 
+enum class TableOverlay { NONE, RADIO, PAUSE };
+
 struct TableHudState {
-    bool paused = false;
+    TableOverlay overlay = TableOverlay::NONE;
     RadioStatus radio{};
+    float masterVolume = 1.0f;
+    float sfxVolume = 1.0f;
 };

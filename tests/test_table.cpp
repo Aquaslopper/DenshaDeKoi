@@ -148,7 +148,7 @@ void TestDraw() {
 
         drawnTexts.clear();
         TableHudState pausedHud{};
-        pausedHud.paused = true;
+        pausedHud.overlay = TableOverlay::RADIO;
         pausedHud.radio.enabled = true;
         pausedHud.radio.state = RadioState::PLAYING;
         pausedHud.radio.stationIndex = 0;

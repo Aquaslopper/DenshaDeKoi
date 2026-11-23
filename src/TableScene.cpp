@@ -3,6 +3,7 @@
 #include "TableLayout.hpp"
 #include "TableGame.hpp"
 #include "ui/PauseRadioMenu.hpp"
+#include "ui/PauseMenu.hpp"
 #include "ui/UiViewport.hpp"
 
 #include <rlgl.h>
@@ -302,29 +303,23 @@ void DrawHud(const TableGame& game, const TableHudState& hud, Rectangle destinat
         DrawText(intro, map.X(game.Round() == 1 ? 585 : 570), map.Y(344), map.Font(30), WHITE);
     }
 
-    // Right-side Pause / Radio Menu button
+    // Separate radio and pause entry points; labels are temporary icon-asset placeholders.
     const bool liveRadio = hud.radio.enabled && !hud.radio.muted;
-    const Color pauseFill = hud.paused ? Color{34, 62, 56, 240} : Color{15, 20, 27, 230};
-    const Color pauseBorder = liveRadio ? Color{102, 186, 152, 240} : Color{95, 118, 138, 220};
-    DrawBox(map, TableHud::PauseButton, pauseFill, pauseBorder, 1.5f);
-    // Twin pause bars icon
-    DrawRectangle(map.X(TableHud::PauseButton.x + 14.0f), map.Y(TableHud::PauseButton.y + 14.0f),
-                  map.W(5.0f), map.H(18.0f), WHITE);
-    DrawRectangle(map.X(TableHud::PauseButton.x + 23.0f), map.Y(TableHud::PauseButton.y + 14.0f),
-                  map.W(5.0f), map.H(18.0f), WHITE);
-    DrawText(hud.paused ? "RESUME" : "MENU",
-             map.X(TableHud::PauseButton.x + 36.0f), map.Y(TableHud::PauseButton.y + 14.0f),
-             map.Font(19), WHITE);
-    const char* subLabel = hud.radio.enabled
-        ? (hud.radio.muted ? "RADIO MUTED" : (hud.radio.state == RadioState::PLAYING ? "J-POP LIVE" : "RADIO ..."))
-        : "J-POP RADIO";
-    const Color subColor = liveRadio ? Color{130, 228, 182, 255} : LIGHTGRAY;
-    DrawText(subLabel, map.X(TableHud::PauseButton.x + 14.0f), map.Y(TableHud::PauseButton.y + 40.0f),
-             map.Font(14), subColor);
+    DrawBox(map, TableHud::RadioMenuButton,
+            hud.overlay == TableOverlay::RADIO ? Color{34, 62, 56, 240} : Color{15, 20, 27, 230},
+            liveRadio ? Color{102, 186, 152, 240} : Color{95, 118, 138, 220}, 1.5f);
+    DrawText("RADIO", map.X(TableHud::RadioMenuButton.x + 10.0f),
+             map.Y(TableHud::RadioMenuButton.y + 19.0f), map.Font(14), WHITE);
+    DrawBox(map, TableHud::PauseButton,
+            hud.overlay == TableOverlay::PAUSE ? Color{34, 62, 56, 240} : Color{15, 20, 27, 230},
+            Color{95, 118, 138, 220}, 1.5f);
+    DrawText("PAUSE", map.X(TableHud::PauseButton.x + 9.0f),
+             map.Y(TableHud::PauseButton.y + 19.0f), map.Font(14), WHITE);
 
-    if (hud.paused) {
-        Ui::DrawPauseRadioMenu(map, hud.radio,
-                               {logo, headingFont, bodyFont});
+    if (hud.overlay == TableOverlay::RADIO) {
+        Ui::DrawPauseRadioMenu(map, hud.radio, {logo, headingFont, bodyFont});
+    } else if (hud.overlay == TableOverlay::PAUSE) {
+        Ui::DrawPauseMenu(map, hud.masterVolume, hud.sfxVolume, {headingFont, bodyFont});
     }
 }
 
