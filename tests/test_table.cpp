@@ -192,11 +192,25 @@ Texture2D LoadTexture(const char*) {
     if (loads == 2 && failAtlas) return {};
     if (loads == 1) return {1, 1360, 768, 1, 0};
     if (loads == 2) return {2, invalidAtlas ? 2147 : 2148, 1056, 1, 0};
-    return {3, 717, 294, 1, 0}; // densha-logo.png
+    return {5, 64, 64, 1, 0};
 }
 Texture2D LoadTextureFromImage(Image img) {
-    Check(img.data != nullptr && img.width == 179 && img.height == 264, "Invalid matte back image");
-    return {4, img.width, img.height, 1, img.format};
+    Check(img.data != nullptr, "Invalid image data");
+    if (img.width == 179 && img.height == 264) return {4, img.width, img.height, 1, img.format}; // matte card back
+    Check(img.width == 190 && img.height == 66, "Invalid logo image");
+    return {3, img.width, img.height, 1, img.format}; // embedded wordmark
+}
+Image LoadImageFromMemory(const char*, const unsigned char* fileData, int dataSize) {
+    static unsigned char decoded[1]; // non-null sentinel; content unused by the fake
+    Check(fileData != nullptr && dataSize > 0, "Invalid embedded image");
+    return {decoded, 190, 66, 1, 0};
+}
+void UnloadImage(Image) {}
+Font LoadFontFromMemory(const char* fileType, const unsigned char* fileData, int dataSize,
+                        int fontSize, int*, int) {
+    Check(fileData != nullptr && dataSize > 0 && fileType[0] == '.', "Invalid embedded font");
+    static int loadedGlyphs; // fresh pointer per call: never the default font's glyph table
+    return {fontSize, {9, fontSize, fontSize, 1, 0}, nullptr, &loadedGlyphs};
 }
 void UnloadTexture(Texture2D t) { unloaded.push_back(t.id); }
 void SetTextureFilter(Texture2D, int) {}
@@ -209,7 +223,6 @@ void EndMode3D() {}
 void ClearBackground(Color) {}
 void DrawTriangle(Vector2, Vector2, Vector2, Color) {}
 Vector2 GetMousePosition() { return {0, 0}; }
-const char* GetApplicationDirectory() { return ""; }
 bool CheckCollisionPointRec(Vector2, Rectangle) { return false; }
 Font GetFontDefault() { static int defaultGlyphs; return {10, {9, 9, 16, 1, 0}, nullptr, &defaultGlyphs}; }
 Font LoadFontEx(const char*, int fontSize, int*, int) {

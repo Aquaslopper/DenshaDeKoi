@@ -35,7 +35,11 @@ void DrawTexturePro(Texture2D texture, Rectangle source, Rectangle dest, Vector2
 
 Font GetFontDefault();
 Font LoadFontEx(const char* fileName, int fontSize, int* codepoints, int codepointCount);
+Font LoadFontFromMemory(const char* fileType, const unsigned char* fileData, int dataSize,
+                        int fontSize, int* codepoints, int codepointCount);
 void UnloadFont(Font font);
+Image LoadImageFromMemory(const char* fileType, const unsigned char* fileData, int dataSize);
+void UnloadImage(Image image);
 Vector2 MeasureTextEx(Font font, const char* text, float fontSize, float spacing);
 void DrawTextEx(Font font, const char* text, Vector2 position, float fontSize,
                 float spacing, Color tint);

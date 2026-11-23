@@ -70,10 +70,6 @@ if(BUILD_DESKTOP_APP)
             "${CMAKE_CURRENT_SOURCE_DIR}/cards_atlas.png" "$<TARGET_FILE_DIR:denshadekoi>/cards_atlas.png"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${CMAKE_CURRENT_SOURCE_DIR}/assets/the-city.jpg" "$<TARGET_FILE_DIR:denshadekoi>/the-city.jpg"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${CMAKE_CURRENT_SOURCE_DIR}/assets/densha-logo.png" "$<TARGET_FILE_DIR:denshadekoi>/densha-logo.png"
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-            "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts" "$<TARGET_FILE_DIR:denshadekoi>/fonts"
         VERBATIM
     )
     add_custom_command(TARGET denshadekoi_inspector POST_BUILD
@@ -92,12 +88,6 @@ if(BUILD_DESKTOP_APP)
             "${CMAKE_CURRENT_SOURCE_DIR}/assets/the-city.jpg"
             "$<TARGET_FILE_DIR:denshadekoi>/the-city.jpg"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${CMAKE_CURRENT_SOURCE_DIR}/assets/densha-logo.png"
-            "$<TARGET_FILE_DIR:denshadekoi>/densha-logo.png"
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-            "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts"
-            "$<TARGET_FILE_DIR:denshadekoi>/fonts"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${CMAKE_CURRENT_SOURCE_DIR}/cards_atlas.png"
             "$<TARGET_FILE_DIR:denshadekoi_inspector>/cards_atlas.png"
         DEPENDS denshadekoi denshadekoi_inspector
@@ -112,8 +102,6 @@ if(BUILD_TESTING)
     target_include_directories(test_table PRIVATE tests/fake_raylib src)
     target_link_libraries(test_table PRIVATE hanafuda_core)
     add_test(NAME table COMMAND test_table)
-    # Run from the repo root so the asset fallback path (assets/fonts, assets/) is exercised.
-    set_tests_properties(table PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 
     add_executable(test_table_game tests/test_table_game.cpp)
     configure_project_target(test_table_game)

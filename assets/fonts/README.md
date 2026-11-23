@@ -14,5 +14,17 @@ License: SIL Open Font License 1.1, http://scripts.sil.org/OFL.
 Used for the station readout, station buttons, and footer hints.
 
 ## densha-logo.png
-Wordmark rendered with Titan One (SIL OFL 1.1, Copyright (c) 2011 Rodrigo Fuenzalida),
-faux-italicised with an affine shear. Titan One, https://github.com/googlefonts/titan-one.
+The DENSHA DE KOI wordmark used in the pause-menu title bar (190x66 RGBA,
+project design asset supplied for this redesign). Embedded into the binary
+like the fonts; regenerate via `tools/embed_assets.py`.
+
+## Regenerating `src/EmbeddedAssets.hpp`
+
+The fonts and the wordmark are compiled straight into the game (the pause menu
+must render even when no asset folder ships with the executable). After
+changing any of these files, regenerate the embedded arrays with:
+
+    python3 tools/embed_assets.py
+
+The generated `src/EmbeddedAssets.hpp` is committed on purpose; the header
+documents what it contains.

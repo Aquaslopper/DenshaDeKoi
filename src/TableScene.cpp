@@ -1,4 +1,5 @@
 #include "TableScene.hpp"
+#include "EmbeddedAssets.hpp"
 
 #include "TableLayout.hpp"
 #include "TableGame.hpp"
@@ -9,7 +10,6 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
-#include <filesystem>
 #include <initializer_list>
 #include <iterator>
 #include <stdexcept>
@@ -609,36 +609,13 @@ bool IsCustomFont(Font font) {
     return font.texture.id != 0 && font.glyphs != nullptr && font.glyphs != fallback.glyphs;
 }
 
-// The assets may sit next to the executable (CMake copies them there), in the
-// working directory ("fonts/..."), or in the repository layout ("assets/fonts/...").
-// Try them in order and report every attempt when none works.
-std::string ResolveAssetPath(const char* relativePath, const char* kind) {
-    const std::filesystem::path appDir(GetApplicationDirectory());
-    const std::filesystem::path candidates[] = {
-        appDir / relativePath,
-        std::filesystem::path(relativePath),
-        std::filesystem::path("assets") / relativePath,
-    };
-    for (const auto& candidate : candidates) {
-        std::error_code ec;
-        if (std::filesystem::exists(candidate, ec)) return candidate.string();
-    }
-    std::fprintf(stderr, "[ui] %s '%s' not found; searched:\n", kind, relativePath);
-    for (const auto& candidate : candidates)
-        std::fprintf(stderr, "[ui]   - %s\n", candidate.string().c_str());
-    return {};
-}
-
-Font LoadFontOrDefault(const char* relativePath, int size) {
-    const std::string path = ResolveAssetPath(relativePath, "font");
-    if (path.empty()) return GetFontDefault();
-    Font font = LoadFontEx(path.c_str(), size, nullptr, 0);
+Font LoadEmbeddedFont(const unsigned char* data, unsigned int dataSize, int fontSize) {
+    Font font = LoadFontFromMemory(".ttf", data, static_cast<int>(dataSize), fontSize, nullptr, 0);
     if (!IsCustomFont(font)) {
-        std::fprintf(stderr, "[ui] font '%s' failed to load; using the default font\n", path.c_str());
+        std::fprintf(stderr, "[ui] embedded font failed to load; using the default font\n");
         return GetFontDefault();
     }
     SetTextureFilter(font.texture, TEXTURE_FILTER_BILINEAR);
-    std::fprintf(stderr, "[ui] font '%s' loaded (%d px)\n", path.c_str(), size);
     return font;
 }
 
@@ -648,30 +625,29 @@ void ReleaseFont(Font font) {
 }
 
 TableSceneUiAssets LoadPauseAssets() {
+    // Everything is embedded in the binary, so the pause menu renders the
+    // same no matter how the executable was deployed.
     TableSceneUiAssets assets;
-    assets.title64 = LoadFontOrDefault("fonts/Silkscreen-Bold.ttf", 64);
-    assets.title32 = LoadFontOrDefault("fonts/Silkscreen-Bold.ttf", 32);
-    assets.title24 = LoadFontOrDefault("fonts/Silkscreen-Bold.ttf", 24);
-    assets.title16 = LoadFontOrDefault("fonts/Silkscreen-Bold.ttf", 16);
-    assets.vt42 = LoadFontOrDefault("fonts/VT323.ttf", 42);
-    assets.vt28 = LoadFontOrDefault("fonts/VT323.ttf", 28);
-    assets.vt25 = LoadFontOrDefault("fonts/VT323.ttf", 25);
-    assets.vt24 = LoadFontOrDefault("fonts/VT323.ttf", 24);
-    assets.vt21 = LoadFontOrDefault("fonts/VT323.ttf", 21);
-    const std::string logoPath = ResolveAssetPath("densha-logo.png", "logo");
-    if (logoPath.empty()) {
-        assets.logoValid = false;
-        return assets;
+    assets.title64 = LoadEmbeddedFont(EmbeddedAssets::kSilkscreenBoldTtf, EmbeddedAssets::kSilkscreenBoldTtf_Size, 64);
+    assets.title32 = LoadEmbeddedFont(EmbeddedAssets::kSilkscreenBoldTtf, EmbeddedAssets::kSilkscreenBoldTtf_Size, 32);
+    assets.title24 = LoadEmbeddedFont(EmbeddedAssets::kSilkscreenBoldTtf, EmbeddedAssets::kSilkscreenBoldTtf_Size, 24);
+    assets.title16 = LoadEmbeddedFont(EmbeddedAssets::kSilkscreenBoldTtf, EmbeddedAssets::kSilkscreenBoldTtf_Size, 16);
+    assets.vt42 = LoadEmbeddedFont(EmbeddedAssets::kVt323Ttf, EmbeddedAssets::kVt323Ttf_Size, 42);
+    assets.vt28 = LoadEmbeddedFont(EmbeddedAssets::kVt323Ttf, EmbeddedAssets::kVt323Ttf_Size, 28);
+    assets.vt25 = LoadEmbeddedFont(EmbeddedAssets::kVt323Ttf, EmbeddedAssets::kVt323Ttf_Size, 25);
+    assets.vt24 = LoadEmbeddedFont(EmbeddedAssets::kVt323Ttf, EmbeddedAssets::kVt323Ttf_Size, 24);
+    assets.vt21 = LoadEmbeddedFont(EmbeddedAssets::kVt323Ttf, EmbeddedAssets::kVt323Ttf_Size, 21);
+    Image image = LoadImageFromMemory(".png", EmbeddedAssets::kDenshaLogoPng,
+                                      static_cast<int>(EmbeddedAssets::kDenshaLogoPng_Size));
+    if (image.data != nullptr && image.width > 0 && image.height > 0) {
+        assets.logo = LoadTextureFromImage(image);
+        UnloadImage(image);
     }
-    assets.logo = LoadTexture(logoPath.c_str());
     if (assets.logo.id == 0 || assets.logo.width <= 0 || assets.logo.height <= 0) {
-        std::fprintf(stderr, "[ui] logo '%s' failed to load; title bar will render text only\n",
-                     logoPath.c_str());
+        std::fprintf(stderr, "[ui] embedded logo failed to load; title bar will render text only\n");
         assets.logoValid = false;
     } else {
         SetTextureFilter(assets.logo, TEXTURE_FILTER_BILINEAR);
-        std::fprintf(stderr, "[ui] logo '%s' loaded (%dx%d)\n", logoPath.c_str(),
-                     assets.logo.width, assets.logo.height);
         assets.logoValid = true;
     }
     return assets;
