@@ -104,11 +104,6 @@ std::vector<GameSfx> TableGame::TakeSfx() {
     return result;
 }
 
-std::optional<Point2> TableGame::DraggedCenter() const {
-    if (!dragged_) return std::nullopt;
-    return Center(dragRect_);
-}
-
 bool TableGame::HasCardAt(Point2 p) const {
     const auto cards = Cards();
     return std::any_of(cards.rbegin(), cards.rend(), [p](const TableCard& card) {

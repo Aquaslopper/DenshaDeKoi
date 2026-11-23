@@ -64,7 +64,6 @@ public:
     [[nodiscard]] bool MatchFinished() const { return finished_; }
     [[nodiscard]] bool Busy() const { return animation_ != Animation::NONE || openingStage_ != OpeningStage::PLAYING; }
     [[nodiscard]] bool Dragging() const { return dragged_.has_value(); }
-    [[nodiscard]] std::optional<TableLayout::Point2> DraggedCenter() const;
     [[nodiscard]] std::string Status() const;
     [[nodiscard]] TableLayout::Rect FieldRect(CardId id) const;
     [[nodiscard]] bool HasCardAt(TableLayout::Point2 p) const;
