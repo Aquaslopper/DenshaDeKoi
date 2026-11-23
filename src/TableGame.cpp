@@ -104,6 +104,13 @@ std::vector<GameSfx> TableGame::TakeSfx() {
     return result;
 }
 
+bool TableGame::HasCardAt(Point2 p) const {
+    const auto cards = Cards();
+    return std::any_of(cards.rbegin(), cards.rend(), [p](const TableCard& card) {
+        return Contains(card.rect, p);
+    });
+}
+
 bool TableGame::AwaitingDealerChoice() const {
     return openingStage_ == OpeningStage::DEALER_PICK;
 }

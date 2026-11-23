@@ -4,6 +4,11 @@
 #include "TableHud.hpp"
 #include <raylib.h>
 
+struct MagnifyEffect {
+    TableLayout::Point2 focus{TableLayout::ImageWidth * 0.5f, TableLayout::ImageHeight * 0.5f};
+    float amount = 0.0f; // 0 = unchanged; 0.2 = 20 percent magnification.
+};
+
 // Perspective table renderer. This class owns all of its GPU resources;
 // construct and destroy it while a Raylib window/context is alive.
 class TableScene {
@@ -16,7 +21,8 @@ public:
     TableScene(TableScene&&) = delete;
     TableScene& operator=(TableScene&&) = delete;
 
-    void Draw(const TableGame& game, const TableHudState& hud = {}) const;
+    void Draw(const TableGame& game, const TableHudState& hud = {},
+              const MagnifyEffect& magnify = {}) const;
 
 private:
     Texture2D background_{};
@@ -30,4 +36,7 @@ private:
     // Fixed 1360x768 world canvas. It only provides aspect-preserving
     // letterboxing when the window is resized; it is never cropped or zoomed.
     RenderTexture2D canvas_{};
+    Shader magnifyShader_{};
+    int magnifyFocusLocation_ = -1;
+    int magnifyZoomLocation_ = -1;
 };

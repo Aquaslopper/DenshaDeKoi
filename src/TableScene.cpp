@@ -18,6 +18,20 @@
 namespace {
 using TableLayout::Rect;
 
+constexpr const char* MagnifyFragmentShader = R"glsl(
+#version 330
+in vec2 fragTexCoord;
+in vec4 fragColor;
+uniform sampler2D texture0;
+uniform vec2 focus;
+uniform float zoom;
+out vec4 finalColor;
+void main() {
+    vec2 sampleUv = focus + (fragTexCoord - focus) / zoom;
+    finalColor = texture(texture0, clamp(sampleUv, vec2(0.0), vec2(1.0))) * fragColor;
+}
+)glsl";
+
 struct CardTransform {
     float cx, cy, cz;
     float hx, hy, hz;
@@ -360,9 +374,14 @@ TableScene::TableScene(const char* backgroundPath, const char* atlasPath, const 
         if (canvas_.id == 0 || canvas_.texture.id == 0)
             throw std::runtime_error("Could not create table render texture");
         SetTextureFilter(canvas_.texture, TEXTURE_FILTER_BILINEAR);
+        magnifyShader_ = LoadShaderFromMemory(nullptr, MagnifyFragmentShader);
+        if (magnifyShader_.id == 0) throw std::runtime_error("Could not create magnification shader");
+        magnifyFocusLocation_ = GetShaderLocation(magnifyShader_, "focus");
+        magnifyZoomLocation_ = GetShaderLocation(magnifyShader_, "zoom");
     } catch (...) {
         if (ownsBodyFont_) UnloadFont(bodyFont_);
         if (ownsHeadingFont_) UnloadFont(headingFont_);
+        if (magnifyShader_.id != 0) UnloadShader(magnifyShader_);
         if (canvas_.id != 0) UnloadRenderTexture(canvas_);
         if (cardBack_.id != 0) UnloadTexture(cardBack_);
         if (logo_.id != 0) UnloadTexture(logo_);
@@ -374,6 +393,7 @@ TableScene::TableScene(const char* backgroundPath, const char* atlasPath, const 
 
 TableScene::~TableScene() {
     if (ownsBodyFont_) UnloadFont(bodyFont_);
+    UnloadShader(magnifyShader_);
     if (ownsHeadingFont_) UnloadFont(headingFont_);
     UnloadRenderTexture(canvas_);
     UnloadTexture(cardBack_);
@@ -382,7 +402,8 @@ TableScene::~TableScene() {
     UnloadTexture(background_);
 }
 
-void TableScene::Draw(const TableGame& game, const TableHudState& hud) const {
+void TableScene::Draw(const TableGame& game, const TableHudState& hud,
+                      const MagnifyEffect& magnify) const {
     BeginTextureMode(canvas_);
     ClearBackground(BLACK);
     DrawTexturePro(background_, {0, 0, static_cast<float>(background_.width), static_cast<float>(background_.height)},
@@ -395,6 +416,11 @@ void TableScene::Draw(const TableGame& game, const TableHudState& hud) const {
     BeginMode3D(camera);
     DrawCards(atlas_, cardBack_, game.Cards());
     EndMode3D();
+    const Rectangle canvasDestination{0, 0, static_cast<float>(TableLayout::ImageWidth),
+                                      static_cast<float>(TableLayout::ImageHeight)};
+    DrawHud(game, hud, canvasDestination, 1.0f, logo_, headingFont_, bodyFont_);
+    if (game.DealerSelectionActive())
+        DrawDealerSelection(ScreenMap{canvasDestination, 1.0f}, game);
     EndTextureMode();
 
     const float scale = std::min(static_cast<float>(GetScreenWidth()) / TableLayout::ImageWidth,
@@ -405,14 +431,17 @@ void TableScene::Draw(const TableGame& game, const TableHudState& hud) const {
                                 width, height};
     BeginDrawing();
     ClearBackground(BLACK);
-    // A render texture is vertically inverted in Raylib; a negative source
-    // height flips it back. The whole canvas is blitted: no crop, no zoom.
+    const float zoom = 1.0f + std::max(0.0f, magnify.amount);
+    const float shaderFocus[2]{
+        std::clamp(magnify.focus.x / TableLayout::ImageWidth, 0.0f, 1.0f),
+        1.0f - std::clamp(magnify.focus.y / TableLayout::ImageHeight, 0.0f, 1.0f)};
+    SetShaderValue(magnifyShader_, magnifyFocusLocation_, shaderFocus, SHADER_UNIFORM_VEC2);
+    SetShaderValue(magnifyShader_, magnifyZoomLocation_, &zoom, SHADER_UNIFORM_FLOAT);
+    BeginShaderMode(magnifyShader_);
+    // The shader magnifies final canvas pixels only; the 3D camera is untouched.
     DrawTexturePro(canvas_.texture, {0, 0, static_cast<float>(canvas_.texture.width),
                                     -static_cast<float>(canvas_.texture.height)},
                    destination, {0, 0}, 0, WHITE);
-    DrawHud(game, hud, destination, scale, logo_, headingFont_, bodyFont_);
-    if (game.DealerSelectionActive()) {
-        DrawDealerSelection(ScreenMap{destination, scale}, game);
-    }
+    EndShaderMode();
     EndDrawing();
 }

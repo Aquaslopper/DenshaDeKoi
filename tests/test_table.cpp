@@ -215,6 +215,12 @@ RenderTexture2D LoadRenderTexture(int w, int h) { return failCanvas ? RenderText
 void UnloadRenderTexture(RenderTexture2D) { ++renderUnloads; }
 void BeginTextureMode(RenderTexture2D) {}
 void EndTextureMode() {}
+Shader LoadShaderFromMemory(const char*, const char*) { return {5, nullptr}; }
+void UnloadShader(Shader) {}
+int GetShaderLocation(Shader, const char*) { return 1; }
+void SetShaderValue(Shader, int, const void*, int) {}
+void BeginShaderMode(Shader) {}
+void EndShaderMode() {}
 void BeginMode3D(Camera3D c) { camera = c; }
 void EndMode3D() {}
 void ClearBackground(Color) {}

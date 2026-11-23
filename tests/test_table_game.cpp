@@ -45,6 +45,8 @@ void PlayFirst(TableGame& game) {
     const int id = hand.front();
     std::optional<int> target;
     for (int f : rules.Field()) if (DeckRegister::At(f).month == DeckRegister::At(id).month) { target = f; break; }
+    Check(game.HasCardAt(Center(TableLayout::PlayerHand[0])),
+          "Magnification hit test did not find the player card");
     game.PointerDown(Center(TableLayout::PlayerHand[0]));
     Check(game.Dragging(), "Could not grab hand card");
     const auto destination = target ? Center(game.FieldRect(*target)) : Point2{400, 500};
