@@ -15,6 +15,10 @@ void TestOpeningPresentation() {
     TableGame game;
     Check(game.AwaitingDealerChoice() && game.DealerSelectionActive() && game.Busy(),
           "New match must wait for dealer card selection");
+    const auto dealerBacks = game.Cards();
+    Check(dealerBacks.size() == 2 && dealerBacks[0].id == -1 && dealerBacks[1].id == -1 &&
+          dealerBacks[0].thickness == TableLayout::CardThickness,
+          "Dealer choice must use two real 3D card backs");
     game.SelectDealerCard(0);
     Check(!game.AwaitingDealerChoice() && game.DealerSelectionActive(),
           "Dealer selection did not begin reveal");

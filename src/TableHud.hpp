@@ -12,8 +12,9 @@ using TableLayout::Rect;
 inline constexpr Rect KoiKoiButton{505.0f, 336.0f, 165.0f, 48.0f};
 inline constexpr Rect ShobuButton{690.0f, 336.0f, 165.0f, 48.0f};
 inline constexpr Rect RoundEndButton{520.0f, 326.0f, 320.0f, 72.0f};
-inline constexpr Rect DealerCardLeft{420.0f, 205.0f, 176.0f, 286.0f};
-inline constexpr Rect DealerCardRight{764.0f, 205.0f, 176.0f, 286.0f};
+// Screen-space hit areas around the projected 3D dealer cards on the table.
+inline constexpr Rect DealerCardLeft{490.0f, 315.0f, 155.0f, 190.0f};
+inline constexpr Rect DealerCardRight{715.0f, 315.0f, 175.0f, 190.0f};
 
 // Right-side Pause / Menu button, clear of all card slots and top-right decision banners.
 inline constexpr Rect PauseButton{1218.0f, 352.0f, 130.0f, 64.0f};
