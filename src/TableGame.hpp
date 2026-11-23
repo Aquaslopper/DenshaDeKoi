@@ -57,12 +57,19 @@ private:
         float fromElev = TableLayout::CardElevation, toElev = TableLayout::CardElevation;
         float fromYaw = 0.0f, toYaw = 0.0f;
     };
+    struct DeferredCapture {
+        int id;
+        TableLayout::Rect rect;
+        float elevation = TableLayout::CardElevation;
+        float yaw = 0.0f;
+    };
     void Start();
     void SyncField();
     [[nodiscard]] int FindFreeSlot(TableLayout::Point2 near) const;
     void StartHand(CardId id, TableLayout::Rect from, std::optional<CardId> target);
     void StartStockMove(std::optional<CardId> target);
     void ResolveMove();
+    void StartDeferredCapture(Player player);
     void FinishAnimation();
     void BeginAnimation(Animation type, float duration);
     void RecordResult();
@@ -92,4 +99,5 @@ private:
     bool compactField_ = false;
     int pendingSlot_ = -1;
     std::vector<Moving> moving_;
+    std::vector<DeferredCapture> deferredCapture_;
 };

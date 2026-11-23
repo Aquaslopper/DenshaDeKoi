@@ -53,15 +53,39 @@ void TestReturnAndFreeze() {
         game.Update(0.4f);
         Check(!game.Busy() && game.Rules().Hand(Player::PLAYER).size() == 8, "Return animation changed state");
         PlayFirst(game);
-        game.Update(0.07f); // snap ends, 50 ms hit freeze begins
+        game.Update(0.59f);
+        Check(game.Busy() && game.Rules().Hand(Player::PLAYER).size() == 8,
+              "Xeno-koi card flight must last 600 ms");
+        game.Update(0.02f); // flight ends; 150 ms capture hit freeze begins
         Check(game.Busy() && game.Rules().Hand(Player::PLAYER).size() == 8, "Capture committed before hit freeze");
         Check(game.Cards().back().elevation > TableLayout::CardElevation + TableLayout::CardThickness * 0.9f,
-              "Snapped card must rest on top of matched field card during hit freeze");
-        game.Update(0.049f);
-        Check(game.Rules().Hand(Player::PLAYER).size() == 8, "Hit freeze shorter than 50 ms");
+              "Landed card must rest on top of its match during hit freeze");
+        game.Update(0.149f);
+        Check(game.Rules().Hand(Player::PLAYER).size() == 8, "Hit freeze shorter than 150 ms");
         game.Update(0.002f);
-        Check(game.Rules().Hand(Player::PLAYER).size() == 7 && game.Rules().ValidateConservation(), "Capture did not commit after freeze");
-        game.Update(0.5f);
+        Check(game.Rules().Hand(Player::PLAYER).size() == 7 && game.Rules().ValidateConservation(),
+              "Hand capture did not resolve after hit freeze");
+
+        int prematureCaptureLayers = 0;
+        for (const auto& card : game.Cards()) {
+            if (std::abs(card.rect.x - TableLayout::PlayerCapture.x) < 10.0f &&
+                std::abs(card.rect.y - TableLayout::PlayerCapture.y) < 10.0f) ++prematureCaptureLayers;
+        }
+        Check(prematureCaptureLayers == 0,
+              "Hand capture moved to player pile before the stock card resolved");
+
+        for (int step = 0; step < 100; ++step) {
+            if (!game.Busy() && game.Rules().GetPhase() == Phase::AWAIT_DRAW_CHOICE) {
+                game.PointerDown(Center(game.FieldRect(game.Rules().Choices().front())));
+            }
+            game.Update(0.1f);
+            const Phase phase = game.Rules().GetPhase();
+            if (!game.Busy() && phase != Phase::REVEAL_DRAW && phase != Phase::AWAIT_DRAW_CHOICE &&
+                phase != Phase::RESOLVE_DRAW) break;
+        }
+        Check(!game.Busy() && game.Rules().GetPhase() != Phase::REVEAL_DRAW &&
+              game.Rules().GetPhase() != Phase::RESOLVE_DRAW,
+              "Deferred capture did not finish after stock-card resolution");
         int captureLayers = 0;
         bool captureCrooked = false;
         for (const auto& c : game.Cards()) {
