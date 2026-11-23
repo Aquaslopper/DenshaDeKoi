@@ -15,6 +15,10 @@ constexpr float CardFlightSeconds = 0.60f;
 constexpr float TableDropSeconds = 0.15f;
 constexpr float CaptureFlightSeconds = 0.50f;
 constexpr float CaptureHitFreezeSeconds = 0.50f;
+constexpr std::array<Rect, 2> DealerCardRects{{
+    {280.0f, 200.0f, 100.0f, 225.0f},
+    {460.0f, 200.0f, 100.0f, 225.0f}
+}};
 
 bool Contains(Rect r, Point2 p) {
     return p.x >= r.x && p.x <= r.x + r.width && p.y >= r.y && p.y <= r.y + r.height;
@@ -477,6 +481,25 @@ void TableGame::NextRound() {
 
 std::vector<TableCard> TableGame::Cards() const {
     std::vector<TableCard> cards;
+    if (DealerSelectionActive()) {
+        constexpr float Pi = 3.14159265f;
+        for (std::size_t i = 0; i < dealerCards_.size(); ++i) {
+            float progress = 0.0f;
+            if (dealerChoice_ >= 0) {
+                const bool chosen = static_cast<int>(i) == dealerChoice_;
+                progress = std::clamp((openingTimer_ - (chosen ? 0.0f : 0.45f)) / 0.45f, 0.0f, 1.0f);
+            }
+            const float eased = progress * progress * (3.0f - 2.0f * progress);
+            const float angle = Pi * (1.0f - eased);
+            TableCard card{progress < 0.5f ? -1 : dealerCards_[i], DealerCardRects[i]};
+            card.flip = std::max(0.01f, std::abs(std::cos(angle)));
+            card.flipAngle = angle;
+            card.elevation = TableLayout::CardElevation + 0.025f + 0.025f * std::sin(Pi * progress);
+            card.thickness = TableLayout::CardThickness;
+            cards.push_back(card);
+        }
+        return cards;
+    }
     const auto isMoving = [this](int id) { return std::any_of(moving_.begin(), moving_.end(), [id](const Moving& m){ return m.id == id; }); };
     const auto isDeferred = [this](int id) {
         return std::any_of(deferredCapture_.begin(), deferredCapture_.end(),
@@ -612,14 +635,27 @@ std::vector<TableCard> TableGame::Cards() const {
         TableCard movingCard{id, r, flip, elev, flipAngle, pitch, roll, yaw, TableLayout::CardThickness, true};
         cards.push_back(movingCard);
     }
-    if (openingStage_ == OpeningStage::ROUND_INTRO && dealElapsed_ < 0.45f) {
-        const float t = std::clamp(dealElapsed_ / 0.45f, 0.0f, 1.0f);
+    if (openingStage_ == OpeningStage::ROUND_INTRO) {
+        constexpr float Pi = 3.14159265f;
+        constexpr float DealFlight = 0.45f;
+        constexpr float DealStep = 0.04f;
+        std::size_t dealIndex = 0;
         for (auto& card : cards) {
             const bool stockCard = std::abs(card.rect.x - TableLayout::Stock.x) < 12.0f &&
                                    std::abs(card.rect.y - TableLayout::Stock.y) < 12.0f;
             if (stockCard) continue;
+            const int faceId = card.id;
+            const float delay = static_cast<float>(dealIndex++) * DealStep;
+            const float t = std::clamp((dealElapsed_ - delay) / DealFlight, 0.0f, 1.0f);
             card.rect = Interpolate(TableLayout::Stock, card.rect, t);
-            card.elevation += 0.045f * std::sin(3.14159265f * t);
+            card.elevation += 0.045f * std::sin(Pi * t);
+            if (faceId >= 0) {
+                const float flip = std::clamp((t - 0.64f) / 0.36f, 0.0f, 1.0f);
+                const float eased = flip * flip * (3.0f - 2.0f * flip);
+                card.flipAngle = Pi * (1.0f - eased);
+                card.flip = std::max(0.01f, std::abs(std::cos(card.flipAngle)));
+                if (flip < 0.5f) card.id = -1;
+            }
         }
     }
     return cards;
