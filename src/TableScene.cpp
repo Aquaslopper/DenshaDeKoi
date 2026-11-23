@@ -262,6 +262,20 @@ void DrawBox(const ScreenMap& map, TableLayout::Rect r, Color fill, Color border
     DrawRectangleLinesEx(map.Rec(r), std::max(1.0f, borderPx * map.scale), border);
 }
 
+void DrawRaisedBox(const ScreenMap& map, TableLayout::Rect r, Color fill, Color border,
+                   Color highlight, Color shadow) {
+    // PS1-era controls used a restrained bevel rather than a glossy gradient.
+    DrawRectangle(map.X(r.x + 3.0f), map.Y(r.y + 4.0f), map.W(r.width), map.H(r.height),
+                  Color{18, 20, 25, 105});
+    DrawBox(map, r, fill, border, 2.0f);
+    DrawRectangle(map.X(r.x + 2.0f), map.Y(r.y + 2.0f), map.W(r.width - 4.0f), map.H(2.0f), highlight);
+    DrawRectangle(map.X(r.x + 2.0f), map.Y(r.y + 2.0f), map.W(2.0f), map.H(r.height - 4.0f), highlight);
+    DrawRectangle(map.X(r.x + 2.0f), map.Y(r.y + r.height - 4.0f),
+                  map.W(r.width - 4.0f), map.H(2.0f), shadow);
+    DrawRectangle(map.X(r.x + r.width - 4.0f), map.Y(r.y + 2.0f),
+                  map.W(2.0f), map.H(r.height - 4.0f), shadow);
+}
+
 std::string FormatTenths(float seconds) {
     const int tenths = std::max(0, static_cast<int>(std::lround(seconds * 10.0f)));
     return std::to_string(tenths / 10) + "." + std::to_string(tenths % 10) + "s";
@@ -272,8 +286,8 @@ void DrawPauseMenu(const ScreenMap& map, const TableHudState& hud, Texture2D log
     constexpr Color navy{8, 31, 122, 255};
     constexpr Color blue{20, 29, 176, 255};
     constexpr Color ink{27, 31, 40, 255};
-    constexpr Color paper{224, 225, 221, 255};
-    constexpr Color button{43, 49, 61, 255};
+    constexpr Color paper{194, 195, 191, 255}; // warm PlayStation-era console grey
+    constexpr Color button{48, 53, 63, 255};
     constexpr Color green{0, 111, 67, 255};
     constexpr Color orange{242, 103, 25, 255};
 
@@ -298,6 +312,11 @@ void DrawPauseMenu(const ScreenMap& map, const TableHudState& hud, Texture2D log
     DrawBox(map, panel, paper, Color{245, 245, 239, 255}, 4.0f);
     DrawRectangleLinesEx(map.Rec({panel.x + 5.0f, panel.y + 5.0f, panel.width - 10.0f, panel.height - 10.0f}),
                          std::max(1.0f, 2.0f * map.scale), ink);
+    // Fine horizontal variation keeps the large grey surface from looking flat.
+    for (int y = 234; y < 670; y += 4) {
+        DrawRectangle(map.X(261), map.Y(static_cast<float>(y)), map.W(838), map.H(1.0f),
+                      Color{211, 212, 208, 120});
+    }
 
     // Blue masthead, then the orange/white/green Densha stripes from the mock-up.
     DrawRectangle(map.X(261), map.Y(134), map.W(838), map.H(82), navy);
@@ -314,12 +333,16 @@ void DrawPauseMenu(const ScreenMap& map, const TableHudState& hud, Texture2D log
 
     const bool radioOn = hud.radio.enabled;
     MenuText("BGM", map.X(286), map.Y(257), map.Font(21), navy);
-    DrawBox(map, TableHud::RadioPowerButton, radioOn ? green : blue,
-            radioOn ? Color{0, 74, 42, 255} : Color{102, 108, 137, 255}, 2.0f);
+    DrawRaisedBox(map, TableHud::RadioPowerButton, radioOn ? green : blue,
+                  radioOn ? Color{0, 58, 34, 255} : Color{7, 13, 76, 255},
+                  radioOn ? Color{49, 157, 107, 255} : Color{75, 91, 220, 255},
+                  radioOn ? Color{0, 62, 37, 255} : Color{5, 9, 79, 255});
     HeadingText(radioOn ? "ON" : "OFF", map.X(417), map.Y(255), map.Font(24), WHITE);
 
-    DrawBox(map, TableHud::RadioMuteButton, hud.radio.muted ? Color{142, 48, 44, 255} : Color{104, 106, 111, 255},
-            ink, 2.0f);
+    DrawRaisedBox(map, TableHud::RadioMuteButton,
+                  hud.radio.muted ? Color{142, 48, 44, 255} : Color{126, 127, 130, 255}, ink,
+                  hud.radio.muted ? Color{202, 90, 82, 255} : Color{188, 189, 190, 255},
+                  hud.radio.muted ? Color{80, 25, 23, 255} : Color{68, 70, 75, 255});
     HeadingText(hud.radio.muted ? "MUTED" : "MUTE", map.X(541), map.Y(255), map.Font(23), ink);
 
     // Segmented volume meter.
@@ -355,7 +378,10 @@ void DrawPauseMenu(const ScreenMap& map, const TableHudState& hud, Texture2D log
     for (std::size_t i = 0; i < stations.size() && i < TableHud::StationSlotCount; ++i) {
         const auto box = TableHud::StationButton(i);
         const bool selected = hud.radio.stationIndex == static_cast<int>(i);
-        DrawBox(map, box, selected ? blue : button, selected ? Color{7, 13, 76, 255} : ink, 2.0f);
+        DrawRaisedBox(map, box, selected ? blue : button,
+                      selected ? Color{7, 13, 76, 255} : Color{20, 23, 29, 255},
+                      selected ? Color{73, 87, 224, 255} : Color{91, 96, 108, 255},
+                      selected ? Color{5, 9, 78, 255} : Color{21, 24, 31, 255});
         if (selected) {
             DrawRectangle(map.X(box.x + 2.0f), map.Y(box.y + 19.0f), map.W(12.0f), map.H(26.0f),
                           Color{255, 204, 25, 255});
