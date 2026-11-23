@@ -13,6 +13,7 @@ using TableLayout::Rect;
 
 constexpr float CardFlightSeconds = 0.60f;
 constexpr float TableDropSeconds = 0.15f;
+constexpr float HandSlideSeconds = 0.30f;
 constexpr float CaptureFlightSeconds = 0.50f;
 constexpr float CaptureHitFreezeSeconds = 0.50f;
 constexpr std::array<Rect, 2> DealerCardRects{{
@@ -81,6 +82,7 @@ TableGame::TableGame(std::uint32_t seed) : game_(DrawDealer(seed), seed) { Start
 void TableGame::Start() {
     slots_.fill(-1);
     moving_.clear();
+    handSlides_ = {};
     deferredCapture_.clear();
     animation_ = Animation::NONE;
     compactField_ = false;
@@ -132,7 +134,12 @@ void TableGame::SelectDealerCard(int index) {
 }
 
 Rect TableGame::HandRect(Player player, std::size_t i) const {
-    return player == Player::PLAYER ? TableLayout::PlayerHand.at(i) : TableLayout::OpponentHand.at(i);
+    const auto& layout = player == Player::PLAYER ? TableLayout::PlayerHand : TableLayout::OpponentHand;
+    const auto& slide = handSlides_[PlayerIndex(player)];
+    if (i >= slide.gap && slide.elapsed < HandSlideSeconds) {
+        return Interpolate(layout.at(i + 1), layout.at(i), slide.elapsed / HandSlideSeconds);
+    }
+    return layout.at(i);
 }
 Rect TableGame::CaptureRect(Player player) const {
     return player == Player::PLAYER ? TableLayout::PlayerCapture : TableLayout::OpponentCapture;
@@ -326,7 +333,14 @@ void TableGame::ResolveMove() {
     std::array<Rect, 48> previousField{};
     for (int id : game_.Field()) previousField[static_cast<std::size_t>(id)] = FieldRect(id);
 
+    // Remember the slot before the rules remove the committed card.
+    const auto& hand = game_.Hand(player);
+    const auto played = std::find(hand.begin(), hand.end(), incoming);
+    const std::size_t gap = static_cast<std::size_t>(played - hand.begin());
     game_.Advance();
+    if (resolvedPhase == Phase::RESOLVE_HAND) {
+        handSlides_[PlayerIndex(player)] = {gap, 0.0f};
+    }
     if (pendingSlot_ >= 0) {
         slots_[static_cast<std::size_t>(incoming)] = pendingSlot_;
         if (pendingSlot_ >= 16) compactField_ = true;
@@ -411,6 +425,10 @@ void TableGame::RecordResult() {
 }
 void TableGame::Update(float seconds) {
     if (!std::isfinite(seconds) || seconds < 0) throw std::invalid_argument("Invalid frame time");
+    // Keep sliding during stock flips, flights and capture animations as well.
+    for (auto& slide : handSlides_) {
+        slide.elapsed = std::min(HandSlideSeconds, slide.elapsed + seconds);
+    }
     if (openingStage_ == OpeningStage::DEALER_PICK) return;
     if (openingStage_ == OpeningStage::DEALER_REVEAL) {
         openingTimer_ += seconds;

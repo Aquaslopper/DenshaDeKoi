@@ -260,6 +260,59 @@ void TestDropTolerance() {
     }
     throw std::runtime_error("No drop tolerance fixture");
 }
+void TestHandSlides() {
+    bool cpuCovered = false;
+    for (std::size_t choice : {std::size_t{0}, std::size_t{3}, std::size_t{7}}) {
+        bool playerCovered = false;
+        for (unsigned seed = 1; seed < 1000 && (!playerCovered || !cpuCovered); ++seed) {
+            TableGame game(seed);
+            if (game.Rules().GetPhase() != Phase::AWAIT_HAND_PLAY) continue;
+            const Player player = game.Rules().CurrentPlayer();
+            if (player == Player::PLAYER && playerCovered) continue;
+            if (player == Player::OPPONENT && cpuCovered) continue;
+            const auto before = game.Rules().Hand(player);
+            const auto& layout = player == Player::PLAYER ? TableLayout::PlayerHand : TableLayout::OpponentHand;
+            if (player == Player::PLAYER) {
+                const int id = before[choice];
+                std::optional<int> target;
+                for (int f : game.Rules().Field()) if (f / 4 == id / 4) { target = f; break; }
+                game.PointerDown(Center(layout[choice]));
+                game.PointerMove(target ? Center(game.FieldRect(*target)) : Point2{400, 500});
+                game.PointerUp(target ? Center(game.FieldRect(*target)) : Point2{400, 500});
+                Check(game.Busy(), "Slide fixture must play a card");
+            }
+            for (int step = 0; step < 400 && game.Rules().Hand(player).size() == 8; ++step) game.Update(0.01f);
+            const auto after = game.Rules().Hand(player);
+            Check(after.size() == 7, "Slide fixture did not commit hand play");
+            auto checkPositions = [&](float progress) {
+                std::size_t index = 0;
+                for (const auto& card : game.Cards()) {
+                    if (card.rect.y != layout[0].y) continue;
+                    Check(index < after.size(), "Unexpected card in sliding hand");
+                    const auto old = std::find(before.begin(), before.end(), after[index]);
+                    const auto oldIndex = static_cast<std::size_t>(old - before.begin());
+                    const float expected = layout[oldIndex].x + (layout[index].x - layout[oldIndex].x) * progress;
+                    Check(std::abs(card.rect.x - expected) < 0.02f, "Hand card jumped or slid to the wrong slot");
+                    Check(card.rect.width == layout[index].width && card.rect.height == layout[index].height,
+                          "Hand slide changed card size");
+                    Check(card.id == (player == Player::PLAYER ? after[index] : -1), "Hand slide changed face visibility");
+                    ++index;
+                }
+                Check(index == after.size(), "Sliding hand lost a card");
+            };
+            checkPositions(0.0f);
+            game.Update(0.15f);
+            checkPositions(0.5f);
+            game.Update(0.15f);
+            checkPositions(1.0f);
+            Check(game.Rules().ValidateConservation(), "Hand slide changed card conservation");
+            if (player == Player::PLAYER) playerCovered = true;
+            else cpuCovered = true;
+        }
+        Check(playerCovered, "Missing player hand slide fixture");
+    }
+    Check(cpuCovered, "Missing CPU hand slide fixture");
+}
 void TestMatches() {
     int totalTurns = 0, decisions = 0, stockChoices = 0;
     for (unsigned seed = 1; seed <= 500; ++seed) {
@@ -302,6 +355,6 @@ void TestMatches() {
 }
 } // namespace
 int main() {
-    try { TestOpeningPresentation(); TestProjection(); TestReturnAndFreeze(); TestFlips(); TestStockAvoidsDeferredCapture(); TestDropTolerance(); TestMatches(); std::cout << "Table gameplay passed.\n"; return 0; }
+    try { TestOpeningPresentation(); TestProjection(); TestReturnAndFreeze(); TestFlips(); TestStockAvoidsDeferredCapture(); TestDropTolerance(); TestHandSlides(); TestMatches(); std::cout << "Table gameplay passed.\n"; return 0; }
     catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }
 }
