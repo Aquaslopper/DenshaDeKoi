@@ -32,6 +32,7 @@ jobs:
           Copy-Item assets/the-city.jpg dist/
           Copy-Item assets/koidenscha.png dist/
           Copy-Item assets/fonts dist/fonts -Recurse
+          Copy-Item assets/sfx dist/sfx -Recurse
 
       - name: Upload game
         uses: actions/upload-artifact@v4
@@ -72,6 +73,7 @@ jobs:
           cp assets/the-city.jpg dist/
           cp assets/koidenscha.png dist/
           cp -R assets/fonts dist/fonts
+          cp -R assets/sfx dist/sfx
 
       - name: Upload game
         uses: actions/upload-artifact@v4
