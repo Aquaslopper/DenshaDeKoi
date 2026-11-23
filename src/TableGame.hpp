@@ -134,6 +134,12 @@ private:
     bool stockReady_ = false;
     bool compactField_ = false;
     int pendingSlot_ = -1;
+    // Independent of the played-card animation: close only a committed hand gap.
+    struct HandSlide {
+        std::size_t gap = 8;
+        float elapsed = 0.0f;
+    };
+    std::array<HandSlide, 2> handSlides_{};
     std::vector<Moving> moving_;
     std::vector<DeferredCapture> deferredCapture_;
 };
