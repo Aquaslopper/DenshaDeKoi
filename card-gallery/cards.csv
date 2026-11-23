@@ -1,0 +1,49 @@
+file,month,type,kind,width,height,border_top,border_bottom,border_left,border_right,class_
+cards/01-B.jpg,1,B,Bright,602,928,6,5,6,5,symmetric
+cards/01-P1.jpg,1,P1,Chaff 1,602,928,0,0,0,0,none
+cards/01-P2.jpg,1,P2,Chaff 2,602,928,0,0,0,0,none
+cards/01-RP.jpg,1,RP,Red poem ribbon,602,928,0,0,0,0,none
+cards/02-A.jpg,2,A,Animal,602,928,6,4,7,4,asymmetric
+cards/02-P1.jpg,2,P1,Chaff 1,602,928,0,0,4,4,partial
+cards/02-P2.jpg,2,P2,Chaff 2,602,928,4,6,5,6,symmetric
+cards/02-RP.jpg,2,RP,Red poem ribbon,602,928,5,6,6,6,symmetric
+cards/03-B.jpg,3,B,Bright,602,928,0,0,0,0,none
+cards/03-P1.jpg,3,P1,Chaff 1,602,928,0,0,0,0,none
+cards/03-P2.jpg,3,P2,Chaff 2,602,928,0,0,0,0,none
+cards/03-RP.jpg,3,RP,Red poem ribbon,602,928,0,0,0,0,none
+cards/04-A.jpg,4,A,Animal,602,928,0,0,0,0,none
+cards/04-P1.jpg,4,P1,Chaff 1,602,928,12,0,0,0,partial
+cards/04-P2.jpg,4,P2,Chaff 2,602,928,15,0,0,0,partial
+cards/04-R.jpg,4,R,Red ribbon,602,928,0,0,0,0,none
+cards/05-A.jpg,5,A,Animal,602,928,14,0,0,0,partial
+cards/05-P1.jpg,5,P1,Chaff 1,602,928,8,8,8,8,symmetric
+cards/05-P2.jpg,5,P2,Chaff 2,602,928,0,0,0,0,none
+cards/05-R.jpg,5,R,Red ribbon,602,928,5,7,7,8,asymmetric
+cards/06-A.jpg,6,A,Animal,602,928,7,7,9,7,symmetric
+cards/06-P1.jpg,6,P1,Chaff 1,602,928,7,7,8,7,symmetric
+cards/06-P2.jpg,6,P2,Chaff 2,602,928,7,7,7,7,symmetric
+cards/06-RB.jpg,6,RB,Blue ribbon,602,928,3,4,6,5,asymmetric
+cards/07-A.jpg,7,A,Animal,602,928,0,0,0,0,none
+cards/07-P1.jpg,7,P1,Chaff 1,602,928,0,0,0,0,none
+cards/07-P2.jpg,7,P2,Chaff 2,602,928,0,0,0,0,none
+cards/07-R.jpg,7,R,Red ribbon,602,928,0,0,0,0,none
+cards/08-A.jpg,8,A,Animal,602,928,0,0,0,0,none
+cards/08-B.jpg,8,B,Bright,602,928,0,0,0,0,none
+cards/08-P1.jpg,8,P1,Chaff 1,602,928,0,1,0,0,partial
+cards/08-P2.jpg,8,P2,Chaff 2,602,928,0,0,0,0,none
+cards/09-A.jpg,9,A,Animal,602,928,0,0,0,0,none
+cards/09-P1.jpg,9,P1,Chaff 1,602,928,0,0,0,0,none
+cards/09-P2.jpg,9,P2,Chaff 2,602,928,0,0,0,0,none
+cards/09-RB.jpg,9,RB,Blue ribbon,602,928,0,0,0,0,none
+cards/10-A.jpg,10,A,Animal,602,928,10,9,10,8,symmetric
+cards/10-P1.jpg,10,P1,Chaff 1,602,928,1,0,0,0,partial
+cards/10-P2.jpg,10,P2,Chaff 2,602,928,4,3,7,2,partial
+cards/10-RB.jpg,10,RB,Blue ribbon,602,928,8,9,8,7,symmetric
+cards/11-A.jpg,11,A,Animal,602,928,0,0,2,0,partial
+cards/11-B.jpg,11,B,Bright,602,928,0,0,0,0,none
+cards/11-P1.jpg,11,P1,Chaff 1,602,928,1,0,1,0,partial
+cards/11-R.jpg,11,R,Red ribbon,602,928,0,0,0,0,none
+cards/12-B.jpg,12,B,Bright,602,928,8,7,8,8,symmetric
+cards/12-P1.jpg,12,P1,Chaff 1,602,928,33,6,5,5,asymmetric
+cards/12-P2.jpg,12,P2,Chaff 2,602,928,13,2,8,6,partial
+cards/12-P3.jpg,12,P3,Chaff 3,602,928,0,0,0,0,none
