@@ -11,7 +11,6 @@ namespace {
 using TableLayout::Point2;
 using TableLayout::Rect;
 
-constexpr float CardFlightSeconds = 0.60f;
 constexpr float TableDropSeconds = 0.15f;
 constexpr float CaptureFlightSeconds = 0.50f;
 constexpr float CaptureHitFreezeSeconds = 0.50f;
@@ -238,7 +237,7 @@ void TableGame::StartStockMove(std::optional<CardId> target) {
     playerSnap_ = false;
     moving_ = {{id, JitteredRect(TableLayout::Stock, j), dest, fromElev, toElev, j.yaw, 0.0f}};
     stockReady_ = false;
-    BeginAnimation(Animation::STOCK_MOVE, CardFlightSeconds);
+    BeginAnimation(Animation::STOCK_MOVE, TableDropSeconds);
 }
 void TableGame::ResolveMove() {
     const Phase resolvedPhase = game_.GetPhase();
@@ -300,7 +299,7 @@ void TableGame::FinishAnimation() {
     switch (animation_) {
         case Animation::RETURN: case Animation::CAPTURE:
             animation_ = Animation::NONE; moving_.clear(); break;
-        case Animation::CPU_FLIP: BeginAnimation(Animation::HAND_MOVE, CardFlightSeconds); break;
+        case Animation::CPU_FLIP: BeginAnimation(Animation::HAND_MOVE, TableDropSeconds); break;
         case Animation::HAND_MOVE: case Animation::STOCK_MOVE:
             if (matched_) BeginAnimation(Animation::HIT_FREEZE, CaptureHitFreezeSeconds);
             else ResolveMove();
