@@ -36,7 +36,7 @@ When Python 3 is available, CTest also checks the black frame pixels on every ca
 
 ## Table and controls
 
-`denshadekoi` starts a **three-round match** against a basic CPU. A card draw chooses the first dealer; the prior round winner deals next, and a draw retains the dealer. The game automatically deals, handles lucky hands and misdeals, scores rounds, and shows match totals. Click **Next Round** between rounds, or **Match Over** to start a new match.
+`denshadekoi` starts a **three-round match** against a basic CPU. Before the first round, choose one of two face-down cards; both reveal in sequence and the earlier month determines the first dealer. The prior round winner deals next, and a draw retains the dealer. Each round visibly deals the hands and field from the stock under a centered match/round-start cue. The game handles lucky hands and misdeals, scores rounds, and shows match totals. Click **Next Round** between rounds, or **Match Over** to start a new match.
 
 Drag a hand card onto a same-month field card; when two cards match, drop onto the desired one. If there is no match, drop it in the field. A far or invalid drop glides back to the hand; right-click cancels a drag. Matching accepts overlap or an edge gap of up to 10 pixels in the 840×720 table-plan coordinate system, with Xeno-koi's protection against mostly overlapping a non-matching card. After a hand play, the stock card flips and resolves; click the desired field card if the stock has two possible matches. When a yaku appears or grows, use the **Koi-Koi** or **Shobu** button. The player performs the card flight manually by dragging; CPU and stock cards use a slow 600 ms automatic flight. After that, every party uses the same snappy 150 ms table drop. Matches use a deliberately longer 500 ms capture hit freeze. A hand-card capture remains at its field contact point until the stock card has flipped and resolved; then every capture from both parts of the turn moves to the current player's capture pile in 500 ms.
 
@@ -74,4 +74,4 @@ The sake cup counts as both an animal and one phantom plain. Ino-shika-cho stack
 
 Xeno-koi's speed minigame and match-end speed bonus are intentionally excluded from DenshaDeKoi.
 
-The existing `std::mt19937` shuffle remains instead of Xeno-koi's xorshift32, so seeds and replay sequences are not interchangeable. The table controller draws the initial dealer automatically and tracks three-round match totals. It does not include Xeno-koi's dealer-selection screen, advanced AI, persistence, or match history.
+The existing `std::mt19937` shuffle remains instead of Xeno-koi's xorshift32, so seeds and replay sequences are not interchangeable. The table controller presents Xeno-koi-style dealer selection and opening deal motion while tracking three-round match totals. It does not include Xeno-koi's advanced AI, persistence, or match history.

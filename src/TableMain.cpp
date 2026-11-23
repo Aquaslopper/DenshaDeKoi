@@ -104,7 +104,11 @@ int main() {
             } else {
                 if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) game.CancelDrag();
                 if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-                    if (In(canvas, TableHud::PauseButton)) {
+                    if (game.AwaitingDealerChoice() && In(canvas, TableHud::DealerCardLeft)) {
+                        game.SelectDealerCard(0);
+                    } else if (game.AwaitingDealerChoice() && In(canvas, TableHud::DealerCardRight)) {
+                        game.SelectDealerCard(1);
+                    } else if (In(canvas, TableHud::PauseButton)) {
                         paused = true;
                         game.CancelDrag();
                     } else if (game.Rules().GetPhase() == Phase::ROUND_END && In(canvas, TableHud::RoundEndButton)) {

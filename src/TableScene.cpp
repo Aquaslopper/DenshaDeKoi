@@ -253,6 +253,50 @@ void DrawBox(const ScreenMap& map, TableLayout::Rect rect, Color fill, Color bor
     DrawRectangleLinesEx(map.Rec(rect), std::max(1.0f, borderPx * map.scale), border);
 }
 
+void DrawDealerCard(const ScreenMap& map, Texture2D atlas, Texture2D back,
+                    int cardId, TableLayout::Rect rect, float progress) {
+    progress = std::clamp(progress, 0.0f, 1.0f);
+    const float width = rect.width * std::max(0.05f, std::abs(std::cos(progress * 3.14159265f)));
+    const TableLayout::Rect dest{rect.x + (rect.width - width) * 0.5f, rect.y, width, rect.height};
+    if (progress < 0.5f) {
+        DrawTexturePro(back, {0, 0, static_cast<float>(back.width), static_cast<float>(back.height)},
+                       map.Rec(dest), {0, 0}, 0, WHITE);
+    } else {
+        const float cellW = static_cast<float>(atlas.width) / 12.0f;
+        const float cellH = static_cast<float>(atlas.height) / 4.0f;
+        const Rectangle source{static_cast<float>(cardId / 4) * cellW,
+                               static_cast<float>(cardId % 4) * cellH, cellW, cellH};
+        DrawTexturePro(atlas, source, map.Rec(dest), {0, 0}, 0, WHITE);
+    }
+}
+
+void DrawDealerSelection(const ScreenMap& map, const TableGame& game,
+                         Texture2D atlas, Texture2D back) {
+    DrawRectangle(map.X(0), map.Y(0), map.W(TableLayout::ImageWidth), map.H(TableLayout::ImageHeight),
+                  Color{0, 0, 0, 238});
+    DrawText("PICK A CARD TO DETERMINE DEALER", map.X(405), map.Y(100), map.Font(28), WHITE);
+    const auto cards = game.DealerCards();
+    const int choice = game.DealerChoice();
+    if (choice < 0) {
+        DrawDealerCard(map, atlas, back, cards[0], TableHud::DealerCardLeft, 0.0f);
+        DrawDealerCard(map, atlas, back, cards[1], TableHud::DealerCardRight, 0.0f);
+        DrawText("CLICK TO PICK", map.X(438), map.Y(515), map.Font(18), LIGHTGRAY);
+        DrawText("CLICK TO PICK", map.X(782), map.Y(515), map.Font(18), LIGHTGRAY);
+        return;
+    }
+    const float timer = game.OpeningTimer();
+    const float leftProgress = choice == 0 ? timer / 0.45f : (timer - 0.45f) / 0.45f;
+    const float rightProgress = choice == 1 ? timer / 0.45f : (timer - 0.45f) / 0.45f;
+    DrawDealerCard(map, atlas, back, cards[0], TableHud::DealerCardLeft, leftProgress);
+    DrawDealerCard(map, atlas, back, cards[1], TableHud::DealerCardRight, rightProgress);
+    if (timer >= 0.9f) {
+        DrawText(choice == 0 ? "YOUR CARD" : "CPU CARD", map.X(458), map.Y(515), map.Font(18), WHITE);
+        DrawText(choice == 1 ? "YOUR CARD" : "CPU CARD", map.X(802), map.Y(515), map.Font(18), WHITE);
+        const char* result = game.OpeningDealer() == Player::PLAYER ? "YOU ARE DEALER" : "CPU IS DEALER";
+        DrawText(result, map.X(570), map.Y(575), map.Font(30), WHITE);
+    }
+}
+
 // The HUD belongs to the screen, not the world canvas: it is drawn after the
 // world blit, in the same 1360x768 design space as the click rectangles.
 void DrawHud(const TableGame& game, const TableHudState& hud, Rectangle destination, float scale,
@@ -271,14 +315,19 @@ void DrawHud(const TableGame& game, const TableHudState& hud, Rectangle destinat
                       map.W(TableHud::KoiKoiButton.width), map.H(TableHud::KoiKoiButton.height), Color{31, 75, 58, 245});
         DrawRectangle(map.X(TableHud::ShobuButton.x), map.Y(TableHud::ShobuButton.y),
                       map.W(TableHud::ShobuButton.width), map.H(TableHud::ShobuButton.height), Color{100, 50, 38, 245});
-        DrawText("KOI-KOI", map.X(1030), map.Y(30), map.Font(20), WHITE);
-        DrawText("SHOBU", map.X(1190), map.Y(30), map.Font(20), WHITE);
+        DrawText("KOI-KOI", map.X(543), map.Y(349), map.Font(20), WHITE);
+        DrawText("SHOBU", map.X(739), map.Y(349), map.Font(20), WHITE);
     }
     if (game.Rules().GetPhase() == Phase::ROUND_END) {
         DrawRectangle(map.X(TableHud::RoundEndButton.x), map.Y(TableHud::RoundEndButton.y),
                       map.W(TableHud::RoundEndButton.width), map.H(TableHud::RoundEndButton.height), Color{15, 20, 27, 235});
-        DrawText(game.MatchFinished() ? "MATCH OVER" : "NEXT ROUND", map.X(1020), map.Y(27), map.Font(20), WHITE);
-        DrawText(game.MatchFinished() ? "Click to restart" : "Click to continue", map.X(1020), map.Y(55), map.Font(16), LIGHTGRAY);
+        DrawText(game.MatchFinished() ? "MATCH OVER" : "NEXT ROUND", map.X(615), map.Y(340), map.Font(20), WHITE);
+        DrawText(game.MatchFinished() ? "Click to restart" : "Click to continue", map.X(604), map.Y(370), map.Font(16), LIGHTGRAY);
+    }
+    if (game.RoundIntroActive()) {
+        const char* intro = game.Round() == 1 ? "MATCH START" : "ROUND START";
+        DrawRectangle(map.X(500), map.Y(320), map.W(360), map.H(86), Color{8, 12, 18, 220});
+        DrawText(intro, map.X(game.Round() == 1 ? 585 : 570), map.Y(344), map.Font(30), WHITE);
     }
 
     // Right-side Pause / Radio Menu button
@@ -395,5 +444,8 @@ void TableScene::Draw(const TableGame& game, const TableHudState& hud) const {
                                     -static_cast<float>(canvas_.texture.height)},
                    destination, {0, 0}, 0, WHITE);
     DrawHud(game, hud, destination, scale, logo_, headingFont_, bodyFont_);
+    if (game.DealerSelectionActive()) {
+        DrawDealerSelection(ScreenMap{destination, scale}, game, atlas_, cardBack_);
+    }
     EndDrawing();
 }
