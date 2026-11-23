@@ -53,15 +53,15 @@ void TestReturnAndFreeze() {
         game.Update(0.4f);
         Check(!game.Busy() && game.Rules().Hand(Player::PLAYER).size() == 8, "Return animation changed state");
         PlayFirst(game);
-        game.Update(0.14f);
+        game.Update(0.59f);
         Check(game.Busy() && game.Rules().Hand(Player::PLAYER).size() == 8,
-              "Card flight must last 150 ms");
-        game.Update(0.02f); // flight ends; 500 ms capture hit freeze begins
+              "Xeno-koi card flight must last 600 ms");
+        game.Update(0.02f); // flight ends; 150 ms capture hit freeze begins
         Check(game.Busy() && game.Rules().Hand(Player::PLAYER).size() == 8, "Capture committed before hit freeze");
         Check(game.Cards().back().elevation > TableLayout::CardElevation + TableLayout::CardThickness * 0.9f,
               "Landed card must rest on top of its match during hit freeze");
-        game.Update(0.499f);
-        Check(game.Rules().Hand(Player::PLAYER).size() == 8, "Hit freeze shorter than 500 ms");
+        game.Update(0.149f);
+        Check(game.Rules().Hand(Player::PLAYER).size() == 8, "Hit freeze shorter than 150 ms");
         game.Update(0.002f);
         Check(game.Rules().Hand(Player::PLAYER).size() == 7 && game.Rules().ValidateConservation(),
               "Hand capture did not resolve after hit freeze");
