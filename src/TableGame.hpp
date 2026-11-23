@@ -50,12 +50,18 @@ public:
     [[nodiscard]] std::optional<CardId> FindDropTarget(CardId card, TableLayout::Rect drop) const;
 
 private:
-    enum class Animation { NONE, RETURN, CPU_FLIP, HAND_MOVE, STOCK_FLIP, STOCK_MOVE, HIT_FREEZE, CAPTURE };
+    enum class Animation { NONE, RETURN, CPU_FLIP, CARD_FLIGHT, HAND_MOVE, STOCK_FLIP, STOCK_MOVE, HIT_FREEZE, CAPTURE };
     struct Moving {
         int id;
         TableLayout::Rect from, to;
         float fromElev = TableLayout::CardElevation, toElev = TableLayout::CardElevation;
         float fromYaw = 0.0f, toYaw = 0.0f;
+    };
+    struct DeferredCapture {
+        int id;
+        TableLayout::Rect rect;
+        float elevation = TableLayout::CardElevation;
+        float yaw = 0.0f;
     };
     void Start();
     void SyncField();
@@ -63,6 +69,7 @@ private:
     void StartHand(CardId id, TableLayout::Rect from, std::optional<CardId> target);
     void StartStockMove(std::optional<CardId> target);
     void ResolveMove();
+    void StartDeferredCapture(Player player);
     void FinishAnimation();
     void BeginAnimation(Animation type, float duration);
     void RecordResult();
@@ -86,10 +93,13 @@ private:
     float dragPitch_ = 0, dragRoll_ = 0;
     Animation animation_ = Animation::NONE;
     float elapsed_ = 0, duration_ = 0;
+    float landingElevation_ = TableLayout::CardElevation;
+    bool stockPlacement_ = false;
     bool matched_ = false;
     bool playerSnap_ = false;
     bool stockReady_ = false;
     bool compactField_ = false;
     int pendingSlot_ = -1;
     std::vector<Moving> moving_;
+    std::vector<DeferredCapture> deferredCapture_;
 };

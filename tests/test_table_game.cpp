@@ -50,18 +50,44 @@ void TestReturnAndFreeze() {
               "Dragged card must level out when stationary");
         game.PointerUp({0, 0});
         Check(game.Busy() && game.Rules().Hand(Player::PLAYER).size() == 8, "Invalid drop must return without playing");
-        game.Update(0.4f);
+        game.Update(0.59f);
+        Check(game.Busy(), "Return flight shorter than 600 ms");
+        game.Update(0.02f);
         Check(!game.Busy() && game.Rules().Hand(Player::PLAYER).size() == 8, "Return animation changed state");
         PlayFirst(game);
-        game.Update(0.07f); // snap ends, 50 ms hit freeze begins
+        game.Update(0.14f);
+        Check(game.Busy() && game.Rules().Hand(Player::PLAYER).size() == 8,
+              "Player table drop must last 150 ms");
+        game.Update(0.02f); // table drop ends; 500 ms capture hit freeze begins
         Check(game.Busy() && game.Rules().Hand(Player::PLAYER).size() == 8, "Capture committed before hit freeze");
         Check(game.Cards().back().elevation > TableLayout::CardElevation + TableLayout::CardThickness * 0.9f,
-              "Snapped card must rest on top of matched field card during hit freeze");
-        game.Update(0.049f);
-        Check(game.Rules().Hand(Player::PLAYER).size() == 8, "Hit freeze shorter than 50 ms");
+              "Landed card must rest on top of its match during hit freeze");
+        game.Update(0.499f);
+        Check(game.Rules().Hand(Player::PLAYER).size() == 8, "Hit freeze shorter than 500 ms");
         game.Update(0.002f);
-        Check(game.Rules().Hand(Player::PLAYER).size() == 7 && game.Rules().ValidateConservation(), "Capture did not commit after freeze");
-        game.Update(0.5f);
+        Check(game.Rules().Hand(Player::PLAYER).size() == 7 && game.Rules().ValidateConservation(),
+              "Hand capture did not resolve after hit freeze");
+
+        int prematureCaptureLayers = 0;
+        for (const auto& card : game.Cards()) {
+            if (std::abs(card.rect.x - TableLayout::PlayerCapture.x) < 10.0f &&
+                std::abs(card.rect.y - TableLayout::PlayerCapture.y) < 10.0f) ++prematureCaptureLayers;
+        }
+        Check(prematureCaptureLayers == 0,
+              "Hand capture moved to player pile before the stock card resolved");
+
+        for (int step = 0; step < 100; ++step) {
+            if (!game.Busy() && game.Rules().GetPhase() == Phase::AWAIT_DRAW_CHOICE) {
+                game.PointerDown(Center(game.FieldRect(game.Rules().Choices().front())));
+            }
+            game.Update(0.1f);
+            const Phase phase = game.Rules().GetPhase();
+            if (!game.Busy() && phase != Phase::REVEAL_DRAW && phase != Phase::AWAIT_DRAW_CHOICE &&
+                phase != Phase::RESOLVE_DRAW) break;
+        }
+        Check(!game.Busy() && game.Rules().GetPhase() != Phase::REVEAL_DRAW &&
+              game.Rules().GetPhase() != Phase::RESOLVE_DRAW,
+              "Deferred capture did not finish after stock-card resolution");
         int captureLayers = 0;
         bool captureCrooked = false;
         for (const auto& c : game.Cards()) {
@@ -131,6 +157,69 @@ void TestFlips() {
     }
     Check(cpuChecked && stockChecked, "Could not exercise both flip types");
 }
+void TestStockAvoidsDeferredCapture() {
+    for (unsigned seed = 1; seed < 2000; ++seed) {
+        TableGame game(seed);
+        if (game.Rules().GetPhase() != Phase::AWAIT_HAND_PLAY ||
+            game.Rules().CurrentPlayer() != Player::PLAYER) continue;
+
+        const auto hand = game.Rules().Hand(Player::PLAYER);
+        const auto field = game.Rules().Field();
+        std::size_t handIndex = 0;
+        std::optional<int> target;
+        for (; handIndex < hand.size() && !target; ++handIndex) {
+            for (int fieldCard : field) {
+                if (DeckRegister::At(fieldCard).month == DeckRegister::At(hand[handIndex]).month) {
+                    target = fieldCard;
+                    break;
+                }
+            }
+        }
+        if (!target) continue;
+        --handIndex;
+
+        game.PointerDown(Center(TableLayout::PlayerHand[handIndex]));
+        const Point2 destination = Center(game.FieldRect(*target));
+        game.PointerMove(destination);
+        game.PointerUp(destination);
+        game.Update(0.16f);
+        game.Update(0.501f);
+        if (game.Rules().GetPhase() != Phase::REVEAL_DRAW) continue;
+
+        game.Update(0.0f); // reveal pending stock card and start its flip
+        const int stockCard = *game.Rules().PendingCard();
+        const bool stockMatches = std::any_of(game.Rules().Field().begin(), game.Rules().Field().end(),
+            [stockCard](int fieldCard) {
+                return DeckRegister::At(fieldCard).month == DeckRegister::At(stockCard).month;
+            });
+        if (stockMatches) continue;
+
+        game.Update(0.51f); // finish flip
+        game.Update(0.0f);  // start stock card flight
+        game.Update(0.61f); // finish slow flight
+        game.Update(0.16f); // finish snappy table drop into a free slot
+        const Rect stockRect = game.FieldRect(stockCard);
+        const auto captured = game.Rules().Captured(Player::PLAYER);
+        const auto cards = game.Cards();
+        for (int capturedId : captured) {
+            const auto shown = std::find_if(cards.begin(), cards.end(), [capturedId](const TableCard& card) {
+                return card.id == capturedId;
+            });
+            if (shown == cards.end()) continue;
+            const float overlapW = std::max(0.0f, std::min(stockRect.x + stockRect.width,
+                                                          shown->rect.x + shown->rect.width) -
+                                                std::max(stockRect.x, shown->rect.x));
+            const float overlapH = std::max(0.0f, std::min(stockRect.y + stockRect.height,
+                                                          shown->rect.y + shown->rect.height) -
+                                                std::max(stockRect.y, shown->rect.y));
+            Check(overlapW * overlapH < stockRect.width * stockRect.height * 0.1f,
+                  "Unmatched stock card landed on deferred hand capture");
+        }
+        return;
+    }
+    throw std::runtime_error("No unmatched stock fixture after hand capture");
+}
+
 void TestDropTolerance() {
     for (unsigned seed = 1; seed < 1000; ++seed) {
         TableGame game(seed);
@@ -189,6 +278,6 @@ void TestMatches() {
 }
 } // namespace
 int main() {
-    try { TestProjection(); TestReturnAndFreeze(); TestFlips(); TestDropTolerance(); TestMatches(); std::cout << "Table gameplay passed.\n"; return 0; }
+    try { TestProjection(); TestReturnAndFreeze(); TestFlips(); TestStockAvoidsDeferredCapture(); TestDropTolerance(); TestMatches(); std::cout << "Table gameplay passed.\n"; return 0; }
     catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }
 }

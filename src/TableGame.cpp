@@ -11,6 +11,11 @@ namespace {
 using TableLayout::Point2;
 using TableLayout::Rect;
 
+constexpr float CardFlightSeconds = 0.60f;
+constexpr float TableDropSeconds = 0.15f;
+constexpr float CaptureFlightSeconds = 0.50f;
+constexpr float CaptureHitFreezeSeconds = 0.50f;
+
 bool Contains(Rect r, Point2 p) {
     return p.x >= r.x && p.x <= r.x + r.width && p.y >= r.y && p.y <= r.y + r.height;
 }
@@ -27,12 +32,6 @@ Point2 Center(Rect r) { return {r.x + r.width * 0.5f, r.y + r.height * 0.5f}; }
 float DistanceSq(Point2 a, Point2 b) { return (a.x-b.x)*(a.x-b.x) + (a.y-b.y)*(a.y-b.y); }
 Rect Interpolate(Rect a, Rect b, float t) {
     t = std::clamp(t, 0.0f, 1.0f); t = t * t * (3.0f - 2.0f * t);
-    return {a.x+(b.x-a.x)*t, a.y+(b.y-a.y)*t, a.width+(b.width-a.width)*t, a.height+(b.height-a.height)*t};
-}
-Rect InterpolateSnap(Rect a, Rect b, float t) {
-    t = std::clamp(t, 0.0f, 1.0f);
-    const float inv = 1.0f - t;
-    t = 1.0f - inv * inv * inv;
     return {a.x+(b.x-a.x)*t, a.y+(b.y-a.y)*t, a.width+(b.width-a.width)*t, a.height+(b.height-a.height)*t};
 }
 struct StackOffset { float dx, dy, yaw; };
@@ -67,6 +66,9 @@ TableGame::TableGame(std::uint32_t seed) : game_(DrawDealer(seed), seed) { Start
 
 void TableGame::Start() {
     slots_.fill(-1);
+    moving_.clear();
+    deferredCapture_.clear();
+    animation_ = Animation::NONE;
     compactField_ = false;
     game_.Advance();
     const auto& field = game_.Field();
@@ -101,8 +103,22 @@ Rect TableGame::FieldRect(CardId id) const {
 int TableGame::FindFreeSlot(Point2 near) const {
     std::array<bool, TableLayout::FieldSlotCount> used{};
     for (int slot : slots_) if (slot >= 0) used[static_cast<std::size_t>(slot)] = true;
-    float best = std::numeric_limits<float>::infinity(); int found = -1;
     const bool compact = compactField_ || game_.Field().size() >= 16;
+
+    // Deferred captures are already removed from the rules field, but remain
+    // visibly on the table until the stock card resolves. Their positions are
+    // therefore occupied and must not be offered to an unmatched stock card.
+    for (std::size_t i = 0; i < used.size(); ++i) {
+        const Rect candidate = TableLayout::FieldSlot(i, compact);
+        for (const auto& deferred : deferredCapture_) {
+            if (Contains(candidate, Center(deferred.rect))) {
+                used[i] = true;
+                break;
+            }
+        }
+    }
+
+    float best = std::numeric_limits<float>::infinity(); int found = -1;
     for (std::size_t i = 0; i < used.size(); ++i) if (!used[i]) {
         // Prefer the reference layout until its slots are full.
         if (!compact && i >= 16) continue;
@@ -178,7 +194,7 @@ void TableGame::CancelDrag() {
         playerSnap_ = false;
         moving_ = {{*dragged_, dragRect_, HandRect(Player::PLAYER, static_cast<std::size_t>(it - hand.begin())),
                     TableLayout::CardElevation + 0.042f, TableLayout::CardElevation}};
-        BeginAnimation(Animation::RETURN, 0.28f);
+        BeginAnimation(Animation::RETURN, CardFlightSeconds);
     }
     dragged_.reset();
     dragDeltaX_ = dragDeltaY_ = dragVelX_ = dragVelY_ = dragPitch_ = dragRoll_ = 0.0f;
@@ -208,15 +224,19 @@ void TableGame::StartHand(CardId id, Rect from, std::optional<CardId> target) {
     matched_ = target.has_value();
     pendingSlot_ = matched_ ? -1 : FindFreeSlot(Center(from));
     const Rect dest = target ? FieldRect(*target) : TableLayout::FieldSlot(static_cast<std::size_t>(pendingSlot_), compactField_ || game_.Field().size() >= 16);
-    const float toElev = TableLayout::CardElevation + (matched_ ? TableLayout::CardThickness + 0.001f : 0.0f);
+    landingElevation_ = TableLayout::CardElevation +
+        (matched_ ? TableLayout::CardThickness + 0.001f : 0.0f);
+    stockPlacement_ = false;
     if (game_.CurrentPlayer() == Player::OPPONENT) {
         playerSnap_ = false;
-        moving_ = {{id, from, dest, TableLayout::CardElevation, toElev}};
+        moving_ = {{id, from, dest, TableLayout::CardElevation, landingElevation_ + 0.018f}};
         BeginAnimation(Animation::CPU_FLIP, 0.30f);
     } else {
-        playerSnap_ = true;
-        moving_ = {{id, from, dest, TableLayout::CardElevation + 0.042f, toElev}};
-        BeginAnimation(Animation::HAND_MOVE, matched_ ? 0.065f : 0.11f);
+        // The player already performed the flight by dragging the card. Only
+        // the shared, snappy table-drop phase remains after release.
+        playerSnap_ = false;
+        moving_ = {{id, from, dest, TableLayout::CardElevation + 0.042f, landingElevation_}};
+        BeginAnimation(Animation::HAND_MOVE, TableDropSeconds);
     }
 }
 void TableGame::StartStockMove(std::optional<CardId> target) {
@@ -225,47 +245,91 @@ void TableGame::StartStockMove(std::optional<CardId> target) {
     pendingSlot_ = matched_ ? -1 : FindFreeSlot({431.0f, 355.0f});
     const Rect dest = target ? FieldRect(*target) : TableLayout::FieldSlot(static_cast<std::size_t>(pendingSlot_), compactField_ || game_.Field().size() >= 16);
     const float fromElev = TableLayout::CardElevation + StockHeight();
-    const float toElev = TableLayout::CardElevation + (matched_ ? TableLayout::CardThickness + 0.001f : 0.0f);
+    landingElevation_ = TableLayout::CardElevation +
+        (matched_ ? TableLayout::CardThickness + 0.001f : 0.0f);
+    stockPlacement_ = true;
     const auto j = StackJitter(100 + static_cast<int>(game_.StockRemaining()), 0.9f, 0.9f);
     playerSnap_ = false;
-    moving_ = {{id, JitteredRect(TableLayout::Stock, j), dest, fromElev, toElev, j.yaw, 0.0f}};
+    moving_ = {{id, JitteredRect(TableLayout::Stock, j), dest, fromElev,
+                landingElevation_ + 0.018f, j.yaw, 0.0f}};
     stockReady_ = false;
-    BeginAnimation(Animation::STOCK_MOVE, 0.36f);
+    BeginAnimation(Animation::CARD_FLIGHT, CardFlightSeconds);
 }
 void TableGame::ResolveMove() {
+    const Phase resolvedPhase = game_.GetPhase();
     const int incoming = moving_.front().id;
     const Rect arrived = moving_.front().to;
     const Player player = game_.CurrentPlayer();
     const std::size_t previousCount = game_.Captured(player).size();
     std::array<Rect, 48> previousField{};
     for (int id : game_.Field()) previousField[static_cast<std::size_t>(id)] = FieldRect(id);
+
     game_.Advance();
     if (pendingSlot_ >= 0) {
         slots_[static_cast<std::size_t>(incoming)] = pendingSlot_;
         if (pendingSlot_ >= 16) compactField_ = true;
     }
     moving_.clear();
+
+    // Captures from the hand card remain visibly at their field contact point.
+    // They are collected together with any stock-card capture only after the
+    // stock card has flipped, flown, landed, and completed its own hit freeze.
+    const auto& captured = game_.Captured(player);
+    for (std::size_t i = previousCount; i < captured.size(); ++i) {
+        const int id = captured[i];
+        const bool isIncoming = id == incoming;
+        deferredCapture_.push_back({id,
+            isIncoming ? arrived : previousField[static_cast<std::size_t>(id)],
+            TableLayout::CardElevation + (isIncoming ? TableLayout::CardThickness + 0.001f : 0.0f),
+            0.0f});
+    }
+
+    SyncField();
+    animation_ = Animation::NONE;
+    if (resolvedPhase == Phase::RESOLVE_DRAW && !deferredCapture_.empty()) {
+        StartDeferredCapture(player);
+    }
+}
+
+void TableGame::StartDeferredCapture(Player player) {
     const auto& captured = game_.Captured(player);
     constexpr float capStep = TableLayout::StackStep * 0.85f;
-    for (std::size_t i = previousCount; i < captured.size(); ++i) {
-        int id = captured[i];
-        const float fromElev = TableLayout::CardElevation + (id == incoming ? TableLayout::CardThickness + 0.001f : 0.0f);
-        const float toElev = TableLayout::CardElevation + static_cast<float>(std::min<std::size_t>(i, 23)) * capStep;
-        const auto j = StackJitter(id, 1.25f, 1.45f);
-        moving_.push_back({id, id == incoming ? arrived : previousField[static_cast<std::size_t>(id)],
-                           JitteredRect(CaptureRect(player), j), fromElev, toElev, 0.0f, j.yaw});
+    moving_.clear();
+    moving_.reserve(deferredCapture_.size());
+
+    for (const auto& deferred : deferredCapture_) {
+        const auto it = std::find(captured.begin(), captured.end(), deferred.id);
+        if (it == captured.end()) throw std::logic_error("Deferred capture missing from captured pile");
+        const std::size_t index = static_cast<std::size_t>(it - captured.begin());
+        const float toElev = TableLayout::CardElevation +
+            static_cast<float>(std::min<std::size_t>(index, 23)) * capStep;
+        const auto jitter = StackJitter(deferred.id, 1.25f, 1.45f);
+        moving_.push_back({deferred.id, deferred.rect,
+                           JitteredRect(CaptureRect(player), jitter),
+                           deferred.elevation, toElev, deferred.yaw, jitter.yaw});
     }
-    SyncField();
-    if (!moving_.empty()) BeginAnimation(Animation::CAPTURE, 0.38f);
-    else animation_ = Animation::NONE;
+    deferredCapture_.clear();
+    BeginAnimation(Animation::CAPTURE, CaptureFlightSeconds);
 }
 void TableGame::FinishAnimation() {
     switch (animation_) {
         case Animation::RETURN: case Animation::CAPTURE:
             animation_ = Animation::NONE; moving_.clear(); break;
-        case Animation::CPU_FLIP: BeginAnimation(Animation::HAND_MOVE, 0.34f); break;
+        case Animation::CPU_FLIP:
+            BeginAnimation(Animation::CARD_FLIGHT, CardFlightSeconds);
+            break;
+        case Animation::CARD_FLIGHT:
+            for (auto& card : moving_) {
+                card.from = card.to;
+                card.fromElev = card.toElev;
+                card.fromYaw = card.toYaw;
+                card.toElev = landingElevation_;
+            }
+            BeginAnimation(stockPlacement_ ? Animation::STOCK_MOVE : Animation::HAND_MOVE,
+                           TableDropSeconds);
+            break;
         case Animation::HAND_MOVE: case Animation::STOCK_MOVE:
-            if (matched_) BeginAnimation(Animation::HIT_FREEZE, 0.05f);
+            if (matched_) BeginAnimation(Animation::HIT_FREEZE, CaptureHitFreezeSeconds);
             else ResolveMove();
             break;
         case Animation::HIT_FREEZE: ResolveMove(); break;
@@ -363,6 +427,10 @@ void TableGame::NextRound() {
 std::vector<TableCard> TableGame::Cards() const {
     std::vector<TableCard> cards;
     const auto isMoving = [this](int id) { return std::any_of(moving_.begin(), moving_.end(), [id](const Moving& m){ return m.id == id; }); };
+    const auto isDeferred = [this](int id) {
+        return std::any_of(deferredCapture_.begin(), deferredCapture_.end(),
+                           [id](const DeferredCapture& capture) { return capture.id == id; });
+    };
     for (Player p : {Player::OPPONENT, Player::PLAYER}) {
         const auto& hand = game_.Hand(p);
         for (std::size_t i = 0; i < hand.size(); ++i) {
@@ -400,7 +468,7 @@ std::vector<TableCard> TableGame::Cards() const {
         const auto& pile = game_.Captured(p);
         std::vector<int> settled;
         settled.reserve(pile.size());
-        for (int cid : pile) if (!isMoving(cid)) settled.push_back(cid);
+        for (int cid : pile) if (!isMoving(cid) && !isDeferred(cid)) settled.push_back(cid);
         if (settled.empty()) continue;
 
         constexpr float capStep = TableLayout::StackStep * 0.85f;
@@ -444,6 +512,12 @@ std::vector<TableCard> TableGame::Cards() const {
         pending.yaw = j.yaw;
         cards.push_back(pending);
     }
+    for (const auto& deferred : deferredCapture_) {
+        TableCard held{deferred.id, deferred.rect};
+        held.elevation = deferred.elevation;
+        held.yaw = deferred.yaw;
+        cards.push_back(held);
+    }
     constexpr float Pi = 3.14159265f;
     for (const auto& m : moving_) {
         const float t = duration_ > 0 ? std::min(1.0f, elapsed_ / duration_) : 1.0f;
@@ -469,11 +543,12 @@ std::vector<TableCard> TableGame::Cards() const {
             elev = m.fromElev + 0.022f * std::sin(Pi * t);
             yaw = m.fromYaw + (m.toYaw - m.fromYaw) * eased;
         } else {
-            const bool snap = (animation_ == Animation::HAND_MOVE && playerSnap_);
-            r = snap ? InterpolateSnap(m.from, m.to, t) : Interpolate(m.from, m.to, t);
-            const float easeT = snap ? (1.0f - (1.0f - t) * (1.0f - t) * (1.0f - t))
-                                     : (t * t * (3.0f - 2.0f * t));
-            const float arc = snap ? 0.0f : (animation_ == Animation::RETURN ? 0.018f : 0.052f) * std::sin(Pi * t);
+            const bool tableDrop = animation_ == Animation::HAND_MOVE ||
+                                   animation_ == Animation::STOCK_MOVE;
+            r = Interpolate(m.from, m.to, t);
+            const float easeT = t * t * (3.0f - 2.0f * t);
+            const float arc = tableDrop ? 0.0f
+                : (animation_ == Animation::RETURN ? 0.018f : 0.052f) * std::sin(Pi * t);
             elev = m.fromElev + (m.toElev - m.fromElev) * easeT + arc;
             yaw = m.fromYaw + (m.toYaw - m.fromYaw) * easeT;
             const float dx = m.to.x - m.from.x;
