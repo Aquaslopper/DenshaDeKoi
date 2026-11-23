@@ -45,7 +45,11 @@ int main() {
         const std::filesystem::path appDir(GetApplicationDirectory());
         const std::string background = (appDir / "the-city.jpg").string();
         const std::string atlas = (appDir / "cards_atlas.png").string();
-        const TableScene scene(background.c_str(), atlas.c_str());
+        const std::string logo = (appDir / "koidenscha.png").string();
+        const std::string headingFont = (appDir / "fonts" / "Oxanium.ttf").string();
+        const std::string bodyFont = (appDir / "fonts" / "Rajdhani-SemiBold.ttf").string();
+        const TableScene scene(background.c_str(), atlas.c_str(), logo.c_str(),
+                               headingFont.c_str(), bodyFont.c_str());
         TableGame game;
         SimpleRadio radio;
         bool paused = false;

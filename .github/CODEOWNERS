@@ -23,6 +23,8 @@
 /src/AtlasManager.cpp @Aquaslopper
 /src/AtlasManager.hpp @Aquaslopper
 /cards_atlas.png @Aquaslopper
+/assets/koidenscha.png @Aquaslopper
+/assets/fonts/ @Aquaslopper
 
 /src/TableLayout.hpp @Aquaslopper
 /src/TableScene.cpp @Aquaslopper

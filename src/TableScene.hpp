@@ -8,7 +8,8 @@
 // construct and destroy it while a Raylib window/context is alive.
 class TableScene {
 public:
-    TableScene(const char* backgroundPath, const char* atlasPath);
+    TableScene(const char* backgroundPath, const char* atlasPath, const char* logoPath,
+               const char* headingFontPath, const char* bodyFontPath);
     ~TableScene();
     TableScene(const TableScene&) = delete;
     TableScene& operator=(const TableScene&) = delete;
@@ -21,6 +22,11 @@ private:
     Texture2D background_{};
     Texture2D atlas_{};
     Texture2D cardBack_{};
+    Texture2D logo_{};
+    Font headingFont_{};
+    Font bodyFont_{};
+    bool ownsHeadingFont_ = false;
+    bool ownsBodyFont_ = false;
     // Fixed 1360x768 world canvas. It only provides aspect-preserving
     // letterboxing when the window is resized; it is never cropped or zoomed.
     RenderTexture2D canvas_{};
