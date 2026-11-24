@@ -368,7 +368,7 @@ void DrawHud(const TableGame& game, const TableHudState& hud, Rectangle destinat
     const ScreenMap map{destination, scale};
     DrawRectangle(map.X(8), map.Y(8), map.W(500), map.H(102), Color{15, 20, 27, 220});
     const std::string label = "ROUND " + std::to_string(game.Round()) + " / " +
-        std::to_string(TableLayout::MatchRounds) +
+        std::to_string(game.MatchRounds()) +
         "    YOU " + std::to_string(game.Scores()[PlayerIndex(Player::PLAYER)]) +
         "  -  CPU " + std::to_string(game.Scores()[PlayerIndex(Player::OPPONENT)]);
     DrawText(label.c_str(), map.X(20), map.Y(18), map.Font(22), WHITE);
@@ -512,6 +512,18 @@ int TableScene::SetAntiAliasing(int samples) {
     if (sampledWorld_.id) UnloadRenderTexture(sampledWorld_);
     sampledWorld_ = target;
     return aaSamples_ = samples;
+}
+
+bool TableScene::SetBackground(const char* backgroundPath) {
+    Texture2D replacement = LoadTexture(backgroundPath);
+    if (replacement.id == 0 || replacement.width <= 0 || replacement.height <= 0) {
+        if (replacement.id != 0) UnloadTexture(replacement);
+        std::fprintf(stderr, "[match] Could not load background: %s\n", backgroundPath);
+        return false;
+    }
+    if (background_.id != 0) UnloadTexture(background_);
+    background_ = replacement;
+    return true;
 }
 
 void TableScene::Draw(const TableGame& game, const TableHudState& hud,

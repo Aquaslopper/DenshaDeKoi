@@ -38,8 +38,12 @@ struct TableCard {
 class TableGame {
     enum class OpeningStage { DEALER_PICK, DEALER_REVEAL, ROUND_INTRO, PLAYING };
 public:
-    TableGame();
+    TableGame(); // Contract default: TableLayout::MatchRounds rounds.
+    // Seeded matches skip the dealer pick; used by tests and replays.
     explicit TableGame(std::uint32_t seed);
+    // A match that plays through a different number of rounds (pre-match setup).
+    [[nodiscard]] static TableGame WithRounds(int rounds);
+    TableGame(int rounds, std::uint32_t seed);
     void Update(float seconds);
     void PointerDown(TableLayout::Point2 p);
     void PointerMove(TableLayout::Point2 p);
@@ -65,6 +69,7 @@ public:
     [[nodiscard]] const KoiKoiStateMachine& Rules() const { return game_; }
     [[nodiscard]] const std::array<int, 2>& Scores() const { return scores_; }
     [[nodiscard]] int Round() const { return round_; }
+    [[nodiscard]] int MatchRounds() const { return matchRounds_; }
     [[nodiscard]] bool MatchFinished() const { return finished_; }
     [[nodiscard]] bool Busy() const { return animation_ != Animation::NONE || openingStage_ != OpeningStage::PLAYING; }
     [[nodiscard]] bool Dragging() const { return dragged_.has_value(); }
@@ -78,6 +83,8 @@ public:
     [[nodiscard]] std::optional<CardId> FindDropTarget(CardId card, TableLayout::Rect drop) const;
 
 private:
+    // Kept out of the public API so a literal can never be read as a seed.
+    explicit TableGame(int rounds);
     enum class Animation { NONE, RETURN, CPU_FLIP, CARD_FLIGHT, HAND_MOVE, STOCK_FLIP, STOCK_MOVE, HIT_FREEZE, CAPTURE };
     struct Moving {
         int id;
@@ -120,6 +127,7 @@ private:
     std::array<int, 48> slots_{};
     std::array<int, 2> scores_{};
     int round_ = 1;
+    int matchRounds_ = TableLayout::MatchRounds;
     bool resultRecorded_ = false;
     bool finished_ = false;
     float cpuDelay_ = 0;

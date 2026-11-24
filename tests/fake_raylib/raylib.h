@@ -35,6 +35,10 @@ const char* GetApplicationDirectory();
 Texture2D LoadTexture(const char* fileName);
 void UnloadTexture(Texture2D texture);
 void SetTextureFilter(Texture2D texture, int filter);
+void GenTextureMipmaps(Texture2D* texture);
+inline constexpr int TEXTURE_FILTER_TRILINEAR = 2;
+inline constexpr int LOG_WARNING = 4;
+void TraceLog(int logLevel, const char* text, ...);
 void DrawTexturePro(Texture2D texture, Rectangle source, Rectangle dest, Vector2 origin,
                     float rotation, Color tint);
 
@@ -67,6 +71,8 @@ void BeginMode3D(Camera3D camera);
 void EndMode3D();
 
 void DrawRectangle(int x, int y, int width, int height, Color color);
+void DrawRectangleRec(Rectangle rect, Color color);
+void DrawCircle(int centerX, int centerY, float radius, Color color);
 Vector2 MeasureTextEx(Font font, const char* text, float size, float spacing);
 void DrawLineEx(Vector2 start, Vector2 end, float thickness, Color color);
 void DrawTriangle(Vector2 a, Vector2 b, Vector2 c, Color color);

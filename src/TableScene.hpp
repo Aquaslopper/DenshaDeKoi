@@ -26,6 +26,9 @@ public:
 
     // Returns the applied sample density; keeps the old target on allocation failure.
     int SetAntiAliasing(int samples);
+    // Swap the baked table backdrop for a new match. Returns false (and keeps the
+    // current backdrop) when the file cannot be loaded.
+    bool SetBackground(const char* backgroundPath);
     void Draw(const TableGame& game, const TableHudState& hud = {},
               const MagnifyEffect& magnify = {}) const;
 

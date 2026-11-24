@@ -34,9 +34,18 @@ When Python 3 is available, CTest also checks the black frame pixels on every ca
 
 `.github/workflows/build.yml` builds and tests every push to `main` and every pull request on Windows with both MSVC and MinGW-w64, and uploads the compiled `denshadekoi.exe` as a build artifact.
 
+## Match setup
+
+**PLAY** in the title menu opens a pre-match settings popup over the title art; the match only starts from its **START MATCH** button (**Esc** or **BACK** returns to the title). It offers:
+
+- **Rounds**: 3 (default, unchanged), 4 or 5. The match ends after that many rounds, and the HUD/round-intro readouts follow the choice. The dealer pick and logo beat are untouched.
+- **Background**: five drop-in table backdrops. All five currently ship as copies of `the-city.jpg` so the look is unchanged — replace the JPGs in `assets/options/match-backgrounds/` (see its README). The selection previews in the popup, is applied when the match starts, and is reused by **NEW MATCH** and after **MATCH OVER**.
+
+The popup uses the same 1360×768 letterboxed UI space, fonts and card-gallery visual language (traffic-light header, blue panel, footer, BACK key). Mouse, **Up/Down**, **Left/Right** and **Enter** all work.
+
 ## Table and controls
 
-`denshadekoi` starts a **three-round match** against a basic CPU. Before the first round, choose one of two face-down cards; both reveal in sequence and the earlier month determines the first dealer. The prior round winner deals next, and a draw retains the dealer. Each round opens with a one-second bullet-time beat: the table slows, the Koidenscha logo spins in the centre and settles, then the hands and field are dealt from the stock under a centered match/round-start cue. The game handles lucky hands and misdeals, scores rounds, and shows match totals. Click **Next Round** between rounds, or **Match Over** to start a new match.
+`denshadekoi` starts a match against a basic CPU — three rounds by default, or the count chosen in the match setup popup. Before the first round, choose one of two face-down cards; both reveal in sequence and the earlier month determines the first dealer. The prior round winner deals next, and a draw retains the dealer. Each round opens with a one-second bullet-time beat: the table slows, the Koidenscha logo spins in the centre and settles, then the hands and field are dealt from the stock under a centered match/round-start cue. The game handles lucky hands and misdeals, scores rounds, and shows match totals. Click **Next Round** between rounds, or **Match Over** to start a new match.
 
 Drag a hand card onto a same-month field card; when two cards match, drop onto the desired one. If there is no match, drop it in the field. A far or invalid drop glides back to the hand; right-click cancels a drag. Matching accepts overlap or an edge gap of up to 10 pixels in the 840×720 table-plan coordinate system, with Xeno-koi's protection against mostly overlapping a non-matching card. After a hand play, the stock card flips and resolves; click the desired field card if the stock has two possible matches. When a yaku appears or grows, use the **Koi-Koi** or **Shobu** button. The player performs the card flight manually by dragging; CPU and stock cards use a slow 600 ms automatic flight. After that, every party uses the same snappy 150 ms table drop. Matches use a deliberately longer 500 ms capture hit freeze. A hand-card capture remains at its field contact point until the stock card has flipped and resolved; then every capture from both parts of the turn moves to the current player's capture pile in 500 ms.
 

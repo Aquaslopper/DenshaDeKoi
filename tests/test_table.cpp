@@ -13,6 +13,7 @@
 #include <vector>
 
 void TestOptions();
+void TestMatchSetup();
 
 namespace {
 struct Vertex { float x, y, z, u, v; Color color; unsigned int texture; };
@@ -75,7 +76,7 @@ void TestDraw() {
     Reset();
     {
         TableScene scene("city", "atlas", "logo", "heading", "body", "options");
-        TableGame game(42);
+        TableGame game(42u);
         scene.Draw(game);
         const auto cards = game.Cards();
         std::size_t expectedShadows = 0;
@@ -316,6 +317,8 @@ void EndMode3D() {}
 void ClearBackground(Color) {}
 void DrawText(const char* text, int, int, int, Color) { if (text) drawnTexts.emplace_back(text); }
 void DrawRectangle(int, int, int, int, Color) {}
+void DrawRectangleRec(Rectangle, Color) {}
+void DrawCircle(int, int, float, Color) {}
 void DrawRectangleLinesEx(Rectangle, float, Color) {}
 Vector2 MeasureTextEx(Font, const char* text, float size, float) { return {std::string(text).size() * size / 2, size}; }
 void DrawLineEx(Vector2, Vector2, float, Color c) { if (c.r == 255 && c.g == 218) ++hintEdges; }
@@ -327,6 +330,8 @@ int GetScreenWidth() { return width; }
 int GetScreenHeight() { return height; }
 void BeginDrawing() {}
 void EndDrawing() {}
+void GenTextureMipmaps(Texture2D*) {}
+void TraceLog(int, const char*, ...) {}
 void DrawTexturePro(Texture2D texture, Rectangle src, Rectangle dst, Vector2, float, Color) {
     blits.push_back(texture.id); sources.push_back(src); destinations.push_back(dst);
 }
@@ -340,6 +345,11 @@ void rlVertex3f(float x, float y, float z) { vertices.push_back({x,y,z,u,v,color
 
 int main(int argc, char** argv) {
     try {
+        if (argc == 2 && std::string(argv[1]) == "--match-setup") {
+            TestMatchSetup();
+            std::cout << "Match setup popup and round counts passed.\n";
+            return 0;
+        }
         if (argc == 2 && std::string(argv[1]) == "--options") {
             TestOptions(); TestPauseRendering(); TestCardHints();
             std::cout << "Pause options, artwork, hints and anti-aliasing passed.\n";

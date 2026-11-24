@@ -3,11 +3,13 @@
 #include "TableScene.hpp"
 #include "SimpleRadio.hpp"
 #include "SfxPlayer.hpp"
+#include "ui/MatchSetupMenu.hpp"
 #include "ui/PauseMenu.hpp"
 #include "ui/StartMenu.hpp"
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstdio>
 #include <exception>
 #include <filesystem>
@@ -78,6 +80,16 @@ void PlayGameSfx(SfxPlayer& player, GameSfx cue) {
         case GameSfx::ROUND_LOSE: player.Play(SfxId::RoundLose); break;
     }
 }
+// Every path that starts a fresh match (title, radio panel, match-over click)
+// shares the chosen round count and backdrop.
+void StartMatch(TableGame& game, TableScene& scene, const Ui::MatchSetup& setup,
+                const std::filesystem::path& appDir) {
+    game = TableGame::WithRounds(setup.rounds);
+    const std::string background =
+        (appDir / "options" / "match-backgrounds" /
+         Ui::MatchBackgrounds[static_cast<std::size_t>(setup.background)].fileName).string();
+    if (!scene.SetBackground(background.c_str())) scene.SetBackground((appDir / "the-city.jpg").string().c_str());
+}
 } // namespace
 
 int main() {
@@ -116,6 +128,8 @@ int main() {
         sfx.SetVolume(options.sfxVolume / 100.0f);
         Ui::PauseMenu pause;
         Ui::StartMenu startMenu(appDir, optionsFile.parent_path() / "start-menu-variant.txt");
+        Ui::MatchSetupMenu matchSetupMenu(appDir);
+        Ui::MatchSetup matchSetup;
         bool inStartMenu = true;
         bool galleryOpen = false;
         bool draggingVolume = false; // Radio's own channel slider.
@@ -145,7 +159,6 @@ int main() {
                 inStartMenu = true;
                 galleryOpen = false;
                 startMenu.AdvanceVariant();
-                game = TableGame();
                 setOverlay(TableOverlay::NONE);
             }
             const bool pauseKey = !inStartMenu && (IsKeyPressed(KEY_ESCAPE) || IsKeyPressed(KEY_P));
@@ -196,7 +209,7 @@ int main() {
                     if (pressed) {
                         if (In(canvas, TableHud::ResumeBottomButton)) setOverlay(TableOverlay::NONE);
                         else if (In(canvas, TableHud::NewMatchButton)) {
-                            game = TableGame();
+                            StartMatch(game, scene, matchSetup, appDir);
                             inStartMenu = false;
                             setOverlay(TableOverlay::NONE);
                         } else if (In(canvas, TableHud::RadioPowerButton)) radio.ToggleEnabled();
@@ -212,13 +225,38 @@ int main() {
                     if (!IsMouseButtonDown(MOUSE_BUTTON_LEFT)) draggingVolume = false;
                 } else if (overlay == TableOverlay::NONE && !galleryOpen) {
                     const auto movement = GetMouseDelta();
+                    if (matchSetupMenu.IsOpen()) {
+                        const Ui::MatchSetupInput setupInput{canvas,
+                            movement.x != 0 || movement.y != 0, pressed,
+                            IsKeyPressed(KEY_DOWN) - IsKeyPressed(KEY_UP),
+                            IsKeyPressed(KEY_RIGHT) - IsKeyPressed(KEY_LEFT),
+                            IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_SPACE),
+                            IsKeyPressed(KEY_ESCAPE)};
+                        const auto result = matchSetupMenu.Update(setupInput);
+                        if (result == Ui::MatchSetupResult::START) {
+                            matchSetup = matchSetupMenu.Setup();
+                            matchSetupMenu.Close();
+                            StartMatch(game, scene, matchSetup, appDir);
+                            inStartMenu = false;
+                        } else if (result == Ui::MatchSetupResult::BACK) {
+                            matchSetupMenu.Close();
+                        }
+                        radio.Update();
+                        BeginDrawing();
+                        ClearBackground(BLACK);
+                        const Ui::Viewport viewport = ScreenViewport();
+                        startMenu.DrawBackground(viewport);
+                        matchSetupMenu.Draw(viewport, startMenu.RadioAssets().headingFont,
+                                            startMenu.RadioAssets().bodyFont);
+                        EndDrawing();
+                        continue;
+                    }
                     const auto action = startMenu.Update(canvas, movement.x != 0 || movement.y != 0, pressed,
                         IsKeyPressed(KEY_DOWN) - IsKeyPressed(KEY_UP),
                         IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_SPACE));
                     switch (action) {
                         case Ui::StartMenuAction::PLAY:
-                            game = TableGame();
-                            inStartMenu = false;
+                            matchSetupMenu.Open(matchSetup);
                             break;
                         case Ui::StartMenuAction::OPTIONS:
                             setOverlay(TableOverlay::PAUSE);
@@ -275,7 +313,7 @@ int main() {
                         else if (In(canvas, TableHud::RadioMuteButton)) radio.ToggleMute();
                         else if (In(canvas, TableHud::VolumeHitBox)) draggingVolume = true;
                         else if (In(canvas, TableHud::NewMatchButton)) {
-                            game = TableGame();
+                            StartMatch(game, scene, matchSetup, appDir);
                             setOverlay(TableOverlay::NONE);
                         } else {
                             for (std::size_t i = 0; i < TableHud::StationSlotCount; ++i)
@@ -302,7 +340,7 @@ int main() {
                     } else if (In(canvas, TableHud::PauseButton)) {
                         setOverlay(TableOverlay::PAUSE);
                     } else if (game.Rules().GetPhase() == Phase::ROUND_END && In(canvas, TableHud::RoundEndButton)) {
-                        if (game.MatchFinished()) game = TableGame();
+                        if (game.MatchFinished()) StartMatch(game, scene, matchSetup, appDir);
                         else game.NextRound();
                     } else if (game.Rules().GetPhase() == Phase::AWAIT_DECISION && !game.Busy() &&
                                game.Rules().CurrentPlayer() == Player::PLAYER && In(canvas, TableHud::KoiKoiButton)) {

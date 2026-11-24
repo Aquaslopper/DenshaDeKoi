@@ -60,6 +60,7 @@ if(BUILD_DESKTOP_APP)
         src/TableScene.cpp
         src/ui/PauseRadioMenu.cpp
         src/ui/PauseMenu.cpp
+        src/ui/MatchSetupMenu.cpp
         src/RadioEngine.cpp
         src/SimpleRadio.cpp
         src/SfxPlayer.cpp
@@ -133,13 +134,15 @@ endif()
 
 if(BUILD_TESTING)
     # Exercise the actual table rendering commands with a Raylib test double.
-    add_executable(test_table tests/test_table.cpp tests/test_options.cpp src/GameOptions.cpp
-        src/TableScene.cpp src/ui/PauseRadioMenu.cpp src/ui/PauseMenu.cpp)
+    add_executable(test_table tests/test_table.cpp tests/test_options.cpp tests/test_match_setup.cpp
+        src/GameOptions.cpp src/TableScene.cpp src/ui/PauseRadioMenu.cpp src/ui/PauseMenu.cpp
+        src/ui/MatchSetupMenu.cpp)
     configure_project_target(test_table)
     target_include_directories(test_table PRIVATE tests/fake_raylib src)
     target_link_libraries(test_table PRIVATE hanafuda_core)
     add_test(NAME table COMMAND test_table)
     add_test(NAME pause_options COMMAND test_table --options)
+    add_test(NAME match_setup COMMAND test_table --match-setup)
 
     add_executable(test_table_game tests/test_table_game.cpp)
     configure_project_target(test_table_game)
