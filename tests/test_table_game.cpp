@@ -41,10 +41,13 @@ void TestRoundIntroBulletTime() {
     game.Update(3.4f);
     Check(game.RoundIntroActive(), "Round intro did not start after the dealer reveal");
     Check(game.RoundIntroBulletProgress() == 0.0f, "Bullet-time beat must start at zero");
+    Check(game.RoundIntroCueOpacity() == 1.0f, "Logo and cue must start fully visible");
     float real = 0.0f;
     float beatEnd = -1.0f;
     int dealCues = 0;
+    int fadingFrames = 0;
     float previous = 0.0f;
+    float previousOpacity = 1.0f;
     while (game.RoundIntroActive() && real < 3.0f) {
         game.Update(0.01f);
         real += 0.01f;
@@ -52,12 +55,17 @@ void TestRoundIntroBulletTime() {
         Check(progress >= previous && progress <= 1.0f, "Bullet-time progress must be monotonic and clamped");
         previous = progress;
         if (beatEnd < 0.0f && progress >= 1.0f) beatEnd = real;
+        const float opacity = game.RoundIntroCueOpacity();
+        Check(opacity <= previousOpacity && opacity >= 0.0f, "Cue opacity must only fade out");
+        if (opacity > 0.0f && opacity < 1.0f) ++fadingFrames;
+        previousOpacity = opacity;
         for (auto sfx : game.TakeSfx()) if (sfx == GameSfx::CARD_DEAL) ++dealCues;
     }
     Check(beatEnd > 0.98f && beatEnd < 1.02f, "Logo beat should last one real second");
     Check(real > 1.6f && real < 1.9f, "Slowed deal should end the intro shortly after the beat");
     Check(dealCues == 24, "Every dealt card must produce one deal cue");
-    Check(!game.RoundIntroActive() && game.RoundIntroBulletProgress() == 1.0f,
+    Check(fadingFrames > 0, "Logo and cue must fade out together before play resumes");
+    Check(!game.RoundIntroActive() && game.RoundIntroBulletProgress() == 1.0f && game.RoundIntroCueOpacity() == 0.0f,
           "Bullet time must be over once play resumes");
 }
 

@@ -22,6 +22,7 @@ constexpr float BulletTimeSeconds = 1.0f;
 constexpr float BulletTimeFloor = 0.25f;     // Table speed at the start of the beat.
 constexpr float RoundIntroMinSeconds = 1.5f;
 constexpr float DealCompleteSeconds = 1.40f; // Last deal card: 23 * 0.04 s stagger + 0.45 s flight.
+constexpr float RoundIntroExitFadeSeconds = 0.25f; // Logo and cue fade over the last table-time stretch of the intro.
 float BulletTimeScale(float realElapsed) {
     const float t = std::clamp(realElapsed / BulletTimeSeconds, 0.0f, 1.0f);
     return BulletTimeFloor + (1.0f - BulletTimeFloor) * t * t * (3.0f - 2.0f * t);
@@ -135,6 +136,10 @@ bool TableGame::RoundIntroActive() const {
 float TableGame::RoundIntroBulletProgress() const {
     if (!RoundIntroActive()) return 1.0f;
     return std::clamp(openingTimer_ / BulletTimeSeconds, 0.0f, 1.0f);
+}
+float TableGame::RoundIntroCueOpacity() const {
+    if (!RoundIntroActive()) return 0.0f;
+    return std::clamp((DealCompleteSeconds - dealElapsed_) / RoundIntroExitFadeSeconds, 0.0f, 1.0f);
 }
 void TableGame::SelectDealerCard(int index) {
     if (!AwaitingDealerChoice() || (index != 0 && index != 1)) return;
