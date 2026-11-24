@@ -58,6 +58,10 @@ public:
     [[nodiscard]] float OpeningTimer() const { return openingTimer_; }
     [[nodiscard]] bool RoundIntroActive() const;
     [[nodiscard]] float RoundIntroTimer() const { return openingTimer_; }
+    // 0..1 over the first second of the round intro (the bullet-time logo beat); 1 once it has passed.
+    [[nodiscard]] float RoundIntroBulletProgress() const;
+    // 1 while the logo and match cue are fully shown; fades to 0 as the intro hands over to play.
+    [[nodiscard]] float RoundIntroCueOpacity() const;
     [[nodiscard]] const KoiKoiStateMachine& Rules() const { return game_; }
     [[nodiscard]] const std::array<int, 2>& Scores() const { return scores_; }
     [[nodiscard]] int Round() const { return round_; }

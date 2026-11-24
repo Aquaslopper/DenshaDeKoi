@@ -321,6 +321,46 @@ void DrawCardHints(const TableGame& game, const std::vector<TableCard>& cards, T
     }
 }
 
+// Round-start bullet-time beat: the logo spins three turns above the middle of the table and
+// slows to a front view, where it stays for the match cue. Width follows cos(angle) for the
+// Y-axis roll; height breathes with sin(angle) to suggest depth. `opacity` fades it out with the cue.
+constexpr float RoundIntroLogoCenterY = 330.0f;
+constexpr float RoundIntroCueCenterY = 452.0f;
+
+void DrawRoundIntroLogo(const ScreenMap& map, Texture2D logo, float progress, float opacity) {
+    constexpr float Pi = 3.14159265f;
+    constexpr float LogoWidth = 380.0f;
+    constexpr float LogoHeight = 132.0f;
+    const float u = std::clamp(progress, 0.0f, 1.0f);
+    const float ease = 1.0f - (1.0f - u) * (1.0f - u); // Fast start, slow stop.
+    const float angle = 6.0f * Pi * ease;
+    const float c = std::cos(angle);
+    const float width = LogoWidth * std::fabs(c);
+    const float height = LogoHeight * (1.0f + 0.1f * std::sin(angle));
+    const float centerX = static_cast<float>(TableLayout::ImageWidth) * 0.5f;
+    const TableLayout::Rect box{centerX - width * 0.5f, RoundIntroLogoCenterY - height * 0.5f, width, height};
+    // A negative source width mirrors the texture, so the back of the roll shows the logo reversed.
+    const float sourceWidth = c < 0.0f ? -static_cast<float>(logo.width) : static_cast<float>(logo.width);
+    const auto tint = Color{255, 255, 255, static_cast<unsigned char>(std::lround(opacity * 255.0f))};
+    DrawTexturePro(logo, {0, 0, sourceWidth, static_cast<float>(logo.height)}, map.Rec(box), {0, 0}, 0.0f, tint);
+}
+
+// Plain match/round cue in the options-menu body font, centred under the logo with no backing box.
+// A soft dark offset keeps it readable over the table.
+void DrawRoundIntroCue(const ScreenMap& map, Font font, const char* text, float opacity) {
+    constexpr float FontSize = 44.0f;
+    const float size = FontSize * map.scale;
+    const float spacing = 0.5f * map.scale;
+    const Rectangle line = map.Rec({0.0f, RoundIntroCueCenterY - FontSize * 0.5f,
+                                    static_cast<float>(TableLayout::ImageWidth), FontSize});
+    const Vector2 measured = MeasureTextEx(font, text, size, spacing);
+    const Vector2 origin{line.x + (line.width - measured.x) * 0.5f, line.y + (line.height - measured.y) * 0.5f};
+    const auto alpha = static_cast<unsigned char>(std::lround(opacity * 255.0f));
+    const float shadow = std::max(1.0f, 2.0f * map.scale);
+    DrawTextEx(font, text, {origin.x + shadow, origin.y + shadow}, size, spacing, Color{0, 0, 0, static_cast<unsigned char>(alpha * 3 / 4)});
+    DrawTextEx(font, text, origin, size, spacing, Color{255, 255, 255, alpha});
+}
+
 // The HUD belongs to the screen, not the world canvas: it is drawn after the
 // world blit, in the same 1360x768 design space as the click rectangles.
 void DrawHud(const TableGame& game, const TableHudState& hud, Rectangle destination, float scale,
@@ -350,9 +390,15 @@ void DrawHud(const TableGame& game, const TableHudState& hud, Rectangle destinat
         DrawText(game.MatchFinished() ? "Click to restart" : "Click to continue", map.X(604), map.Y(370), map.Font(16), LIGHTGRAY);
     }
     if (game.RoundIntroActive()) {
-        const char* intro = game.Round() == 1 ? "MATCH START" : "ROUND START";
-        DrawRectangle(map.X(500), map.Y(320), map.W(360), map.H(86), Color{8, 12, 18, 220});
-        DrawText(intro, map.X(game.Round() == 1 ? 585 : 570), map.Y(344), map.Font(30), WHITE);
+        // The logo and match cue share one opacity, so they leave together when play resumes.
+        const float opacity = game.RoundIntroCueOpacity();
+        const float beat = game.RoundIntroBulletProgress();
+        if (opacity > 0.0f) {
+            DrawRoundIntroLogo(map, logo, beat, opacity);
+            if (beat >= 1.0f) {
+                DrawRoundIntroCue(map, bodyFont, game.Round() == 1 ? "MATCH START" : "ROUND START", opacity);
+            }
+        }
     }
 
     // Separate radio and pause entry points; labels are temporary icon-asset placeholders.
@@ -492,6 +538,11 @@ void TableScene::Draw(const TableGame& game, const TableHudState& hud,
         ClearBackground(BLACK);
         DrawTexturePro(world.texture, {0, 0, float(world.texture.width), -float(world.texture.height)},
                        canvasDestination, {0, 0}, 0, WHITE);
+    }
+    // Bullet time darkens the table behind the logo beat, fading out as the logo settles.
+    if (const float beat = game.RoundIntroBulletProgress(); beat < 1.0f) {
+        DrawRectangle(0, 0, world.texture.width, world.texture.height,
+                      Color{0, 0, 0, static_cast<unsigned char>(std::lround(110.0f * (1.0f - beat)))});
     }
     if (hud.options.cardHints && hud.overlay == TableOverlay::NONE) DrawCardHints(game, cards, hud.pointer);
     DrawHud(game, hud, canvasDestination, 1.0f, logo_, headingFont_, bodyFont_);
