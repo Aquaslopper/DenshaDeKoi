@@ -14,7 +14,8 @@ constexpr std::array Modes{"Windowed", "Borderless", "Fullscreen"};
 constexpr std::array Qualities{"2x", "3x", "4x"};
 constexpr Color Ink{9, 17, 32, 255}, Silver{196, 207, 227, 255}, Yellow{255, 213, 25, 255};
 constexpr Color DarkKey{27, 36, 53, 255}, Green{0, 145, 65, 255}, Amber{255, 171, 27, 255};
-constexpr Rect Resume{397, 658, 410, 90}; // Already lettered on the panel.
+constexpr Rect ResumeBtn{397, 658, 196, 90};
+constexpr Rect TitleBtn{611, 658, 196, 90};
 
 constexpr Rect Stripe(OptionRow row) { return {36, 208 + 70.5f * static_cast<int>(row), 810, 63}; }
 constexpr Rect Meter(OptionRow row) { return {484, Stripe(row).y + 19, 264, 26}; }
@@ -44,7 +45,8 @@ void Step(GameOptions& o, OptionRow row, int step, Resolution display, Resolutio
             break;
         case OptionRow::Mode: o.screenMode = static_cast<ScreenMode>((int(o.screenMode) + step + 3) % 3); break;
         case OptionRow::AA: o.aaSamples = 2 + (o.aaSamples - 2 + step + 3) % 3; break;
-        case OptionRow::Resume: break;
+        case OptionRow::Resume:
+        case OptionRow::Title: break;
     }
 }
 
@@ -75,6 +77,18 @@ void Key(const Viewport& map, Font font, const char* text, Rect r, bool selected
     DrawRectangleRounded(map.Rec({r.x + 2, r.y + 2, r.width - 4, r.height - 4}), 0.2f, 2, fill);
     Label(map, font, text, {r.x + 7, r.y, r.width - 14, r.height}, typeSize,
           selected && !toggle ? Ink : WHITE);
+}
+
+void ActionButton(const Viewport& map, Font font, const char* text, Rect r, bool selected, Color accent) {
+    const auto rec = map.Rec(r);
+    DrawRectangleRounded(rec, 0.12f, 6, Color{10, 18, 35, 245});
+    DrawRectangleRoundedLinesEx(rec, 0.12f, 6, std::max(1.0f, 2.5f * map.scale),
+                                selected ? accent : Color{120, 136, 160, 220});
+    if (selected) {
+        DrawRectangleRounded(map.Rec({r.x + 4, r.y + 4, r.width - 8, r.height - 8}), 0.1f, 6,
+                             Color{accent.r, accent.g, accent.b, 28});
+    }
+    Label(map, font, text, r, 38, selected ? accent : WHITE);
 }
 
 void Volume(const Viewport& map, Font font, OptionRow row, int percent) {
@@ -121,16 +135,18 @@ void ResolutionArrow(const Viewport& map, int direction, bool enabled) {
 }
 } // namespace
 
-bool PauseMenu::Update(GameOptions& o, const PauseInput& input, Resolution display, Resolution desktop) {
+PauseAction PauseMenu::Update(GameOptions& o, const PauseInput& input, Resolution display, Resolution desktop) {
     const Point2 p{(input.canvas.x - PausePanel.x) / PauseArtScale, (input.canvas.y - PausePanel.y) / PauseArtScale};
     if (!input.down) dragging_ = false;
     if (!dragging_ && (input.moved || input.pressed)) {
         for (int i = 0; i < static_cast<int>(Names.size()); ++i)
             if (Contains(Stripe(static_cast<OptionRow>(i)), p)) focus_ = static_cast<OptionRow>(i);
-        if (Contains(Resume, p)) focus_ = OptionRow::Resume;
+        if (Contains(ResumeBtn, p)) focus_ = OptionRow::Resume;
+        if (Contains(TitleBtn, p)) focus_ = OptionRow::Title;
     }
     if (input.pressed) {
-        if (Contains(Resume, p)) return true;
+        if (Contains(ResumeBtn, p)) return PauseAction::Resume;
+        if (Contains(TitleBtn, p)) return PauseAction::Title;
         if (focus_ == OptionRow::Master || focus_ == OptionRow::Effects) {
             const auto bar = Meter(focus_);
             dragging_ = Contains({bar.x - 7, Stripe(focus_).y, bar.width + 14, 63}, p);
@@ -149,13 +165,21 @@ bool PauseMenu::Update(GameOptions& o, const PauseInput& input, Resolution displ
         const auto r = Meter(focus_);
         const int value = static_cast<int>(std::lround(std::clamp((p.x - r.x) / r.width, 0.0f, 1.0f) * 100));
         (focus_ == OptionRow::Master ? o.masterVolume : o.sfxVolume) = value;
-        return false;
+        return PauseAction::None;
     }
-    constexpr int rows = static_cast<int>(OptionRow::Resume) + 1;
+    constexpr int rows = static_cast<int>(OptionRow::Title) + 1;
     if (input.vertical) focus_ = static_cast<OptionRow>((int(focus_) + rows + input.vertical) % rows);
-    if (input.horizontal) Step(o, focus_, input.horizontal, display, desktop);
-    if (input.activate && focus_ == OptionRow::Hints) o.cardHints = !o.cardHints;
-    return input.activate && focus_ == OptionRow::Resume;
+    if (input.horizontal) {
+        if (focus_ == OptionRow::Resume) focus_ = OptionRow::Title;
+        else if (focus_ == OptionRow::Title) focus_ = OptionRow::Resume;
+        else Step(o, focus_, input.horizontal, display, desktop);
+    }
+    if (input.activate) {
+        if (focus_ == OptionRow::Hints) o.cardHints = !o.cardHints;
+        else if (focus_ == OptionRow::Resume) return PauseAction::Resume;
+        else if (focus_ == OptionRow::Title) return PauseAction::Title;
+    }
+    return PauseAction::None;
 }
 
 void DrawPauseMenu(const Viewport& outer, const GameOptions& o, Resolution display,
@@ -193,6 +217,9 @@ void DrawPauseMenu(const Viewport& outer, const GameOptions& o, Resolution displ
                     k == (mode ? int(o.screenMode) : o.aaSamples - 2), mode ? 35 : 47);
         }
     }
-    if (focus == OptionRow::Resume) DrawRectangleLinesEx(map.Rec(Resume), std::max(1.0f, 3 * map.scale), Yellow);
+    // Cover the baked resume text and draw two explicit action buttons.
+    DrawRectangleRounded(map.Rec({384, 650, 436, 106}), 0.08f, 4, Color{16, 27, 44, 255});
+    ActionButton(map, assets.headingFont, "RESUME", ResumeBtn, focus == OptionRow::Resume, Yellow);
+    ActionButton(map, assets.headingFont, "MAIN MENU", TitleBtn, focus == OptionRow::Title, Color{255, 171, 27, 255});
 }
 } // namespace Ui

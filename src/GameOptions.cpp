@@ -55,6 +55,11 @@ GameOptions LoadOptions(const std::filesystem::path& file) {
         opt.resolution.height < 384 || opt.resolution.height > 16384 ||
         opt.aaSamples < 1 || opt.aaSamples > 4) return {};
     opt.screenMode = static_cast<ScreenMode>(mode);
+    int rounds = 3;
+    if (in >> rounds) {
+        if (rounds == 1 || rounds == 3 || rounds == 6 || rounds == 12) opt.matchRounds = rounds;
+        else return {};
+    }
     return opt;
 }
 
@@ -65,7 +70,7 @@ void SaveOptions(const std::filesystem::path& file, const GameOptions& opt) {
     std::ofstream out(file);
     out << "DDK-OPTIONS-1\n" << opt.masterVolume << ' ' << opt.sfxVolume << ' ' << opt.cardHints << '\n'
         << opt.resolution.width << ' ' << opt.resolution.height << ' ' << static_cast<int>(opt.screenMode)
-        << ' ' << opt.aaSamples << '\n';
+        << ' ' << opt.aaSamples << ' ' << opt.matchRounds << '\n';
     out.close();
     if (out.fail()) std::fprintf(stderr, "[options] Could not save settings.\n");
 }

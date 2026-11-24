@@ -14,19 +14,20 @@ void TestInput() {
     GameOptions o;
     Ui::PauseMenu menu;
     constexpr Resolution desktop{1920, 1080};
+    const auto none = Ui::PauseAction::None;
     const auto input = [&](float x, float y, bool pressed, bool down) {
         return menu.Update(o, {{Ui::PausePanel.x + x * Ui::PauseArtScale, Ui::PausePanel.y + y * Ui::PauseArtScale},
                                true, pressed, down, 0, 0, false}, o.resolution, desktop);
     };
     const auto click = [&](float x, float y) {
-        const auto resume = input(x, y, true, true);
+        const auto action = input(x, y, true, true);
         input(x, y, false, false);
-        return resume;
+        return action;
     };
     const auto key = [&](int v, int h, bool enter = false) {
         return menu.Update(o, {{-1, -1}, false, false, false, v, h, enter}, o.resolution, desktop);
     };
-    Check(!input(616, 240, true, true) && o.masterVolume == 50, "Slider hit must track the actual meter");
+    Check(input(616, 240, true, true) == none && o.masterVolume == 50, "Slider hit must track the actual meter");
     input(900, 318, false, true);
     Check(o.masterVolume == 100 && o.sfxVolume == 70, "Dragging out must clamp, not switch rows");
     input(400, 318, false, true);
@@ -50,12 +51,18 @@ void TestInput() {
     click(756, 590); Check(o.aaSamples == 4, "Last AA choice");
     click(470, 590); Check(o.aaSamples == 2, "First AA choice");
     const auto before = o;
-    Check(!click(990, 590) && !click(120, 710) && o == before, "Train and unused footer must be inert");
-    Check(click(604, 705), "Baked Resume button must be live");
+    Check(click(990, 590) == none && click(120, 710) == none && o == before, "Train and unused footer must be inert");
+    Check(click(495, 705) == Ui::PauseAction::Resume, "Resume button must be live");
+    Check(click(709, 705) == Ui::PauseAction::Title, "Main menu button must be live");
     menu = {};
     key(-1, 0);
-    Check(menu.Focus() == Ui::OptionRow::Resume && key(0, 0, true), "Keyboard Resume and focus wrap");
-    key(1, 0); key(0, 1);
+    Check(menu.Focus() == Ui::OptionRow::Title && key(0, 0, true) == Ui::PauseAction::Title,
+          "Keyboard Title and focus wrap");
+    menu = {};
+    key(-1, 0); key(-1, 0);
+    Check(menu.Focus() == Ui::OptionRow::Resume && key(0, 0, true) == Ui::PauseAction::Resume,
+          "Keyboard Resume above Title");
+    key(1, 0); key(1, 0); key(0, 1);
     Check(menu.Focus() == Ui::OptionRow::Master && o.masterVolume == 5, "Keyboard-only navigation");
 }
 
@@ -65,11 +72,16 @@ void TestStorage() {
     Check(fs::create_directory(dir), "Could not create fresh settings test directory");
     const auto file = dir / "options.txt";
     Check(LoadOptions(file) == GameOptions{}, "Missing file should use safe defaults");
-    GameOptions custom{0, 83, false, {1536, 864}, ScreenMode::Fullscreen, 4};
+    GameOptions custom{0, 83, false, {1536, 864}, ScreenMode::Fullscreen, 4, 6};
     SaveOptions(file, custom);
-    Check(LoadOptions(file) == custom, "All six settings should survive a restart");
+    Check(LoadOptions(file) == custom, "All settings should survive a restart");
+    {
+        std::ofstream(file) << "DDK-OPTIONS-1\n80 70 1\n1360 768 0 2\n";
+        GameOptions old = LoadOptions(file);
+        Check(old == GameOptions{}, "Old 8-field format should load with defaults including 3 rounds");
+    }
     for (const char* bad : {"truncated", "DDK-OPTIONS-1 80 70 1 1920 1080 9 2", "DDK-OPTIONS-1 80 70 0 -30 64 0 3",
-                            "DDK-OPTIONS-1 80 70 1 1360 768 0 999"}) {
+                            "DDK-OPTIONS-1 80 70 1 1360 768 0 999", "DDK-OPTIONS-1 80 70 1 1360 768 0 2 5"}) {
         std::ofstream(file) << bad;
         Check(LoadOptions(file) == GameOptions{}, "Invalid settings should use safe defaults");
     }

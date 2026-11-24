@@ -16,7 +16,8 @@ inline constexpr TableLayout::Rect PausePanel{
     (TableLayout::ImageWidth - 1205 * PauseArtScale) / 2, 78,
     1205 * PauseArtScale, 763 * PauseArtScale};
 
-enum class OptionRow { Master, Effects, Hints, Resolution, Mode, AA, Resume };
+enum class OptionRow { Master, Effects, Hints, Resolution, Mode, AA, Resume, Title };
+enum class PauseAction { None, Resume, Title };
 struct PauseInput {
     TableLayout::Point2 canvas;
     bool moved, pressed, down;
@@ -26,8 +27,9 @@ struct PauseInput {
 
 class PauseMenu {
 public:
-    // Returns true only for Resume. Changes to options are applied by the host.
-    bool Update(GameOptions& options, const PauseInput& input, Resolution display, Resolution desktop);
+    // Returns Resume/Title when the user confirms those actions; None otherwise.
+    // Option changes are applied by the host.
+    PauseAction Update(GameOptions& options, const PauseInput& input, Resolution display, Resolution desktop);
     [[nodiscard]] OptionRow Focus() const { return focus_; }
 private:
     OptionRow focus_ = OptionRow::Master;

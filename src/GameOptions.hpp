@@ -16,6 +16,7 @@ struct GameOptions {
     Resolution resolution{1360, 768}; // Preferred non-borderless size.
     ScreenMode screenMode = ScreenMode::Windowed;
     int aaSamples = 2;
+    int matchRounds = 3; // 1, 3, 6, or 12 rounds per match.
     bool operator==(const GameOptions&) const = default;
 };
 

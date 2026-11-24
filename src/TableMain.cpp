@@ -8,6 +8,7 @@
 #include "ui/StartMenu.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <exception>
@@ -132,6 +133,22 @@ int main() {
             if (next != TableOverlay::NONE) game.CancelDrag();
         };
         bool quitRequested = false;
+        int targetRounds = options.matchRounds;
+        int completedMatchRounds = 0;
+        std::array<int, 2> cumulativeScores{};
+        bool matchOver = false;
+        const auto resetMatchProgress = [&]() {
+            completedMatchRounds = 0;
+            cumulativeScores = {};
+            matchOver = false;
+        };
+        const auto totalMatchScores = [&]() {
+            std::array<int, 2> total = cumulativeScores;
+            const auto& s = game.Scores();
+            total[0] += s[0];
+            total[1] += s[1];
+            return total;
+        };
 
         while (!WindowShouldClose() && !quitRequested) {
             const float dt = std::min(GetFrameTime(), 0.1f);
@@ -145,6 +162,7 @@ int main() {
             if (overlay == TableOverlay::PAUSE && options.screenMode != ScreenMode::Fullscreen) desktop = MonitorSize();
             if (options.screenMode == ScreenMode::Windowed) options.resolution = display;
             if (!inStartMenu && IsKeyPressed(KEY_BACKSPACE)) {
+                resetMatchProgress();
                 inStartMenu = true;
                 galleryOpen = false;
                 startMenu.AdvanceVariant();
@@ -188,17 +206,20 @@ int main() {
                         IsMouseButtonDown(MOUSE_BUTTON_LEFT), IsKeyPressed(KEY_DOWN) - IsKeyPressed(KEY_UP),
                         IsKeyPressed(KEY_RIGHT) - IsKeyPressed(KEY_LEFT),
                         IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_SPACE)};
-                    if (startMenu.OptionsMenu().Update(options, input, display, desktop)) setOverlay(TableOverlay::NONE);
+                    const auto pauseAction = startMenu.OptionsMenu().Update(options, input, display, desktop);
                     if (old.masterVolume != options.masterVolume && IsAudioDeviceReady())
                         SetMasterVolume(options.masterVolume / 100.0f);
                     if (old.sfxVolume != options.sfxVolume) sfx.SetVolume(options.sfxVolume / 100.0f);
                     if (old.screenMode != options.screenMode || old.resolution != options.resolution)
                         ApplyDisplay(options, desktop);
                     if (old.aaSamples != options.aaSamples) options.aaSamples = scene.SetAntiAliasing(options.aaSamples);
+                    if (pauseAction != Ui::PauseAction::None) setOverlay(TableOverlay::NONE);
                 } else if (overlay == TableOverlay::RADIO) {
                     if (pressed) {
                         if (In(canvas, TableHud::ResumeBottomButton)) setOverlay(TableOverlay::NONE);
                         else if (In(canvas, TableHud::NewMatchButton)) {
+                            targetRounds = options.matchRounds;
+                            resetMatchProgress();
                             game = TableGame();
                             inStartMenu = false;
                             setOverlay(TableOverlay::NONE);
@@ -227,6 +248,10 @@ int main() {
                     if (matchAction == Ui::MatchSettingsAction::BACK) {
                         matchSettingsOpen = false;
                     } else if (matchAction == Ui::MatchSettingsAction::START) {
+                        options.matchRounds = matchSettingsMenu.SelectedRounds();
+                        targetRounds = options.matchRounds;
+                        SaveOptions(optionsFile, options);
+                        resetMatchProgress();
                         game = TableGame();
                         matchSettingsOpen = false;
                         inStartMenu = false;
@@ -239,6 +264,7 @@ int main() {
                     switch (action) {
                         case Ui::StartMenuAction::PLAY:
                             matchSettingsMenu.ResetFocus();
+                            matchSettingsMenu.SetSelectedRounds(options.matchRounds);
                             matchSettingsOpen = true;
                             break;
                         case Ui::StartMenuAction::OPTIONS:
@@ -272,6 +298,78 @@ int main() {
                 EndDrawing();
                 continue;
             }
+            if (matchOver) {
+                const Ui::Viewport viewport = ScreenViewport();
+                const auto total = cumulativeScores;
+                const int playerScore = total[PlayerIndex(Player::PLAYER)];
+                const int cpuScore = total[PlayerIndex(Player::OPPONENT)];
+                const char* headline = playerScore == cpuScore ? "MATCH DRAWN"
+                                     : (playerScore > cpuScore ? "YOU WIN" : "CPU WINS");
+                const Color headlineColor = playerScore == cpuScore ? Color{220, 220, 220, 255}
+                                          : (playerScore > cpuScore ? Color{255, 213, 25, 255}
+                                                                    : Color{255, 120, 120, 255});
+                constexpr TableLayout::Rect newMatchBtn{430.0f, 470.0f, 220.0f, 62.0f};
+                constexpr TableLayout::Rect titleBtn{710.0f, 470.0f, 220.0f, 62.0f};
+                const bool clickNew = pressed && In(canvas, newMatchBtn);
+                const bool clickTitle = pressed && In(canvas, titleBtn);
+                if (clickNew || IsKeyPressed(KEY_ENTER)) {
+                    targetRounds = options.matchRounds;
+                    resetMatchProgress();
+                    game = TableGame();
+                    setOverlay(TableOverlay::NONE);
+                } else if (clickTitle || IsKeyPressed(KEY_ESCAPE)) {
+                    SaveOptions(optionsFile, options);
+                    resetMatchProgress();
+                    inStartMenu = true;
+                    galleryOpen = false;
+                    startMenu.AdvanceVariant();
+                    game = TableGame();
+                    setOverlay(TableOverlay::NONE);
+                }
+                for (GameSfx cue : game.TakeSfx()) PlayGameSfx(sfx, cue);
+                radio.Update();
+                BeginDrawing();
+                ClearBackground(Color{8, 12, 22, 255});
+                startMenu.DrawBackground(viewport);
+                DrawRectangle(static_cast<int>(viewport.box.x), static_cast<int>(viewport.box.y),
+                              static_cast<int>(viewport.box.width), static_cast<int>(viewport.box.height),
+                              Color{5, 8, 17, 170});
+                const Rectangle panel = viewport.Rec({330, 150, 700, 430});
+                DrawRectangleRounded(panel, 0.04f, 8, Color{16, 27, 44, 245});
+                DrawRectangleRoundedLinesEx(panel, 0.04f, 8, std::max(1.0f, 2.0f * viewport.scale),
+                                            Color{196, 207, 227, 180});
+                auto drawCentered = [&](const char* text, float y, float size, Color color) {
+                    const int fontSize = std::max(1, static_cast<int>(size * viewport.scale));
+                    const int w = MeasureText(text, fontSize);
+                    DrawText(text, static_cast<int>(viewport.box.x + viewport.box.width / 2 - w / 2),
+                             static_cast<int>(viewport.Y(y)), fontSize, color);
+                };
+                drawCentered("MATCH OVER", 185, 28, Color{196, 207, 227, 255});
+                drawCentered(headline, 235, 56, headlineColor);
+                const std::string scoreLine = "YOU  " + std::to_string(playerScore) + "  -  " +
+                                              std::to_string(cpuScore) + "  CPU";
+                drawCentered(scoreLine.c_str(), 330, 40, WHITE);
+                const std::string roundsLine = std::to_string(targetRounds) +
+                                               (targetRounds == 1 ? " ROUND MATCH" : " ROUNDS MATCH");
+                drawCentered(roundsLine.c_str(), 385, 22, Color{170, 185, 205, 255});
+                auto drawBtn = [&](TableLayout::Rect r, const char* label, bool hot, Color accent) {
+                    const Rectangle rec = viewport.Rec(r);
+                    DrawRectangleRounded(rec, 0.12f, 6, hot ? Color{accent.r, accent.g, accent.b, 40}
+                                                            : Color{27, 36, 53, 255});
+                    DrawRectangleRoundedLinesEx(rec, 0.12f, 6, std::max(1.0f, 2.0f * viewport.scale),
+                                                hot ? accent : Color{196, 207, 227, 200});
+                    const int fs = std::max(1, static_cast<int>(28 * viewport.scale));
+                    const int tw = MeasureText(label, fs);
+                    DrawText(label, static_cast<int>(rec.x + (rec.width - tw) / 2),
+                             static_cast<int>(rec.y + (rec.height - fs) / 2), fs, hot ? accent : WHITE);
+                };
+                const bool hotNew = In(canvas, newMatchBtn);
+                const bool hotTitle = In(canvas, titleBtn);
+                drawBtn(newMatchBtn, "NEW MATCH", hotNew, Color{255, 213, 25, 255});
+                drawBtn(titleBtn, "MAIN MENU", hotTitle, Color{255, 171, 27, 255});
+                EndDrawing();
+                continue;
+            }
             if (overlay != TableOverlay::NONE) {
                 if (pressed && In(canvas, TableHud::RadioMenuButton)) {
                     setOverlay(overlay == TableOverlay::RADIO ? TableOverlay::NONE : TableOverlay::RADIO);
@@ -283,13 +381,24 @@ int main() {
                     const Ui::PauseInput input{canvas, movement.x != 0 || movement.y != 0, pressed,
                         IsMouseButtonDown(MOUSE_BUTTON_LEFT), IsKeyPressed(KEY_DOWN) - IsKeyPressed(KEY_UP),
                         IsKeyPressed(KEY_RIGHT) - IsKeyPressed(KEY_LEFT), IsKeyPressed(KEY_ENTER)};
-                    if (pause.Update(options, input, display, desktop)) setOverlay(TableOverlay::NONE);
+                    const auto pauseAction = pause.Update(options, input, display, desktop);
                     if (old.masterVolume != options.masterVolume && IsAudioDeviceReady())
                         SetMasterVolume(options.masterVolume / 100.0f);
                     if (old.sfxVolume != options.sfxVolume) sfx.SetVolume(options.sfxVolume / 100.0f);
                     if (old.screenMode != options.screenMode || old.resolution != options.resolution)
                         ApplyDisplay(options, desktop);
                     if (old.aaSamples != options.aaSamples) options.aaSamples = scene.SetAntiAliasing(options.aaSamples);
+                    if (pauseAction == Ui::PauseAction::Resume) {
+                        setOverlay(TableOverlay::NONE);
+                    } else if (pauseAction == Ui::PauseAction::Title) {
+                        SaveOptions(optionsFile, options);
+                        resetMatchProgress();
+                        inStartMenu = true;
+                        galleryOpen = false;
+                        startMenu.AdvanceVariant();
+                        game = TableGame();
+                        setOverlay(TableOverlay::NONE);
+                    }
                 } else {
                     if (pressed) {
                         if (In(canvas, TableHud::ResumeBottomButton)) setOverlay(TableOverlay::NONE);
@@ -297,6 +406,8 @@ int main() {
                         else if (In(canvas, TableHud::RadioMuteButton)) radio.ToggleMute();
                         else if (In(canvas, TableHud::VolumeHitBox)) draggingVolume = true;
                         else if (In(canvas, TableHud::NewMatchButton)) {
+                            targetRounds = options.matchRounds;
+                            resetMatchProgress();
                             game = TableGame();
                             setOverlay(TableOverlay::NONE);
                         } else {
@@ -324,8 +435,18 @@ int main() {
                     } else if (In(canvas, TableHud::PauseButton)) {
                         setOverlay(TableOverlay::PAUSE);
                     } else if (game.Rules().GetPhase() == Phase::ROUND_END && In(canvas, TableHud::RoundEndButton)) {
-                        if (game.MatchFinished()) game = TableGame();
-                        else game.NextRound();
+                        const int roundsDone = completedMatchRounds + game.Round();
+                        if (roundsDone >= targetRounds) {
+                            cumulativeScores = totalMatchScores();
+                            matchOver = true;
+                        } else if (game.MatchFinished()) {
+                            cumulativeScores[0] += game.Scores()[0];
+                            cumulativeScores[1] += game.Scores()[1];
+                            completedMatchRounds += game.Round();
+                            game = TableGame();
+                        } else {
+                            game.NextRound();
+                        }
                     } else if (game.Rules().GetPhase() == Phase::AWAIT_DECISION && !game.Busy() &&
                                game.Rules().CurrentPlayer() == Player::PLAYER && In(canvas, TableHud::KoiKoiButton)) {
                         game.Choose(Decision::KOI_KOI);

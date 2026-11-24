@@ -40,6 +40,11 @@ public:
     [[nodiscard]] const char* SelectedRoute() const { return kRouteOptions[routeIndex_]; }
 
     void ResetFocus() { focusRow_ = 0; }
+    void SetSelectedRounds(int rounds) {
+        for (int i = 0; i < static_cast<int>(kRoundOptions.size()); ++i) {
+            if (kRoundOptions[i] == rounds) { roundIndex_ = i; return; }
+        }
+    }
 
     [[nodiscard]] MatchSettingsAction Update(TableLayout::Point2 pointer, bool moved, bool pressed,
                                              int vertical, int horizontal, bool activate, bool escape) {
