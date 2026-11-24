@@ -161,7 +161,15 @@ int main() {
                     galleryOpen = false;
                 }
                 if (galleryOpen) {
-                    if (pressed && In(canvas, Ui::StartMenu::GalleryBack)) galleryOpen = false;
+                    const auto movement = GetMouseDelta();
+                    const int vertical =
+                        static_cast<int>(IsKeyPressed(KEY_DOWN) || IsKeyPressedRepeat(KEY_DOWN)) -
+                        static_cast<int>(IsKeyPressed(KEY_UP) || IsKeyPressedRepeat(KEY_UP));
+                    const int horizontal =
+                        static_cast<int>(IsKeyPressed(KEY_RIGHT) || IsKeyPressedRepeat(KEY_RIGHT)) -
+                        static_cast<int>(IsKeyPressed(KEY_LEFT) || IsKeyPressedRepeat(KEY_LEFT));
+                    if (startMenu.UpdateGallery(canvas, movement.x != 0.0f || movement.y != 0.0f,
+                                                pressed, vertical, horizontal)) galleryOpen = false;
                 } else if (overlay == TableOverlay::PAUSE) {
                     const auto old = options;
                     const auto movement = GetMouseDelta();
