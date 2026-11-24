@@ -4,6 +4,7 @@
 #include "SimpleRadio.hpp"
 #include "SfxPlayer.hpp"
 #include "ui/PauseMenu.hpp"
+#include "ui/MatchSettingsMenu.hpp"
 #include "ui/StartMenu.hpp"
 
 #include <algorithm>
@@ -116,7 +117,9 @@ int main() {
         sfx.SetVolume(options.sfxVolume / 100.0f);
         Ui::PauseMenu pause;
         Ui::StartMenu startMenu(appDir, optionsFile.parent_path() / "start-menu-variant.txt");
+        Ui::MatchSettingsMenu matchSettingsMenu(appDir);
         bool inStartMenu = true;
+        bool matchSettingsOpen = false;
         bool galleryOpen = false;
         bool draggingVolume = false; // Radio's own channel slider.
         bool inspectingCard = false;
@@ -210,6 +213,24 @@ int main() {
                     if (draggingVolume && IsMouseButtonDown(MOUSE_BUTTON_LEFT))
                         radio.SetVolume((canvas.x - TableHud::VolumeBar.x) / TableHud::VolumeBar.width);
                     if (!IsMouseButtonDown(MOUSE_BUTTON_LEFT)) draggingVolume = false;
+                } else if (matchSettingsOpen) {
+                    const auto movement = GetMouseDelta();
+                    const int vertical =
+                        static_cast<int>(IsKeyPressed(KEY_DOWN) || IsKeyPressedRepeat(KEY_DOWN)) -
+                        static_cast<int>(IsKeyPressed(KEY_UP) || IsKeyPressedRepeat(KEY_UP));
+                    const int horizontal =
+                        static_cast<int>(IsKeyPressed(KEY_RIGHT) || IsKeyPressedRepeat(KEY_RIGHT)) -
+                        static_cast<int>(IsKeyPressed(KEY_LEFT) || IsKeyPressedRepeat(KEY_LEFT));
+                    const auto matchAction = matchSettingsMenu.Update(
+                        canvas, movement.x != 0.0f || movement.y != 0.0f, pressed,
+                        vertical, horizontal, IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_SPACE), escape);
+                    if (matchAction == Ui::MatchSettingsAction::BACK) {
+                        matchSettingsOpen = false;
+                    } else if (matchAction == Ui::MatchSettingsAction::START) {
+                        game = TableGame();
+                        matchSettingsOpen = false;
+                        inStartMenu = false;
+                    }
                 } else if (overlay == TableOverlay::NONE && !galleryOpen) {
                     const auto movement = GetMouseDelta();
                     const auto action = startMenu.Update(canvas, movement.x != 0 || movement.y != 0, pressed,
@@ -217,8 +238,8 @@ int main() {
                         IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_SPACE));
                     switch (action) {
                         case Ui::StartMenuAction::PLAY:
-                            game = TableGame();
-                            inStartMenu = false;
+                            matchSettingsMenu.ResetFocus();
+                            matchSettingsOpen = true;
                             break;
                         case Ui::StartMenuAction::OPTIONS:
                             setOverlay(TableOverlay::PAUSE);
@@ -242,6 +263,7 @@ int main() {
                 ClearBackground(BLACK);
                 const Ui::Viewport viewport = ScreenViewport();
                 startMenu.DrawBackground(viewport);
+                if (matchSettingsOpen) matchSettingsMenu.Draw(viewport, canvas);
                 if (galleryOpen) startMenu.DrawGallery(viewport);
                 else if (overlay == TableOverlay::PAUSE)
                     startMenu.DrawOptions(viewport, options, display);
