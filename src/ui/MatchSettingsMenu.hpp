@@ -189,7 +189,7 @@ private:
     static constexpr std::array<const char*, 1> kRouteOptions{"The City"};
 
     static Rectangle PanelRect() {
-        return {365.0f, 196.0f, 630.0f, 350.0f};
+        return {365.0f, 165.0f, 630.0f, 350.0f};
     }
 
     static Rectangle RoundButtonRect(Rectangle panel, int index) {
