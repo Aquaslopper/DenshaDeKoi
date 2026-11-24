@@ -156,7 +156,10 @@ int main() {
             const bool pressed = IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
             if (inStartMenu) {
                 const bool escape = IsKeyPressed(KEY_ESCAPE);
-                if (escape && (overlay != TableOverlay::NONE || galleryOpen)) {
+                // Esc belongs to the 3D viewer while it is open; a second Esc
+                // then leaves the gallery as before.
+                if (escape && (overlay != TableOverlay::NONE ||
+                               (galleryOpen && !startMenu.GalleryViewerOpen()))) {
                     setOverlay(TableOverlay::NONE);
                     galleryOpen = false;
                 }
@@ -168,8 +171,13 @@ int main() {
                     const int horizontal =
                         static_cast<int>(IsKeyPressed(KEY_RIGHT) || IsKeyPressedRepeat(KEY_RIGHT)) -
                         static_cast<int>(IsKeyPressed(KEY_LEFT) || IsKeyPressedRepeat(KEY_LEFT));
-                    if (startMenu.UpdateGallery(canvas, movement.x != 0.0f || movement.y != 0.0f,
-                                                pressed, vertical, horizontal)) galleryOpen = false;
+                    const Ui::GalleryInput galleryInput{
+                        canvas, movement.x != 0.0f || movement.y != 0.0f, pressed,
+                        IsMouseButtonDown(MOUSE_BUTTON_LEFT),
+                        IsMouseButtonPressed(MOUSE_BUTTON_RIGHT), GetMouseWheelMove(),
+                        vertical, horizontal, IsKeyPressed(KEY_ENTER), escape,
+                        options.aaSamples};
+                    if (startMenu.UpdateGallery(galleryInput)) galleryOpen = false;
                 } else if (overlay == TableOverlay::PAUSE) {
                     const auto old = options;
                     const auto movement = GetMouseDelta();

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ui/CardGalleryData.hpp"
+#include "ui/CardViewer.hpp"
 #include "ui/UiViewport.hpp"
 
 #include <raylib.h>
@@ -8,6 +9,7 @@
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <cstdio>
 #include <filesystem>
 #include <string>
 #include <string_view>
@@ -25,16 +27,22 @@ public:
     CardGallery(const CardGallery&) = delete;
     CardGallery& operator=(const CardGallery&) = delete;
 
-    [[nodiscard]] bool Update(TableLayout::Point2 pointer, bool moved, bool pressed,
-                              int vertical, int horizontal) {
+    [[nodiscard]] bool Update(const GalleryInput& input) {
         fadeRemaining_ = std::max(0.0f, fadeRemaining_ - std::clamp(GetFrameTime(), 0.0f, 0.1f));
 
+        if (viewer_.IsOpen()) {
+            viewer_.Update(input);
+            return false; // The grid underneath ignores every input.
+        }
+
+        const TableLayout::Point2 pointer = input.pointer;
         const int pointerMonth = MonthAt(pointer);
-        if (moved || pointerMonth != hoveredMonth_) hoveredMonth_ = pointerMonth;
+        if (input.moved || pointerMonth != hoveredMonth_) hoveredMonth_ = pointerMonth;
         hoveredThumbnail_ = ThumbnailAt(pointer);
         backHovered_ = Contains(BackButton, pointer);
+        caseHovered_ = Contains(CardCase, pointer);
 
-        if (pressed) {
+        if (input.pressed) {
             if (backHovered_) return true;
             if (pointerMonth != 0) {
                 SelectMonth(pointerMonth);
@@ -44,10 +52,11 @@ public:
             }
         }
 
-        if (vertical != 0) SelectMonth(Wrap(selectedMonth_ - 1 + vertical, MonthCount) + 1);
-        if (horizontal != 0) SelectCard(Wrap(selectedCard_ + horizontal, CardsPerMonth));
+        if (input.vertical != 0) SelectMonth(Wrap(selectedMonth_ - 1 + input.vertical, MonthCount) + 1);
+        if (input.horizontal != 0) SelectCard(Wrap(selectedCard_ + input.horizontal, CardsPerMonth));
 
         EnsureCurrentMonthLoaded();
+        OpenViewer(input);
         return false;
     }
 
@@ -63,7 +72,13 @@ public:
         DrawInfo(viewport, headingFont, bodyFont);
         DrawThumbnails(viewport, bodyFont);
         DrawFooter(viewport, headingFont, bodyFont);
+
+        if (!viewer_.IsOpen()) return;
+        viewer_.Draw(viewport, textures_[static_cast<std::size_t>(selectedCard_)]);
+        DrawViewerOverlay(viewport, headingFont, bodyFont);
     }
+
+    [[nodiscard]] bool ViewerOpen() const { return viewer_.IsOpen(); }
 
 private:
     inline static constexpr int MonthCount = 12;
@@ -84,6 +99,7 @@ private:
     inline static constexpr Color White{255, 255, 255, 255};
     inline static constexpr TableLayout::Rect Panel{40, 28, 1280, 712};
     inline static constexpr TableLayout::Rect BackButton{570, 682, 220, 48};
+    inline static constexpr TableLayout::Rect CardCase{376, 140, 343, 520};
     inline static constexpr float ThumbnailY = 462.0f;
     inline static constexpr float ThumbnailWidth = 128.0f;
     inline static constexpr float ThumbnailHeight = 197.0f;
@@ -328,9 +344,10 @@ private:
     }
 
     void DrawCardCase(const Viewport& viewport, Font bodyFont) const {
-        DrawRectangleRec(viewport.Rec({376, 140, 343, 520}), Color{9, 17, 32, 235});
-        DrawRectangleLinesEx(viewport.Rec({376, 140, 343, 520}),
-                             std::max(1.0f, viewport.scale * 2.0f), Silver);
+        DrawRectangleRec(viewport.Rec(CardCase), Color{9, 17, 32, 235});
+        DrawRectangleLinesEx(viewport.Rec(CardCase),
+                             std::max(1.0f, viewport.scale * 2.0f),
+                             caseHovered_ && !viewer_.IsOpen() ? Yellow : Silver);
         DrawRectangleRec(viewport.Rec({386, 150, 327, 504}), Color{0, 0, 0, 64});
         DrawRectangleRec(viewport.Rec({388, 152, 327, 504}), Color{0, 0, 0, 96});
 
@@ -401,12 +418,52 @@ private:
     }
 
     void DrawFooter(const Viewport& viewport, Font headingFont, Font bodyFont) const {
+        // The extra hint always fits once Label() shrinks it, and the BACK
+        // button keeps its exact place so it never jumps between screens.
         DrawRectangleRec(viewport.Rec({44, 676, 1272, 60}), FooterBlue);
-        Label(viewport, bodyFont, "UP/DOWN  MONTH      LEFT/RIGHT  CARD",
+        Label(viewport, bodyFont, "UP/DOWN  MONTH      LEFT/RIGHT  CARD      CLICK  3D VIEW",
               {64, 676, 490, 60}, 18, Silver, true);
         Label(viewport, bodyFont, "ESC  BACK", {1170, 676, 126, 60}, 18, Silver, false, true);
 
         DrawRectangleRec(viewport.Rec(BackButton), backHovered_ ? TileBlue : Ink);
+        DrawRectangleLinesEx(viewport.Rec(BackButton), std::max(1.0f, viewport.scale * 2.0f), White);
+        DrawTriangle(Point(viewport, 594, 706), Point(viewport, 608, 696),
+                     Point(viewport, 608, 716), White);
+        Label(viewport, headingFont, "BACK", BackButton, 28, White);
+    }
+
+    void OpenViewer(const GalleryInput& input) {
+        const bool loaded = textures_[static_cast<std::size_t>(selectedCard_)].id != 0;
+        if (!loaded) return; // A missing image must not open an empty viewer.
+        const bool onCase = Contains(CardCase, input.pointer) && input.pressed;
+        if (!onCase && !input.enter) return;
+        viewer_.Open(input.antiAliasing);
+        caseHovered_ = false;
+    }
+
+    void DrawViewerOverlay(const Viewport& viewport, Font headingFont, Font bodyFont) const {
+        const auto& entry = SelectedEntry();
+        DrawRectangleRec(viewport.Rec({64, 40, 112, 56}), TileBlue);
+        DrawRectangleLinesEx(viewport.Rec({64, 40, 112, 56}),
+                             std::max(1.0f, viewport.scale * 2.0f), White);
+        Label(viewport, headingFont, entry.id, {64, 40, 112, 56}, 30, White);
+
+        DrawRectangleRec(viewport.Rec({176, 40, 330, 56}), Ink);
+        DrawRectangleLinesEx(viewport.Rec({176, 40, 330, 56}),
+                             std::max(1.0f, viewport.scale), StripOutline);
+        // 15 px left padding, ending where the right-aligned zoom readout starts.
+        Label(viewport, headingFont, Uppercase(entry.kind), {191, 40, 172, 56}, 30, Yellow, true);
+
+        char zoomText[16]{};
+        std::snprintf(zoomText, sizeof(zoomText), "ZOOM %.1fX", static_cast<double>(viewer_.Zoom()));
+        Label(viewport, bodyFont, zoomText, {363, 40, 127, 56}, 20, Silver, false, true);
+
+        DrawRectangleRec(viewport.Rec({44, 676, 1272, 60}), FooterBlue);
+        Label(viewport, bodyFont, "DRAG  ROTATE      WHEEL  ZOOM",
+              {64, 676, 490, 60}, 18, Silver, true);
+        Label(viewport, bodyFont, "ESC  BACK", {1170, 676, 126, 60}, 18, Silver, false, true);
+
+        DrawRectangleRec(viewport.Rec(BackButton), viewer_.BackHovered() ? TileBlue : Ink);
         DrawRectangleLinesEx(viewport.Rec(BackButton), std::max(1.0f, viewport.scale * 2.0f), White);
         DrawTriangle(Point(viewport, 594, 706), Point(viewport, 608, 696),
                      Point(viewport, 608, 716), White);
@@ -423,6 +480,8 @@ private:
     int hoveredThumbnail_ = -1;
     float fadeRemaining_ = 0.0f;
     bool backHovered_ = false;
+    bool caseHovered_ = false;
+    CardViewer viewer_;
 };
 
 } // namespace Ui
