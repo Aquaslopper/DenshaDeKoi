@@ -4,6 +4,7 @@
 #include "SimpleRadio.hpp"
 #include "SfxPlayer.hpp"
 #include "ui/PauseMenu.hpp"
+#include "ui/MatchSettingsMenu.hpp"
 #include "ui/StartMenu.hpp"
 
 #include <algorithm>
@@ -116,8 +117,10 @@ int main() {
         sfx.SetVolume(options.sfxVolume / 100.0f);
         Ui::PauseMenu pause;
         Ui::StartMenu startMenu(appDir, optionsFile.parent_path() / "start-menu-variant.txt");
+        Ui::MatchSettingsMenu matchSettings;
         bool inStartMenu = true;
         bool galleryOpen = false;
+        bool matchSettingsOpen = false;
         bool draggingVolume = false; // Radio's own channel slider.
         bool inspectingCard = false;
         MagnifyEffect magnify{};
@@ -158,8 +161,10 @@ int main() {
                 const bool escape = IsKeyPressed(KEY_ESCAPE);
                 // Esc belongs to the 3D viewer while it is open; a second Esc
                 // then leaves the gallery as before.
-                if (escape && (overlay != TableOverlay::NONE ||
-                               (galleryOpen && !startMenu.GalleryViewerOpen()))) {
+                if (escape && matchSettingsOpen) {
+                    matchSettingsOpen = false;
+                } else if (escape && (overlay != TableOverlay::NONE ||
+                                      (galleryOpen && !startMenu.GalleryViewerOpen()))) {
                     setOverlay(TableOverlay::NONE);
                     galleryOpen = false;
                 }
@@ -210,6 +215,26 @@ int main() {
                     if (draggingVolume && IsMouseButtonDown(MOUSE_BUTTON_LEFT))
                         radio.SetVolume((canvas.x - TableHud::VolumeBar.x) / TableHud::VolumeBar.width);
                     if (!IsMouseButtonDown(MOUSE_BUTTON_LEFT)) draggingVolume = false;
+                } else if (matchSettingsOpen) {
+                    const auto movement = GetMouseDelta();
+                    const auto action = matchSettings.Update(
+                        canvas, movement.x != 0.0f || movement.y != 0.0f, pressed,
+                        IsKeyPressed(KEY_DOWN) - IsKeyPressed(KEY_UP),
+                        IsKeyPressed(KEY_RIGHT) - IsKeyPressed(KEY_LEFT),
+                        IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_SPACE),
+                        false);
+                    switch (action) {
+                        case Ui::MatchSettingsAction::START:
+                            game = TableGame();
+                            inStartMenu = false;
+                            matchSettingsOpen = false;
+                            break;
+                        case Ui::MatchSettingsAction::BACK:
+                            matchSettingsOpen = false;
+                            break;
+                        case Ui::MatchSettingsAction::NONE:
+                            break;
+                    }
                 } else if (overlay == TableOverlay::NONE && !galleryOpen) {
                     const auto movement = GetMouseDelta();
                     const auto action = startMenu.Update(canvas, movement.x != 0 || movement.y != 0, pressed,
@@ -217,8 +242,8 @@ int main() {
                         IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_SPACE));
                     switch (action) {
                         case Ui::StartMenuAction::PLAY:
-                            game = TableGame();
-                            inStartMenu = false;
+                            matchSettings.ResetFocus();
+                            matchSettingsOpen = true;
                             break;
                         case Ui::StartMenuAction::OPTIONS:
                             setOverlay(TableOverlay::PAUSE);
@@ -242,7 +267,10 @@ int main() {
                 ClearBackground(BLACK);
                 const Ui::Viewport viewport = ScreenViewport();
                 startMenu.DrawBackground(viewport);
-                if (galleryOpen) startMenu.DrawGallery(viewport);
+                if (matchSettingsOpen) {
+                    const auto radioAssets = startMenu.RadioAssets();
+                    matchSettings.Draw(viewport, {radioAssets.logo, radioAssets.headingFont, radioAssets.bodyFont});
+                } else if (galleryOpen) startMenu.DrawGallery(viewport);
                 else if (overlay == TableOverlay::PAUSE)
                     startMenu.DrawOptions(viewport, options, display);
                 else if (overlay == TableOverlay::RADIO)
