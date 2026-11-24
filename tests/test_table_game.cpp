@@ -27,10 +27,38 @@ void TestOpeningPresentation() {
     game.Update(0.02f);
     Check(game.RoundIntroActive() && game.Busy(), "Deal and match intro did not start");
     game.Update(1.49f);
-    Check(game.RoundIntroActive(), "Round intro ended before 1.5 seconds");
-    game.Update(0.02f);
+    Check(game.RoundIntroActive() && game.Busy(), "Round intro ended during its bullet-time beat");
+    for (int i = 0; i < 300 && game.RoundIntroActive(); ++i) game.Update(0.01f);
     Check(!game.RoundIntroActive() && !game.Busy() && game.Rules().ValidateConservation(),
           "Opening presentation did not release gameplay");
+}
+
+// Round-start bullet time: a one-second logo beat in real time, a slowed deal during it,
+// then normal speed until all 24 dealt cards have landed.
+void TestRoundIntroBulletTime() {
+    TableGame game;
+    game.SelectDealerCard(0);
+    game.Update(3.4f);
+    Check(game.RoundIntroActive(), "Round intro did not start after the dealer reveal");
+    Check(game.RoundIntroBulletProgress() == 0.0f, "Bullet-time beat must start at zero");
+    float real = 0.0f;
+    float beatEnd = -1.0f;
+    int dealCues = 0;
+    float previous = 0.0f;
+    while (game.RoundIntroActive() && real < 3.0f) {
+        game.Update(0.01f);
+        real += 0.01f;
+        const float progress = game.RoundIntroBulletProgress();
+        Check(progress >= previous && progress <= 1.0f, "Bullet-time progress must be monotonic and clamped");
+        previous = progress;
+        if (beatEnd < 0.0f && progress >= 1.0f) beatEnd = real;
+        for (auto sfx : game.TakeSfx()) if (sfx == GameSfx::CARD_DEAL) ++dealCues;
+    }
+    Check(beatEnd > 0.98f && beatEnd < 1.02f, "Logo beat should last one real second");
+    Check(real > 1.6f && real < 1.9f, "Slowed deal should end the intro shortly after the beat");
+    Check(dealCues == 24, "Every dealt card must produce one deal cue");
+    Check(!game.RoundIntroActive() && game.RoundIntroBulletProgress() == 1.0f,
+          "Bullet time must be over once play resumes");
 }
 
 void TestProjection() {
@@ -355,6 +383,6 @@ void TestMatches() {
 }
 } // namespace
 int main() {
-    try { TestOpeningPresentation(); TestProjection(); TestReturnAndFreeze(); TestFlips(); TestStockAvoidsDeferredCapture(); TestDropTolerance(); TestHandSlides(); TestMatches(); std::cout << "Table gameplay passed.\n"; return 0; }
+    try { TestOpeningPresentation(); TestRoundIntroBulletTime(); TestProjection(); TestReturnAndFreeze(); TestFlips(); TestStockAvoidsDeferredCapture(); TestDropTolerance(); TestHandSlides(); TestMatches(); std::cout << "Table gameplay passed.\n"; return 0; }
     catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }
 }

@@ -16,6 +16,16 @@ constexpr float TableDropSeconds = 0.15f;
 constexpr float HandSlideSeconds = 0.30f;
 constexpr float CaptureFlightSeconds = 0.50f;
 constexpr float CaptureHitFreezeSeconds = 0.50f;
+// Round-start bullet time: the first second slows the table (deal, flights, cue sounds)
+// while the logo beat plays, then the table eases back to full speed.
+constexpr float BulletTimeSeconds = 1.0f;
+constexpr float BulletTimeFloor = 0.25f;     // Table speed at the start of the beat.
+constexpr float RoundIntroMinSeconds = 1.5f;
+constexpr float DealCompleteSeconds = 1.40f; // Last deal card: 23 * 0.04 s stagger + 0.45 s flight.
+float BulletTimeScale(float realElapsed) {
+    const float t = std::clamp(realElapsed / BulletTimeSeconds, 0.0f, 1.0f);
+    return BulletTimeFloor + (1.0f - BulletTimeFloor) * t * t * (3.0f - 2.0f * t);
+}
 constexpr std::array<Rect, 2> DealerCardRects{{
     {280.0f, 200.0f, 100.0f, 225.0f},
     {460.0f, 200.0f, 100.0f, 225.0f}
@@ -121,6 +131,10 @@ bool TableGame::DealerSelectionActive() const {
 }
 bool TableGame::RoundIntroActive() const {
     return openingStage_ == OpeningStage::ROUND_INTRO;
+}
+float TableGame::RoundIntroBulletProgress() const {
+    if (!RoundIntroActive()) return 1.0f;
+    return std::clamp(openingTimer_ / BulletTimeSeconds, 0.0f, 1.0f);
 }
 void TableGame::SelectDealerCard(int index) {
     if (!AwaitingDealerChoice() || (index != 0 && index != 1)) return;
@@ -444,15 +458,18 @@ void TableGame::Update(float seconds) {
         return;
     }
     if (openingStage_ == OpeningStage::ROUND_INTRO) {
+        // Real time drives the logo beat; the deal advances in table time, which is slowed during bullet time.
+        const float tableSeconds = seconds * BulletTimeScale(openingTimer_);
         openingTimer_ += seconds;
-        dealElapsed_ += seconds;
+        dealElapsed_ += tableSeconds;
         constexpr int OpeningCardCount = 24;
         while (openingDealCue_ < OpeningCardCount &&
                dealElapsed_ >= static_cast<float>(openingDealCue_) * 0.04f) {
             sfx_.push_back(GameSfx::CARD_DEAL);
             ++openingDealCue_;
         }
-        if (openingTimer_ >= 1.5f) openingStage_ = OpeningStage::PLAYING;
+        if (openingTimer_ >= RoundIntroMinSeconds && dealElapsed_ >= DealCompleteSeconds)
+            openingStage_ = OpeningStage::PLAYING;
         return;
     }
     if (Busy()) {
