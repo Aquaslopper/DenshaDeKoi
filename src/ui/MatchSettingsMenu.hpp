@@ -116,8 +116,7 @@ public:
         return MatchSettingsAction::NONE;
     }
 
-    void Draw(TableLayout::Point2 pointer) const {
-        const Viewport viewport = ComputeViewport();
+    void Draw(const Viewport& viewport, TableLayout::Point2 pointer) const {
         const Rectangle panelRect = PanelRect();
 
         // Subtle backdrop dim behind the modal dialog
@@ -219,13 +218,17 @@ private:
         return {panel.x + 278.0f, panel.y + 260.0f, 310.0f, 64.0f};
     }
 
+    static Rectangle ToScreen(const Viewport& viewport, Rectangle rect) {
+        return viewport.Rec({rect.x, rect.y, rect.width, rect.height});
+    }
+
     static bool InRect(TableLayout::Point2 p, Rectangle r) {
         return p.x >= r.x && p.x <= r.x + r.width && p.y >= r.y && p.y <= r.y + r.height;
     }
 
     void DrawLabel(const Viewport& viewport, const char* text, float x, float y, float size, Color color) const {
         const float scaledSize = size * viewport.scale;
-        const Vector2 pos{viewport.originX + x * viewport.scale, viewport.originY + y * viewport.scale};
+        const Vector2 pos{viewport.box.x + x * viewport.scale, viewport.box.y + y * viewport.scale};
         if (font_.texture.id != 0) {
             DrawTextEx(font_, text, pos, scaledSize, 1.0f * viewport.scale, color);
         } else {

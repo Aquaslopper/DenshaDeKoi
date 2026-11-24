@@ -263,7 +263,7 @@ int main() {
                 ClearBackground(BLACK);
                 const Ui::Viewport viewport = ScreenViewport();
                 startMenu.DrawBackground(viewport);
-                if (matchSettingsOpen) matchSettingsMenu.Draw(canvas);
+                if (matchSettingsOpen) matchSettingsMenu.Draw(viewport, canvas);
                 if (galleryOpen) startMenu.DrawGallery(viewport);
                 else if (overlay == TableOverlay::PAUSE)
                     startMenu.DrawOptions(viewport, options, display);
