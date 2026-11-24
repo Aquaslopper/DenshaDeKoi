@@ -63,6 +63,8 @@ Changes take effect immediately. On normal exit, settings are saved in `DenshaDe
 
 Open **CARD GALLERY** from the start menu. Use **Up / Down** to change month and **Left / Right** to change card; hover and click a month or thumbnail to select it. Click **BACK** or press **Esc** to close. The 48 original-resolution JPGs live in `assets/options/card-gallery/cards/` and are copied beside the executable under `options/card-gallery/cards/`.
 
+Click the big card in the middle (or press **Enter**) to pop it out as a real 3D card. Hold the left mouse button and move to turn it; dragging right brings the left edge toward you and dragging down brings the top edge toward you, with the pitch limited to ±70°. The wheel zooms from 0.6× to 3.0× and the **ZOOM** readout follows. Turning it around shows the solid black back the table uses, with a cream edge around the card. A short inertia keeps the card turning when you release mid-drag. **Esc**, a right click or **BACK** closes only the viewer, so a second **Esc** leaves the gallery as before. The card is rendered once into a render texture that is supersampled by the **Anti-Aliasing** setting from the pause menu, and the pop-out animation lands exactly on the card's place in the case.
+
 ## Internet radio
 
 The separate **RADIO** button pauses the game and opens the J-Pop radio panel: six Asia DREAM Radio stations, a volume slider, and `M` to mute. Playback runs through Raylib's own `AudioStream`, so `InitAudioDevice()` must succeed; the console prints `[radio]` lines (state changes, connection errors, stream format) that make it obvious where a failure happens.

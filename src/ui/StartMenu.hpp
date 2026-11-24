@@ -142,10 +142,11 @@ public:
         gallery_.Draw(viewport, headingFont_, bodyFont_);
     }
 
-    [[nodiscard]] bool UpdateGallery(TableLayout::Point2 pointer, bool moved, bool pressed,
-                                     int vertical, int horizontal) {
-        return gallery_.Update(pointer, moved, pressed, vertical, horizontal);
+    [[nodiscard]] bool UpdateGallery(const GalleryInput& input) {
+        return gallery_.Update(input);
     }
+
+    [[nodiscard]] bool GalleryViewerOpen() const { return gallery_.ViewerOpen(); }
 
     inline static constexpr std::array<TableLayout::Rect, 5> Buttons{{
         {213, 512, 176, 148}, {409, 512, 177, 148}, {609, 512, 178, 148},
