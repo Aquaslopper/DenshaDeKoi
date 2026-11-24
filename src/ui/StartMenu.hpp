@@ -31,9 +31,7 @@ public:
         for (std::size_t i = 0; i < backgrounds_.size(); ++i) {
             backgrounds_[i] = LoadTexture((menuDirectory / ("menu" + std::to_string(i + 1) + ".png")).string().c_str());
         }
-        // The transparent composition is also a useful fallback if a composite
-        // menu image is missing from a packaged build.
-        buttonComposition_ = LoadTexture((menuDirectory / "menu-buttons.png").string().c_str());
+
         optionsPanel_ = LoadTexture((appDirectory / "options" / "menu.png").string().c_str());
         optionsStripe_ = LoadTexture((appDirectory / "options" / "setting-stripe.png").string().c_str());
         logo_ = LoadTexture((appDirectory / "koidenscha.png").string().c_str());
@@ -48,7 +46,7 @@ public:
 
     ~StartMenu() {
         for (Texture2D& texture : backgrounds_) if (texture.id != 0) UnloadTexture(texture);
-        if (buttonComposition_.id != 0) UnloadTexture(buttonComposition_);
+
         if (optionsPanel_.id != 0) UnloadTexture(optionsPanel_);
         if (optionsStripe_.id != 0) UnloadTexture(optionsStripe_);
         if (logo_.id != 0) UnloadTexture(logo_);
@@ -103,11 +101,6 @@ public:
         if (background.id != 0) {
             DrawTexturePro(background, {0, 0, static_cast<float>(background.width), static_cast<float>(background.height)},
                            destination, {0, 0}, 0, WHITE);
-        } else if (buttonComposition_.id != 0) {
-            ClearBackground(BLACK);
-            DrawTexturePro(buttonComposition_, {0, 0, static_cast<float>(buttonComposition_.width),
-                                                static_cast<float>(buttonComposition_.height)},
-                           destination, {0, 0}, 0, WHITE);
         } else {
             ClearBackground(Color{10, 22, 54, 255});
             DrawText("DENSHA DE KOI", viewport.X(470), viewport.Y(190), viewport.Font(64), WHITE);
@@ -149,8 +142,8 @@ public:
     [[nodiscard]] bool GalleryViewerOpen() const { return gallery_.ViewerOpen(); }
 
     inline static constexpr std::array<TableLayout::Rect, 5> Buttons{{
-        {213, 512, 176, 148}, {409, 512, 177, 148}, {609, 512, 178, 148},
-        {810, 512, 179, 148}, {1011, 512, 179, 148}
+        {209, 501, 171, 145}, {400, 502, 174, 144}, {595, 502, 176, 143},
+        {794, 502, 174, 143}, {990, 502, 174, 143}
     }};
     inline static constexpr TableLayout::Rect GalleryBack{570, 500, 220, 64};
 
@@ -172,7 +165,7 @@ private:
 
     std::filesystem::path variantFile_;
     std::array<Texture2D, 4> backgrounds_{};
-    Texture2D buttonComposition_{};
+
     Texture2D optionsPanel_{};
     Texture2D optionsStripe_{};
     Texture2D logo_{};
