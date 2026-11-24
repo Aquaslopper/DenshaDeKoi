@@ -59,6 +59,10 @@ Click **PAUSE** or press **Esc / P**. Drag the level meters, click a choice, or 
 
 Changes take effect immediately. On normal exit, settings are saved in `DenshaDeKoi/options.txt` under `%APPDATA%` (Windows), `~/Library/Application Support` (macOS), or `$XDG_CONFIG_HOME` / `~/.config` (Linux). Delete this file to restore defaults.
 
+## Card gallery
+
+Open **CARD GALLERY** from the start menu. Use **Up / Down** to change month and **Left / Right** to change card; hover and click a month or thumbnail to select it. Click **BACK** or press **Esc** to close. The 48 original-resolution JPGs live in `assets/options/card-gallery/cards/` and are copied beside the executable under `options/card-gallery/cards/`.
+
 ## Internet radio
 
 The separate **RADIO** button pauses the game and opens the J-Pop radio panel: six Asia DREAM Radio stations, a volume slider, and `M` to mute. Playback runs through Raylib's own `AudioStream`, so `InitAudioDevice()` must succeed; the console prints `[radio]` lines (state changes, connection errors, stream format) that make it obvious where a failure happens.

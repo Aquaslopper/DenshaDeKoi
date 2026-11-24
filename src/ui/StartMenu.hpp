@@ -3,6 +3,7 @@
 #include "GameOptions.hpp"
 #include "RadioEngine.hpp"
 #include "TableHud.hpp"
+#include "ui/CardGallery.hpp"
 #include "ui/PauseMenu.hpp"
 #include "ui/PauseRadioMenu.hpp"
 #include "ui/UiViewport.hpp"
@@ -25,7 +26,7 @@ enum class StartMenuAction { NONE, PLAY, OPTIONS, RADIO, GALLERY, EXIT };
 class StartMenu {
 public:
     StartMenu(const std::filesystem::path& appDirectory, std::filesystem::path variantFile)
-        : variantFile_(std::move(variantFile)) {
+        : variantFile_(std::move(variantFile)), gallery_(appDirectory) {
         const auto menuDirectory = appDirectory / "options" / "start-menu";
         for (std::size_t i = 0; i < backgrounds_.size(); ++i) {
             backgrounds_[i] = LoadTexture((menuDirectory / ("menu" + std::to_string(i + 1) + ".png")).string().c_str());
@@ -138,30 +139,12 @@ public:
     }
 
     void DrawGallery(const Viewport& viewport) const {
-        DrawRectangle(viewport.X(0), viewport.Y(0), viewport.W(1360), viewport.H(768), Color{2, 8, 26, 178});
-        const TableLayout::Rect panel{300, 190, 760, 390};
-        DrawRectangle(viewport.X(panel.x + 8), viewport.Y(panel.y + 10), viewport.W(panel.width), viewport.H(panel.height),
-                      Color{3, 8, 22, 190});
-        DrawRectangleRec(viewport.Rec(panel), Color{8, 31, 112, 248});
-        DrawRectangleLinesEx(viewport.Rec(panel), std::max(2.0f, viewport.scale * 4.0f), Color{221, 194, 255, 255});
-        DrawRectangle(viewport.X(panel.x + 4), viewport.Y(panel.y + 78), viewport.W(panel.width - 8), viewport.H(4),
-                      Color{255, 255, 255, 235});
-        DrawTextEx(headingFont_, "CARD GALLERY", {static_cast<float>(viewport.X(385)), static_cast<float>(viewport.Y(222))},
-                   static_cast<float>(viewport.Font(48)), 1.0f, WHITE);
-        DrawTextEx(bodyFont_, "A new window for the card gallery is on its way.",
-                   {static_cast<float>(viewport.X(380)), static_cast<float>(viewport.Y(335))},
-                   static_cast<float>(viewport.Font(27)), 0.5f, Color{222, 235, 255, 255});
-        DrawTextEx(bodyFont_, "Your collected cards will live here.",
-                   {static_cast<float>(viewport.X(444)), static_cast<float>(viewport.Y(380))},
-                   static_cast<float>(viewport.Font(25)), 0.5f, Color{185, 209, 246, 255});
-        DrawRectangleRec(viewport.Rec(GalleryBack), Color{20, 72, 176, 255});
-        DrawRectangleLinesEx(viewport.Rec(GalleryBack), std::max(2.0f, viewport.scale * 2.0f), WHITE);
-        const char* back = "BACK";
-        const Vector2 label = MeasureTextEx(headingFont_, back, static_cast<float>(viewport.Font(28)), 0.5f);
-        DrawTextEx(headingFont_, back,
-                   {static_cast<float>(viewport.X(GalleryBack.x + (GalleryBack.width - label.x / viewport.scale) / 2)),
-                    static_cast<float>(viewport.Y(GalleryBack.y + (GalleryBack.height - 28) / 2))},
-                   static_cast<float>(viewport.Font(28)), 0.5f, WHITE);
+        gallery_.Draw(viewport, headingFont_, bodyFont_);
+    }
+
+    [[nodiscard]] bool UpdateGallery(TableLayout::Point2 pointer, bool moved, bool pressed,
+                                     int vertical, int horizontal) {
+        return gallery_.Update(pointer, moved, pressed, vertical, horizontal);
     }
 
     inline static constexpr std::array<TableLayout::Rect, 5> Buttons{{
@@ -197,6 +180,7 @@ private:
     PauseMenu optionMenu_{};
     int variant_ = 3;
     int selected_ = 0;
+    CardGallery gallery_;
 };
 
 } // namespace Ui
