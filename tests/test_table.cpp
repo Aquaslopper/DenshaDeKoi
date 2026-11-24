@@ -322,6 +322,7 @@ void DrawLineEx(Vector2, Vector2, float, Color c) { if (c.r == 255 && c.g == 218
 void DrawTriangle(Vector2, Vector2, Vector2, Color) {}
 void DrawRing(Vector2, float, float, float, float, int, Color) {}
 void DrawRectangleRounded(Rectangle, float, int, Color) {}
+void DrawRectangleRoundedLinesEx(Rectangle, float, int, float, Color) {}
 void DrawRectangleGradientV(int, int, int, int, Color, Color) {}
 int GetScreenWidth() { return width; }
 int GetScreenHeight() { return height; }

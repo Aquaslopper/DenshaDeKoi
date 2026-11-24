@@ -72,4 +72,5 @@ void DrawLineEx(Vector2 start, Vector2 end, float thickness, Color color);
 void DrawTriangle(Vector2 a, Vector2 b, Vector2 c, Color color);
 void DrawRing(Vector2 center, float inner, float outer, float start, float end, int segments, Color color);
 void DrawRectangleRounded(Rectangle rect, float roundness, int segments, Color color);
+void DrawRectangleRoundedLinesEx(Rectangle rect, float roundness, int segments, float lineThick, Color color);
 void DrawRectangleGradientV(int x, int y, int width, int height, Color top, Color bottom);
