@@ -31,9 +31,6 @@ public:
         for (std::size_t i = 0; i < backgrounds_.size(); ++i) {
             backgrounds_[i] = LoadTexture((menuDirectory / ("menu" + std::to_string(i + 1) + ".png")).string().c_str());
         }
-        // The transparent composition is also a useful fallback if a composite
-        // menu image is missing from a packaged build.
-        buttonComposition_ = LoadTexture((menuDirectory / "menu-buttons.png").string().c_str());
         optionsPanel_ = LoadTexture((appDirectory / "options" / "menu.png").string().c_str());
         optionsStripe_ = LoadTexture((appDirectory / "options" / "setting-stripe.png").string().c_str());
         logo_ = LoadTexture((appDirectory / "koidenscha.png").string().c_str());
@@ -48,7 +45,6 @@ public:
 
     ~StartMenu() {
         for (Texture2D& texture : backgrounds_) if (texture.id != 0) UnloadTexture(texture);
-        if (buttonComposition_.id != 0) UnloadTexture(buttonComposition_);
         if (optionsPanel_.id != 0) UnloadTexture(optionsPanel_);
         if (optionsStripe_.id != 0) UnloadTexture(optionsStripe_);
         if (logo_.id != 0) UnloadTexture(logo_);
@@ -103,11 +99,6 @@ public:
         if (background.id != 0) {
             DrawTexturePro(background, {0, 0, static_cast<float>(background.width), static_cast<float>(background.height)},
                            destination, {0, 0}, 0, WHITE);
-        } else if (buttonComposition_.id != 0) {
-            ClearBackground(BLACK);
-            DrawTexturePro(buttonComposition_, {0, 0, static_cast<float>(buttonComposition_.width),
-                                                static_cast<float>(buttonComposition_.height)},
-                           destination, {0, 0}, 0, WHITE);
         } else {
             ClearBackground(Color{10, 22, 54, 255});
             DrawText("DENSHA DE KOI", viewport.X(470), viewport.Y(190), viewport.Font(64), WHITE);
@@ -116,8 +107,8 @@ public:
         // Keep the supplied artwork clean: indicate focus with a feathered,
         // blue-white aura instead of drawing a hard box around the button.
         const Rectangle focus = viewport.Rec(Buttons[static_cast<std::size_t>(selected_)]);
-        constexpr std::array<float, 4> spreads{14.0f, 9.0f, 4.0f, 0.0f};
-        constexpr std::array<float, 4> opacities{7.0f, 9.0f, 13.0f, 18.0f};
+        constexpr std::array<float, 4> spreads{18.0f, 12.0f, 6.0f, 1.0f};
+        constexpr std::array<float, 4> opacities{45.0f, 85.0f, 135.0f, 205.0f};
         for (std::size_t layer = 0; layer < spreads.size(); ++layer) {
             const float spread = spreads[layer] * viewport.scale;
             const Rectangle halo{focus.x - spread, focus.y - spread,
@@ -126,7 +117,10 @@ public:
             DrawRectangleRoundedLinesEx(halo, 0.18f, 16, thickness,
                 Color{151, 211, 255, static_cast<unsigned char>(opacities[layer])});
         }
-        DrawRectangleRounded(focus, 0.16f, 16, Color{151, 211, 255, 10});
+        // Crisp bright edge plus a soft fill so the selected tile reads instantly.
+        DrawRectangleRoundedLinesEx(focus, 0.16f, 16, std::max(2.0f, 3.0f * viewport.scale),
+                                    Color{235, 247, 255, 235});
+        DrawRectangleRounded(focus, 0.16f, 16, Color{151, 211, 255, 42});
     }
 
     void DrawOptions(const Viewport& viewport, const GameOptions& options, Resolution display) const {
@@ -148,9 +142,11 @@ public:
 
     [[nodiscard]] bool GalleryViewerOpen() const { return gallery_.ViewerOpen(); }
 
+    // Aligned to the buttons baked into menu1-4.png (measured in the artwork,
+    // 1360x768 design space) so the glow and hit box sit on the visible tile.
     inline static constexpr std::array<TableLayout::Rect, 5> Buttons{{
-        {213, 512, 176, 148}, {409, 512, 177, 148}, {609, 512, 178, 148},
-        {810, 512, 179, 148}, {1011, 512, 179, 148}
+        {209, 504, 170, 141}, {402, 504, 170, 141}, {597, 504, 172, 141},
+        {796, 504, 171, 141}, {992, 504, 171, 141}
     }};
     inline static constexpr TableLayout::Rect GalleryBack{570, 500, 220, 64};
 
@@ -172,7 +168,6 @@ private:
 
     std::filesystem::path variantFile_;
     std::array<Texture2D, 4> backgrounds_{};
-    Texture2D buttonComposition_{};
     Texture2D optionsPanel_{};
     Texture2D optionsStripe_{};
     Texture2D logo_{};
