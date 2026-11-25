@@ -8,6 +8,7 @@
 #include "ui/MatchResultMenu.hpp"
 #include "ui/MatchSettingsMenu.hpp"
 #include "ui/StartMenu.hpp"
+#include "ui/LoadingScreen.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -121,6 +122,8 @@ int main() {
         sfx.SetVolume(options.sfxVolume / 100.0f);
         Ui::PauseMenu pause;
         Ui::StartMenu startMenu(appDir, optionsFile.parent_path() / "start-menu-variant.txt");
+        Ui::LoadingScreen loading(appDir);
+        Ui::activeLoadingScreen = &loading;
         bool inStartMenu = true;
         bool matchSettingsOpen = false;
         bool galleryOpen = false;
@@ -146,12 +149,23 @@ int main() {
             resetMatch();
             setOverlay(TableOverlay::NONE);
         };
-        const auto drawTitleFrame = [&]() {
+        const auto beginTransition = [&](bool toMatch) {
+            loading.Begin(toMatch);
+            matchSettingsOpen = false;
+            galleryOpen = false;
+            setOverlay(TableOverlay::NONE);
+        };
+        const auto drawMatchFrame = [&](TableLayout::Point2 pointer, float dt) {
+            const float desiredMagnification =
+                overlay == TableOverlay::NONE && !matchResultMenu.IsOpen() && inspectingCard ? 0.85f : 0.0f;
+            const float magnifyBlend = 1.0f - std::exp(-12.0f * dt);
+            magnify.amount += (desiredMagnification - magnify.amount) * magnifyBlend;
+            magnify.focus.x += (pointer.x - magnify.focus.x) * magnifyBlend;
+            magnify.focus.y += (pointer.y - magnify.focus.y) * magnifyBlend;
+
+            for (GameSfx cue : game.TakeSfx()) PlayGameSfx(sfx, cue);
             radio.Update();
-            BeginDrawing();
-            ClearBackground(BLACK);
-            startMenu.DrawBackground(ScreenViewport());
-            EndDrawing();
+            scene.Draw(game, {overlay, radio.Status(), options, pause.Focus(), pointer, &matchResultMenu}, magnify);
         };
         bool quitRequested = false;
 
@@ -164,10 +178,34 @@ int main() {
                 EndDrawing(); // Keep polling events while minimized.
                 continue;
             }
+            if (loading.Active()) {
+                if (loading.Update(dt)) {
+                    if (loading.ToMatch()) {
+                        resetMatch();
+                        inStartMenu = false;
+                    } else {
+                        returnToTitle();
+                    }
+                }
+                const auto pointer = CanvasPoint(GetMousePosition());
+                const auto viewport = ScreenViewport();
+                if (inStartMenu) {
+                    radio.Update();
+                    BeginDrawing();
+                    ClearBackground(BLACK);
+                    startMenu.DrawBackground(viewport);
+                    loading.Draw(viewport);
+                    EndDrawing();
+                } else {
+                    drawMatchFrame(pointer, dt); // TableScene applies the overlay hook.
+                }
+                continue;
+            }
             if (overlay == TableOverlay::PAUSE && options.screenMode != ScreenMode::Fullscreen) desktop = MonitorSize();
             if (options.screenMode == ScreenMode::Windowed) options.resolution = display;
             if (!inStartMenu && IsKeyPressed(KEY_BACKSPACE)) {
-                returnToTitle();
+                beginTransition(false);
+                continue;
             }
             const bool pauseKey = !inStartMenu && (IsKeyPressed(KEY_ESCAPE) || IsKeyPressed(KEY_P));
             if (pauseKey) setOverlay(overlay == TableOverlay::PAUSE ? TableOverlay::NONE : TableOverlay::PAUSE);
@@ -216,11 +254,8 @@ int main() {
                 } else if (overlay == TableOverlay::RADIO) {
                     if (pressed) {
                         if (In(canvas, TableHud::ResumeBottomButton)) setOverlay(TableOverlay::NONE);
-                        else if (In(canvas, TableHud::NewMatchButton)) {
-                            resetMatch();
-                            inStartMenu = false;
-                            setOverlay(TableOverlay::NONE);
-                        } else if (In(canvas, TableHud::RadioPowerButton)) radio.ToggleEnabled();
+                        else if (In(canvas, TableHud::NewMatchButton)) beginTransition(true);
+                        else if (In(canvas, TableHud::RadioPowerButton)) radio.ToggleEnabled();
                         else if (In(canvas, TableHud::RadioMuteButton)) radio.ToggleMute();
                         else if (In(canvas, TableHud::VolumeHitBox)) draggingVolume = true;
                         else {
@@ -245,9 +280,7 @@ int main() {
                     if (matchAction == Ui::MatchSettingsAction::BACK) {
                         matchSettingsOpen = false;
                     } else if (matchAction == Ui::MatchSettingsAction::START) {
-                        resetMatch();
-                        matchSettingsOpen = false;
-                        inStartMenu = false;
+                        beginTransition(true);
                     }
                 } else if (overlay == TableOverlay::NONE && !galleryOpen) {
                     const auto movement = GetMouseDelta();
@@ -296,8 +329,7 @@ int main() {
                 } else if (pressed && In(canvas, TableHud::PauseButton)) {
                     setOverlay(overlay == TableOverlay::PAUSE ? TableOverlay::NONE : TableOverlay::PAUSE);
                 } else if (pressed && In(canvas, TableHud::HomeButton)) {
-                    returnToTitle();
-                    drawTitleFrame();
+                    beginTransition(false);
                     continue;
                 } else if (overlay == TableOverlay::PAUSE) {
                     const auto old = options;
@@ -338,8 +370,7 @@ int main() {
                     } else if (pressed && In(canvas, TableHud::PauseButton)) {
                         setOverlay(TableOverlay::PAUSE);
                     } else if (pressed && In(canvas, TableHud::HomeButton)) {
-                        returnToTitle();
-                        drawTitleFrame();
+                        beginTransition(false);
                         continue;
                     } else {
                         const auto movement = GetMouseDelta();
@@ -350,8 +381,7 @@ int main() {
                             canvas, movement.x != 0.0f || movement.y != 0.0f, pressed,
                             horizontal, IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_SPACE));
                         if (resultAction == Ui::MatchResultAction::BACK) {
-                            returnToTitle();
-                            drawTitleFrame();
+                            beginTransition(false);
                             continue;
                         } else if (resultAction == Ui::MatchResultAction::NEXT) {
                             if (matchResultMenu.CurrentMode() == Ui::MatchResultMode::ROUND) {
@@ -382,8 +412,7 @@ int main() {
                         } else if (In(canvas, TableHud::PauseButton)) {
                             setOverlay(TableOverlay::PAUSE);
                         } else if (In(canvas, TableHud::HomeButton)) {
-                            returnToTitle();
-                            drawTitleFrame();
+                            beginTransition(false);
                             continue;
                         } else if (game.Rules().GetPhase() == Phase::AWAIT_DECISION && !game.Busy() &&
                                    game.Rules().CurrentPlayer() == Player::PLAYER && In(canvas, TableHud::KoiKoiButton)) {
@@ -404,16 +433,7 @@ int main() {
                 }
             }
 
-            const float desiredMagnification =
-                overlay == TableOverlay::NONE && !matchResultMenu.IsOpen() && inspectingCard ? 0.85f : 0.0f;
-            const float magnifyBlend = 1.0f - std::exp(-12.0f * dt);
-            magnify.amount += (desiredMagnification - magnify.amount) * magnifyBlend;
-            magnify.focus.x += (canvas.x - magnify.focus.x) * magnifyBlend;
-            magnify.focus.y += (canvas.y - magnify.focus.y) * magnifyBlend;
-
-            for (GameSfx cue : game.TakeSfx()) PlayGameSfx(sfx, cue);
-            radio.Update();
-            scene.Draw(game, {overlay, radio.Status(), options, pause.Focus(), canvas, &matchResultMenu}, magnify);
+            drawMatchFrame(canvas, dt);
         }
         SaveOptions(optionsFile, options);
     } catch (const std::exception& error) {
