@@ -4,7 +4,6 @@
 #include "TableLayout.hpp"
 #include "TableGame.hpp"
 #include "ui/Hud.hpp"
-#include "ui/PauseMenu.hpp"
 #include "ui/UiViewport.hpp"
 
 #include <rlgl.h>
@@ -387,7 +386,7 @@ void TableScene::Draw(const TableGame& game, const TableHudState& hud,
     Ui::DrawBulletTimeDim(game, TableLayout::ImageWidth, TableLayout::ImageHeight);
     if (hud.options.cardHints && hud.overlay == TableOverlay::NONE) Ui::DrawCardHints(game, cards, hud.pointer);
     const Ui::Viewport canvasViewport{canvasDestination, 1.0f};
-    Ui::DrawHud(canvasViewport, game, hud, logo_, headingFont_, bodyFont_);
+    Ui::DrawHud(canvasViewport, game, hud, logo_, bodyFont_);
     if (game.DealerSelectionActive())
         Ui::DrawDealerSelection(canvasViewport, game);
     EndTextureMode();
@@ -412,9 +411,8 @@ void TableScene::Draw(const TableGame& game, const TableHudState& hud,
                                     -static_cast<float>(canvas_.texture.height)},
                    destination, {0, 0}, 0, WHITE);
     EndShaderMode();
-    // Keep the pause art above every game prompt and outside the inspection zoom.
-    if (hud.overlay == TableOverlay::PAUSE)
-        Ui::DrawPauseMenu({destination, scale}, hud.options, {GetScreenWidth(), GetScreenHeight()}, hud.focusedOption,
-                          {optionsPanel_, optionsStripe_, headingFont_, bodyFont_});
+    // Keep modal HUD overlays above every game prompt and outside the inspection zoom.
+    Ui::DrawScreenOverlay({destination, scale}, hud, {GetScreenWidth(), GetScreenHeight()},
+                          logo_, optionsPanel_, optionsStripe_, headingFont_, bodyFont_);
     EndDrawing();
 }

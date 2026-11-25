@@ -1,6 +1,8 @@
 #include "DeckRegister.hpp" // Parse card enums before Raylib defines its BLUE color macro.
+#include "TableGame.hpp"
 #include "ui/Hud.hpp"
 
+#include "ui/PauseMenu.hpp"
 #include "ui/PauseRadioMenu.hpp"
 
 #include <algorithm>
@@ -120,7 +122,7 @@ void DrawDealerSelection(const Viewport& map, const TableGame& game) {
 }
 
 void DrawHud(const Viewport& map, const TableGame& game, const TableHudState& hud,
-             Texture2D logo, Font headingFont, Font bodyFont) {
+             Texture2D logo, Font bodyFont) {
     DrawRectangle(map.X(8), map.Y(8), map.W(500), map.H(102), Color{15, 20, 27, 220});
     const std::string label = "ROUND " + std::to_string(game.Round()) + " / " +
         std::to_string(game.TotalRounds()) +
@@ -168,9 +170,16 @@ void DrawHud(const Viewport& map, const TableGame& game, const TableHudState& hu
             Color{95, 118, 138, 220}, 1.5f);
     DrawText("PAUSE", map.X(TableHud::PauseButton.x + 9.0f),
              map.Y(TableHud::PauseButton.y + 19.0f), map.Font(14), WHITE);
+}
 
+void DrawScreenOverlay(const Viewport& viewport, const TableHudState& hud, Resolution display,
+                       Texture2D logo, Texture2D optionsPanel, Texture2D optionsStripe,
+                       Font headingFont, Font bodyFont) {
     if (hud.overlay == TableOverlay::RADIO) {
-        DrawPauseRadioMenu(map, hud.radio, {logo, headingFont, bodyFont});
+        DrawPauseRadioMenu(viewport, hud.radio, {logo, headingFont, bodyFont});
+    } else if (hud.overlay == TableOverlay::PAUSE) {
+        DrawPauseMenu(viewport, hud.options, display, hud.focusedOption,
+                      {optionsPanel, optionsStripe, headingFont, bodyFont});
     }
 }
 

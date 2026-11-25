@@ -2,7 +2,7 @@
 
 #include "GameOptions.hpp"
 #include "RadioEngine.hpp"
-#include "TableHud.hpp"
+#include "ui/Hud.hpp"
 #include "ui/CardGallery.hpp"
 #include "ui/PauseMenu.hpp"
 #include "ui/PauseRadioMenu.hpp"
