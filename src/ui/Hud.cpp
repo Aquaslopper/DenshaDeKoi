@@ -2,6 +2,7 @@
 #include "TableGame.hpp"
 #include "ui/Hud.hpp"
 
+#include "ui/LoadingScreen.hpp"
 #include "ui/MatchResultMenu.hpp"
 #include "ui/PauseMenu.hpp"
 #include "ui/PauseRadioMenu.hpp"
@@ -189,6 +190,7 @@ void DrawScreenOverlay(const Viewport& viewport, const TableHudState& hud, Resol
         DrawPauseMenu(viewport, hud.options, display, hud.focusedOption,
                       {optionsPanel, optionsStripe, headingFont, bodyFont});
     }
+    if (activeLoadingScreen) activeLoadingScreen->Draw(viewport);
 }
 
 } // namespace Ui
