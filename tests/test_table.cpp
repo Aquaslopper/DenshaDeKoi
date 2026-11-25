@@ -2,6 +2,7 @@
 #include "TableLayout.hpp"
 #include "TableGame.hpp"
 #include "TableScene.hpp"
+#include "ui/Hud.hpp"
 #include "ui/MatchResultMenu.hpp"
 #include "ui/PauseMenu.hpp"
 #include <raylib.h>
@@ -26,6 +27,7 @@ std::vector<Rectangle> sources;
 std::vector<unsigned int> blits;
 std::vector<Resolution> renderSizes;
 int hintEdges = 0;
+int defaultFontTextDraws = 0;
 Camera3D camera{};
 Color color{};
 float u = 0, v = 0;
@@ -41,6 +43,7 @@ bool Near(float a, float b, float tolerance = 0.01f) { return std::abs(a - b) < 
 void Reset() {
     vertices.clear(); unloaded.clear(); unloadedFonts.clear(); destinations.clear(); sources.clear();
     drawnTexts.clear(); blits.clear(); renderSizes.clear(); hintEdges = 0;
+    defaultFontTextDraws = 0;
     loads = renderUnloads = draws = 0; failAtlas = invalidAtlas = failCanvas = failStripe = false;
 }
 void TestGeometry() {
@@ -81,6 +84,7 @@ void TestDraw() {
         Check(!game.DealerSelectionActive() && game.TotalRounds() == TableLayout::MatchRounds,
               "Seeded TableGame(int) constructor must seed a standard match instead of overriding rounds");
         scene.Draw(game);
+        Check(defaultFontTextDraws == 0, "Match HUD must not use the beta default font");
         const auto cards = game.Cards();
         Check(cards.size() > 2 && std::any_of(cards.begin(), cards.end(),
                                               [](const TableCard& c) { return c.id >= 0; }),
@@ -286,6 +290,50 @@ void TestFailures() {
     threw = false;
     try { TableScene scene("city", "atlas", "logo", "heading", "body", "options"); } catch (const std::runtime_error&) { threw = true; }
     Check(threw && unloaded == std::vector<unsigned int>({9, 8, 4, 5, 2, 1}) && renderUnloads == 0, "Canvas failure or texture cleanup failed");
+}
+
+void TestMatchYakuHud() {
+    Reset();
+    const auto overlaps = [](TableLayout::Rect a, TableLayout::Rect b) {
+        return a.x < b.x + b.width && b.x < a.x + a.width &&
+               a.y < b.y + b.height && b.y < a.y + a.height;
+    };
+    for (bool cpu : {false, true}) {
+        const auto panel = cpu ? TableHud::CpuYakuPanel : TableHud::YouYakuPanel;
+        const auto badge = cpu ? TableHud::CpuYakuBadge : TableHud::YouYakuBadge;
+        Check(panel.y >= 0.0f && panel.y + panel.height < 110.0f && Near(badge.y, panel.y) &&
+              (cpu ? badge.x >= panel.x + panel.width : badge.x + badge.width <= panel.x),
+              "Yaku panels must form a top strip with outward driver badges");
+        std::array<TableLayout::Rect, TableHud::YakuSlotCount> slots{};
+        for (std::size_t i = 0; i < slots.size(); ++i) {
+            slots[i] = TableHud::YakuSlotRect(cpu, i);
+            Check(slots[i].x >= panel.x && slots[i].y >= panel.y &&
+                  slots[i].x + slots[i].width <= panel.x + panel.width &&
+                  slots[i].y + slots[i].height <= panel.y + panel.height,
+                  "Yaku slot must stay inside its player panel");
+        }
+        Check(slots[0].x < slots[1].x && Near(slots[0].y, slots[1].y) &&
+              slots[2].x < slots[3].x && Near(slots[2].y, slots[3].y) &&
+              Near(slots[0].x, slots[2].x) && slots[0].y < slots[2].y &&
+              Near(slots[1].x, slots[3].x) && slots[1].y < slots[3].y,
+              "Yaku corners must be a 2x2 grid, not four rows");
+        for (std::size_t i = 0; i < slots.size(); ++i)
+            for (std::size_t j = i + 1; j < slots.size(); ++j)
+                Check(!overlaps(slots[i], slots[j]), "Yaku corners must not overlap");
+    }
+
+    const std::vector<CardId> none;
+    const auto empty = Ui::BuildHudYakuSlots(none);
+    Check(empty[0].name.empty() && empty[3].points == 0 && empty[3].overflow == 0,
+          "Empty captures must leave all four corners clear");
+
+    const std::vector<CardId> capture{0, 8, 28, 40, 44, 20, 24, 36, 4, 32,
+                                      1, 5, 9, 21, 33, 37, 2, 3, 6, 7, 10, 11, 14, 15, 18};
+    const auto slots = Ui::BuildHudYakuSlots(capture);
+    Check(slots[0].name == "Goko" && slots[0].points == 10 && slots[0].month == 1 &&
+          slots[1].name == "Hanami-zake" && slots[2].name == "Tsukimi-zake" &&
+          slots[3].name == "Ino-shika-cho" && slots[3].overflow == 4,
+          "Top four yaku must fill the 2x2 grid in scoring priority with overflow marked");
 }
 
 void TestMatchResultMenu() {
@@ -536,7 +584,10 @@ void EndShaderMode() {}
 void BeginMode3D(Camera3D c) { camera = c; }
 void EndMode3D() {}
 void ClearBackground(Color) {}
-void DrawText(const char* text, int, int, int, Color) { if (text) drawnTexts.emplace_back(text); }
+void DrawText(const char* text, int, int, int, Color) {
+    ++defaultFontTextDraws; // The match HUD must use the supplied game font instead.
+    if (text) drawnTexts.emplace_back(text);
+}
 void DrawRectangle(int, int, int, int, Color) {}
 void DrawRectangleLinesEx(Rectangle, float, Color) {}
 Vector2 MeasureTextEx(Font, const char* text, float size, float) { return {std::string(text).size() * size / 2, size}; }
@@ -567,6 +618,6 @@ int main(int argc, char** argv) {
             std::cout << "Pause options, artwork, hints and anti-aliasing passed.\n";
             return 0;
         }
-        TestGeometry(); TestDraw(); TestMatchResultMenu(); TestFailures(); std::cout << "Table layout and rendering commands passed.\n"; return 0; }
+        TestGeometry(); TestDraw(); TestMatchYakuHud(); TestMatchResultMenu(); TestFailures(); std::cout << "Table layout and rendering commands passed.\n"; return 0; }
     catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }
 }

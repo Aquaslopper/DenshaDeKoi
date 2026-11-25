@@ -1,6 +1,7 @@
 #pragma once
 
 #include "GameOptions.hpp"
+#include "KoiKoiRules.hpp"
 #include "RadioEngine.hpp"
 #include "TableLayout.hpp"
 #include "ui/UiViewport.hpp"
@@ -9,6 +10,8 @@
 
 #include <array>
 #include <cstddef>
+#include <span>
+#include <string>
 #include <vector>
 
 class TableGame;
@@ -28,6 +31,24 @@ inline constexpr Rect DealerCardRight{715.0f, 315.0f, 175.0f, 190.0f};
 inline constexpr Rect RadioMenuButton{1266.0f, 322.0f, 76.0f, 58.0f};
 inline constexpr Rect PauseButton{1266.0f, 390.0f, 76.0f, 58.0f};
 inline constexpr Rect HomeButton{1266.0f, 458.0f, 76.0f, 58.0f};
+
+// Top match strip: one colour-coded driver badge and a 2x2 yaku grid per player.
+// The artwork follows the supplied 1342px strip scaled into the 1360px HUD space.
+inline constexpr Rect YouYakuBadge{4.0f, 8.0f, 66.0f, 92.0f};
+inline constexpr Rect YouYakuPanel{70.0f, 8.0f, 336.0f, 92.0f};
+inline constexpr Rect CpuYakuPanel{954.0f, 8.0f, 336.0f, 92.0f};
+inline constexpr Rect CpuYakuBadge{1290.0f, 8.0f, 66.0f, 92.0f};
+inline constexpr std::size_t YakuSlotCount = 4;
+
+[[nodiscard]] constexpr Rect YakuSlotRect(bool cpu, std::size_t index) {
+    const Rect panel = cpu ? CpuYakuPanel : YouYakuPanel;
+    constexpr float pad = 4.0f;
+    constexpr float gap = 4.0f;
+    const float width = (panel.width - 2.0f * pad - gap) * 0.5f;
+    const float height = (panel.height - 2.0f * pad - gap) * 0.5f;
+    return {panel.x + pad + (index % 2) * (width + gap),
+            panel.y + pad + (index / 2) * (height + gap), width, height};
+}
 
 // Centered Pause & Internet Radio overlay in 1360x768 HUD space.
 // Dimensions follow the supplied blue/white arcade-style menu mock-up.
@@ -68,6 +89,19 @@ struct TableHudState {
 };
 
 namespace Ui {
+
+// One miniature yaku card in a player's 2x2 grid. `month` supplies the tiny
+// hanafuda-style chip; `overflow` marks how many further yaku did not fit.
+struct HudYakuSlot {
+    std::string name;
+    int points = 0;
+    int month = 0;
+    int overflow = 0;
+};
+
+// Same priority as the round-result combos, capped at the four visible corners.
+[[nodiscard]] std::array<HudYakuSlot, TableHud::YakuSlotCount> BuildHudYakuSlots(
+    std::span<const CardId> captured);
 
 // In-canvas HUD overlays drawn around the main HUD pass.
 void DrawBulletTimeDim(const TableGame& game, int canvasWidth, int canvasHeight);
