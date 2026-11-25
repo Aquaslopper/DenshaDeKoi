@@ -54,6 +54,18 @@ void TestCaptureLanes() {
           lanes[2] == std::vector<CardId>({1, 21}) &&
           lanes[3] == std::vector<CardId>({2, 10}),
           "Capture lanes must group by category and preserve capture order, including the cup");
+    constexpr float cardWidth = 31.0f * 179.0f / 264.0f;
+    for (bool you : {false, true}) for (std::size_t column = 0; column < 2; ++column) {
+        const auto sparse = Ui::MatchCaptureLayout(you, column, 2, cardWidth);
+        const auto crowded = Ui::MatchCaptureLayout(you, column, 20, cardWidth);
+        Check(Near(sparse.step, cardWidth) && crowded.step < cardWidth && crowded.step > 0 &&
+              19 * crowded.step + cardWidth <= crowded.width + 0.01f,
+              "Crowded captures must overlap and stay inside their own cell");
+        if (column == 0) {
+            const auto next = Ui::MatchCaptureLayout(you, 1, 20, cardWidth);
+            Check(crowded.x + crowded.width < next.x, "Capture groups must not cross the divider");
+        }
+    }
     const auto empty = Ui::MatchCaptureLanes(std::span<const CardId>{});
     Check(std::all_of(empty.begin(), empty.end(), [](const auto& lane) { return lane.empty(); }),
           "Empty captures must produce empty lanes");

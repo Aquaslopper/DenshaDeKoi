@@ -63,22 +63,18 @@ void DrawCapturePanel(const Viewport& map, const TableGame& game, Player player,
     const auto lanes = MatchCaptureLanes(game.Rules().Captured(player));
     // Xeno Koi's B/A/R/P lane order, folded row-major into the 2x2 grid.
     // YOU's label is at the left and CPU's at the right.
-    const float gridX = panelX + (you ? 61.0f : 7.0f);
-    constexpr float cellWidth = 160.0f;
     constexpr float cardHeight = 31.0f;
     constexpr float cardWidth = cardHeight * 179.0f / 264.0f;
     for (std::size_t lane = 0; lane < lanes.size(); ++lane) {
         const auto& cards = lanes[lane];
-        const float x = gridX + static_cast<float>(lane % 2) * cellWidth + 2.0f;
+        const auto layout = MatchCaptureLayout(you, lane % 2, cards.size(), cardWidth);
         const float y = 15.0f + static_cast<float>(lane / 2) * 38.0f;
-        const float step = cards.size() > 1
-            ? std::min(cardWidth, (cellWidth - 5.0f - cardWidth) / static_cast<float>(cards.size() - 1)) : 0.0f;
         for (std::size_t i = 0; i < cards.size(); ++i) {
             const auto& card = DeckRegister::At(cards[i]);
             const auto src = AtlasLayout::GetCardSourceRect(static_cast<float>(textures.atlas.width),
                 static_cast<float>(textures.atlas.height), card.month, card.cardIndex);
             DrawTexturePro(textures.atlas, {src.x, src.y, src.width, src.height},
-                           map.Rec({x + static_cast<float>(i) * step, y, cardWidth, cardHeight}),
+                           map.Rec({layout.x + static_cast<float>(i) * layout.step, y, cardWidth, cardHeight}),
                            {0, 0}, 0, WHITE);
         }
     }
