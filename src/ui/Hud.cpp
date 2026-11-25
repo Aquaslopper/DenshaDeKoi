@@ -1,7 +1,9 @@
 #include "DeckRegister.hpp" // Parse card enums before Raylib defines its BLUE color macro.
 #include "TableGame.hpp"
+#include "AtlasLayout.hpp"
 #include "ui/Hud.hpp"
 
+#include "ui/MatchCaptureLanes.hpp"
 #include "ui/LoadingScreen.hpp"
 #include "ui/MatchResultMenu.hpp"
 #include "ui/PauseMenu.hpp"
@@ -11,15 +13,71 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <filesystem>
 #include <string>
 
 namespace Ui {
 namespace {
 
+// The scene calls DrawHud immediately before the dealer prompt, using the
+// same loaded in-game body font for both without changing the scene contract.
+Font matchBodyFont{};
+
+void DrawMatchText(const Viewport& map, Font font, const char* text,
+                   float x, float y, float size, Color color) {
+    if (!font.texture.id) font = GetFontDefault();
+    DrawTextEx(font, text, {map.box.x + x * map.scale, map.box.y + y * map.scale},
+               size * map.scale, 0.5f * map.scale, color);
+}
+
 void DrawBox(const Viewport& map, TableLayout::Rect rect, Color fill, Color border,
              float borderPx = 1.5f) {
     DrawRectangle(map.X(rect.x), map.Y(rect.y), map.W(rect.width), map.H(rect.height), fill);
     DrawRectangleLinesEx(map.Rec(rect), std::max(1.0f, borderPx * map.scale), border);
+}
+
+// The HUD owns these textures for the lifetime of the Raylib window. They are
+// loaded once on the render thread; CloseWindow releases the graphics context.
+struct MatchHudTextures {
+    Texture2D panel{};
+    Texture2D atlas{};
+    MatchHudTextures() {
+        const std::filesystem::path dir(GetApplicationDirectory());
+        panel = LoadTexture((dir / "options" / "match-hud" / "MatchUI.png").string().c_str());
+        atlas = LoadTexture((dir / "cards_atlas.png").string().c_str());
+        if (panel.id) SetTextureFilter(panel, TEXTURE_FILTER_BILINEAR);
+        if (atlas.id) SetTextureFilter(atlas, TEXTURE_FILTER_POINT);
+    }
+};
+
+void DrawCapturePanel(const Viewport& map, const TableGame& game, Player player,
+                      const MatchHudTextures& textures) {
+    const bool you = player == Player::PLAYER;
+    // MatchUI is 1334x81: two separate panels with transparent space between.
+    const float panelX = you ? 12.0f : 950.0f;
+    if (textures.panel.id) {
+        const Rectangle source = you ? Rectangle{0, 0, 397, 81} : Rectangle{936, 0, 398, 81};
+        DrawTexturePro(textures.panel, source, map.Rec({panelX, 10, 398, 81}), {0, 0}, 0, WHITE);
+    }
+    if (!textures.atlas.id) return;
+    const auto lanes = MatchCaptureLanes(game.Rules().Captured(player));
+    // Xeno Koi's B/A/R/P lane order, folded row-major into the 2x2 grid.
+    // YOU's label is at the left and CPU's at the right.
+    constexpr float cardHeight = 28.0f;
+    constexpr float cardWidth = cardHeight * 179.0f / 264.0f;
+    for (std::size_t lane = 0; lane < lanes.size(); ++lane) {
+        const auto& cards = lanes[lane];
+        const auto layout = MatchCaptureLayout(you, lane % 2, cards.size(), cardWidth);
+        const float y = MatchCaptureY(lane / 2, cardHeight);
+        for (std::size_t i = 0; i < cards.size(); ++i) {
+            const auto& card = DeckRegister::At(cards[i]);
+            const auto src = AtlasLayout::GetCardSourceRect(static_cast<float>(textures.atlas.width),
+                static_cast<float>(textures.atlas.height), card.month, card.cardIndex);
+            DrawTexturePro(textures.atlas, {src.x, src.y, src.width, src.height},
+                           map.Rec({layout.x + static_cast<float>(i) * layout.step, y, cardWidth, cardHeight}),
+                           {0, 0}, 0, WHITE);
+        }
+    }
 }
 
 // Round-start bullet-time beat: the logo spins three turns above the middle of the table and
@@ -108,45 +166,51 @@ void DrawCardHints(const TableGame& game, const std::vector<TableCard>& cards, T
 }
 
 void DrawDealerSelection(const Viewport& map, const TableGame& game) {
-    DrawText("PICK A CARD TO DETERMINE DEALER", map.X(405), map.Y(100), map.Font(28), WHITE);
+    DrawMatchText(map, matchBodyFont, "PICK A CARD TO DETERMINE DEALER", 405, 100, 28, WHITE);
     const int choice = game.DealerChoice();
     if (choice < 0) {
-        DrawText("CLICK TO PICK", map.X(505), map.Y(520), map.Font(18), LIGHTGRAY);
-        DrawText("CLICK TO PICK", map.X(760), map.Y(520), map.Font(18), LIGHTGRAY);
+        DrawMatchText(map, matchBodyFont, "CLICK TO PICK", 505, 520, 18, LIGHTGRAY);
+        DrawMatchText(map, matchBodyFont, "CLICK TO PICK", 760, 520, 18, LIGHTGRAY);
         return;
     }
     if (game.OpeningTimer() >= 0.9f) {
-        DrawText(choice == 0 ? "YOUR CARD" : "CPU CARD", map.X(520), map.Y(520), map.Font(18), WHITE);
-        DrawText(choice == 1 ? "YOUR CARD" : "CPU CARD", map.X(775), map.Y(520), map.Font(18), WHITE);
+        DrawMatchText(map, matchBodyFont, choice == 0 ? "YOUR CARD" : "CPU CARD", 520, 520, 18, WHITE);
+        DrawMatchText(map, matchBodyFont, choice == 1 ? "YOUR CARD" : "CPU CARD", 775, 520, 18, WHITE);
         const char* result = game.OpeningDealer() == Player::PLAYER ? "YOU ARE DEALER" : "CPU IS DEALER";
-        DrawText(result, map.X(570), map.Y(575), map.Font(30), WHITE);
+        DrawMatchText(map, matchBodyFont, result, 570, 575, 30, WHITE);
     }
 }
 
 void DrawHud(const Viewport& map, const TableGame& game, const TableHudState& hud,
              Texture2D logo, Font bodyFont) {
-    DrawRectangle(map.X(8), map.Y(8), map.W(500), map.H(102), Color{15, 20, 27, 220});
-    const std::string label = "ROUND " + std::to_string(game.Round()) + " / " +
-        std::to_string(game.TotalRounds()) +
-        "    YOU " + std::to_string(game.Scores()[PlayerIndex(Player::PLAYER)]) +
-        "  -  CPU " + std::to_string(game.Scores()[PlayerIndex(Player::OPPONENT)]);
-    DrawText(label.c_str(), map.X(20), map.Y(18), map.Font(22), WHITE);
-    DrawText(game.Status().c_str(), map.X(20), map.Y(51), map.Font(19), WHITE);
-    if (hud.options.cardHints)
-        DrawText("Drag a card to a match; right-click to cancel", map.X(20), map.Y(80), map.Font(15), LIGHTGRAY);
+    static const MatchHudTextures matchHud;
+    DrawCapturePanel(map, game, Player::PLAYER, matchHud);
+    DrawCapturePanel(map, game, Player::OPPONENT, matchHud);
+    matchBodyFont = bodyFont;
+    const std::string roundLabel = "ROUND " + std::to_string(game.Round()) + " / " +
+                                   std::to_string(game.TotalRounds());
+    const Font roundFont = bodyFont.texture.id ? bodyFont : GetFontDefault();
+    const float roundSize = 24.0f * map.scale;
+    const float spacing = 0.5f * map.scale;
+    const Vector2 roundWidth = MeasureTextEx(roundFont, roundLabel.c_str(), roundSize, spacing);
+    const Vector2 roundPos{map.box.x + 680.0f * map.scale - roundWidth.x * 0.5f,
+                           map.box.y + 20.0f * map.scale};
+    DrawTextEx(roundFont, roundLabel.c_str(), {roundPos.x + map.scale, roundPos.y + map.scale},
+               roundSize, spacing, Color{0, 0, 0, 200});
+    DrawTextEx(roundFont, roundLabel.c_str(), roundPos, roundSize, spacing, WHITE);
     if (game.Rules().GetPhase() == Phase::AWAIT_DECISION && game.Rules().CurrentPlayer() == Player::PLAYER && !game.Busy()) {
         DrawRectangle(map.X(TableHud::KoiKoiButton.x), map.Y(TableHud::KoiKoiButton.y),
                       map.W(TableHud::KoiKoiButton.width), map.H(TableHud::KoiKoiButton.height), Color{31, 75, 58, 245});
         DrawRectangle(map.X(TableHud::ShobuButton.x), map.Y(TableHud::ShobuButton.y),
                       map.W(TableHud::ShobuButton.width), map.H(TableHud::ShobuButton.height), Color{100, 50, 38, 245});
-        DrawText("KOI-KOI", map.X(543), map.Y(349), map.Font(20), WHITE);
-        DrawText("SHOBU", map.X(739), map.Y(349), map.Font(20), WHITE);
+        DrawMatchText(map, bodyFont, "KOI-KOI", 543, 349, 20, WHITE);
+        DrawMatchText(map, bodyFont, "SHOBU", 739, 349, 20, WHITE);
     }
     if (game.Rules().GetPhase() == Phase::ROUND_END && !game.Busy() && hud.matchResult == nullptr) {
         DrawRectangle(map.X(TableHud::RoundEndButton.x), map.Y(TableHud::RoundEndButton.y),
                       map.W(TableHud::RoundEndButton.width), map.H(TableHud::RoundEndButton.height), Color{15, 20, 27, 235});
-        DrawText(game.MatchFinished() ? "MATCH OVER" : "NEXT ROUND", map.X(615), map.Y(340), map.Font(20), WHITE);
-        DrawText(game.MatchFinished() ? "Click to restart" : "Click to continue", map.X(604), map.Y(370), map.Font(16), LIGHTGRAY);
+        DrawMatchText(map, bodyFont, game.MatchFinished() ? "MATCH OVER" : "NEXT ROUND", 615, 340, 20, WHITE);
+        DrawMatchText(map, bodyFont, game.MatchFinished() ? "Click to restart" : "Click to continue", 604, 370, 16, LIGHTGRAY);
     }
     if (game.RoundIntroActive()) {
         // The logo and match cue share one opacity, so they leave together when play resumes.
@@ -165,17 +229,14 @@ void DrawHud(const Viewport& map, const TableGame& game, const TableHudState& hu
     DrawBox(map, TableHud::RadioMenuButton,
             hud.overlay == TableOverlay::RADIO ? Color{34, 62, 56, 240} : Color{15, 20, 27, 230},
             liveRadio ? Color{102, 186, 152, 240} : Color{95, 118, 138, 220}, 1.5f);
-    DrawText("RADIO", map.X(TableHud::RadioMenuButton.x + 10.0f),
-             map.Y(TableHud::RadioMenuButton.y + 19.0f), map.Font(14), WHITE);
+    DrawMatchText(map, bodyFont, "RADIO", TableHud::RadioMenuButton.x + 10.0f, TableHud::RadioMenuButton.y + 19.0f, 14, WHITE);
     DrawBox(map, TableHud::PauseButton,
             hud.overlay == TableOverlay::PAUSE ? Color{34, 62, 56, 240} : Color{15, 20, 27, 230},
             Color{95, 118, 138, 220}, 1.5f);
-    DrawText("PAUSE", map.X(TableHud::PauseButton.x + 9.0f),
-             map.Y(TableHud::PauseButton.y + 19.0f), map.Font(14), WHITE);
+    DrawMatchText(map, bodyFont, "PAUSE", TableHud::PauseButton.x + 9.0f, TableHud::PauseButton.y + 19.0f, 14, WHITE);
     DrawBox(map, TableHud::HomeButton, Color{15, 20, 27, 230},
             Color{95, 118, 138, 220}, 1.5f);
-    DrawText("HOME", map.X(TableHud::HomeButton.x + 16.0f),
-             map.Y(TableHud::HomeButton.y + 19.0f), map.Font(14), WHITE);
+    DrawMatchText(map, bodyFont, "HOME", TableHud::HomeButton.x + 16.0f, TableHud::HomeButton.y + 19.0f, 14, WHITE);
 }
 
 void DrawScreenOverlay(const Viewport& viewport, const TableHudState& hud, Resolution display,
