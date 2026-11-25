@@ -1,6 +1,6 @@
 #pragma once
 
-#include "TableHud.hpp"
+#include "ui/Hud.hpp"
 #include "ui/UiViewport.hpp"
 
 #include <raylib.h>

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "TableGame.hpp" // Parse card enums before Raylib defines its BLUE color macro.
-#include "TableHud.hpp"
+#include "ui/Hud.hpp"
 #include <raylib.h>
 
 #include <filesystem>

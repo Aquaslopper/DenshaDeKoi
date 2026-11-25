@@ -1,5 +1,5 @@
 #include "TableGame.hpp"
-#include "TableHud.hpp"
+#include "ui/Hud.hpp"
 #include "TableScene.hpp"
 #include "SimpleRadio.hpp"
 #include "SfxPlayer.hpp"
@@ -104,7 +104,8 @@ int main() {
         const std::string bodyFont = (appDir / "fonts" / "Rajdhani-Bold.ttf").string();
         TableScene scene(background.c_str(), atlas.c_str(), logo.c_str(),
                          headingFont.c_str(), bodyFont.c_str(), appDir / "options");
-        TableGame game;
+        Ui::MatchSettingsMenu matchSettingsMenu(appDir);
+        TableGame game = TableGame::WithRounds(matchSettingsMenu.SelectedRounds());
         SimpleRadio radio;
         SfxPlayer sfx(appDir / "sfx");
         TableOverlay overlay = TableOverlay::NONE;
@@ -117,7 +118,6 @@ int main() {
         sfx.SetVolume(options.sfxVolume / 100.0f);
         Ui::PauseMenu pause;
         Ui::StartMenu startMenu(appDir, optionsFile.parent_path() / "start-menu-variant.txt");
-        Ui::MatchSettingsMenu matchSettingsMenu(appDir);
         bool inStartMenu = true;
         bool matchSettingsOpen = false;
         bool galleryOpen = false;
@@ -148,7 +148,7 @@ int main() {
                 inStartMenu = true;
                 galleryOpen = false;
                 startMenu.AdvanceVariant();
-                game = TableGame();
+                game = TableGame::WithRounds(matchSettingsMenu.SelectedRounds());
                 setOverlay(TableOverlay::NONE);
             }
             const bool pauseKey = !inStartMenu && (IsKeyPressed(KEY_ESCAPE) || IsKeyPressed(KEY_P));
@@ -199,7 +199,7 @@ int main() {
                     if (pressed) {
                         if (In(canvas, TableHud::ResumeBottomButton)) setOverlay(TableOverlay::NONE);
                         else if (In(canvas, TableHud::NewMatchButton)) {
-                            game = TableGame();
+                            game = TableGame::WithRounds(matchSettingsMenu.SelectedRounds());
                             inStartMenu = false;
                             setOverlay(TableOverlay::NONE);
                         } else if (In(canvas, TableHud::RadioPowerButton)) radio.ToggleEnabled();
@@ -227,7 +227,7 @@ int main() {
                     if (matchAction == Ui::MatchSettingsAction::BACK) {
                         matchSettingsOpen = false;
                     } else if (matchAction == Ui::MatchSettingsAction::START) {
-                        game = TableGame();
+                        game = TableGame::WithRounds(matchSettingsMenu.SelectedRounds());
                         matchSettingsOpen = false;
                         inStartMenu = false;
                     }
@@ -297,7 +297,7 @@ int main() {
                         else if (In(canvas, TableHud::RadioMuteButton)) radio.ToggleMute();
                         else if (In(canvas, TableHud::VolumeHitBox)) draggingVolume = true;
                         else if (In(canvas, TableHud::NewMatchButton)) {
-                            game = TableGame();
+                            game = TableGame::WithRounds(matchSettingsMenu.SelectedRounds());
                             setOverlay(TableOverlay::NONE);
                         } else {
                             for (std::size_t i = 0; i < TableHud::StationSlotCount; ++i)
@@ -324,7 +324,7 @@ int main() {
                     } else if (In(canvas, TableHud::PauseButton)) {
                         setOverlay(TableOverlay::PAUSE);
                     } else if (game.Rules().GetPhase() == Phase::ROUND_END && In(canvas, TableHud::RoundEndButton)) {
-                        if (game.MatchFinished()) game = TableGame();
+                        if (game.MatchFinished()) game = TableGame::WithRounds(matchSettingsMenu.SelectedRounds());
                         else game.NextRound();
                     } else if (game.Rules().GetPhase() == Phase::AWAIT_DECISION && !game.Busy() &&
                                game.Rules().CurrentPlayer() == Player::PLAYER && In(canvas, TableHud::KoiKoiButton)) {
