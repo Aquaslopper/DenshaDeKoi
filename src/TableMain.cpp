@@ -1,9 +1,11 @@
+#include "DeckRegister.hpp" // Parse card enums before Raylib defines its BLUE color macro.
 #include "TableGame.hpp"
 #include "ui/Hud.hpp"
 #include "TableScene.hpp"
 #include "SimpleRadio.hpp"
 #include "SfxPlayer.hpp"
 #include "ui/PauseMenu.hpp"
+#include "ui/MatchResultMenu.hpp"
 #include "ui/MatchSettingsMenu.hpp"
 #include "ui/StartMenu.hpp"
 
@@ -105,6 +107,7 @@ int main() {
         TableScene scene(background.c_str(), atlas.c_str(), logo.c_str(),
                          headingFont.c_str(), bodyFont.c_str(), appDir / "options");
         Ui::MatchSettingsMenu matchSettingsMenu(appDir);
+        Ui::MatchResultMenu matchResultMenu(appDir);
         TableGame game = TableGame::WithRounds(matchSettingsMenu.SelectedRounds());
         SimpleRadio radio;
         SfxPlayer sfx(appDir / "sfx");
@@ -131,6 +134,25 @@ int main() {
             pause = {};
             if (next != TableOverlay::NONE) game.CancelDrag();
         };
+        const auto resetMatch = [&]() {
+            game = TableGame::WithRounds(matchSettingsMenu.SelectedRounds());
+            matchResultMenu.ResetMatch();
+        };
+        const auto returnToTitle = [&]() {
+            inStartMenu = true;
+            galleryOpen = false;
+            matchSettingsOpen = false;
+            startMenu.AdvanceVariant();
+            resetMatch();
+            setOverlay(TableOverlay::NONE);
+        };
+        const auto drawTitleFrame = [&]() {
+            radio.Update();
+            BeginDrawing();
+            ClearBackground(BLACK);
+            startMenu.DrawBackground(ScreenViewport());
+            EndDrawing();
+        };
         bool quitRequested = false;
 
         while (!WindowShouldClose() && !quitRequested) {
@@ -145,11 +167,7 @@ int main() {
             if (overlay == TableOverlay::PAUSE && options.screenMode != ScreenMode::Fullscreen) desktop = MonitorSize();
             if (options.screenMode == ScreenMode::Windowed) options.resolution = display;
             if (!inStartMenu && IsKeyPressed(KEY_BACKSPACE)) {
-                inStartMenu = true;
-                galleryOpen = false;
-                startMenu.AdvanceVariant();
-                game = TableGame::WithRounds(matchSettingsMenu.SelectedRounds());
-                setOverlay(TableOverlay::NONE);
+                returnToTitle();
             }
             const bool pauseKey = !inStartMenu && (IsKeyPressed(KEY_ESCAPE) || IsKeyPressed(KEY_P));
             if (pauseKey) setOverlay(overlay == TableOverlay::PAUSE ? TableOverlay::NONE : TableOverlay::PAUSE);
@@ -199,7 +217,7 @@ int main() {
                     if (pressed) {
                         if (In(canvas, TableHud::ResumeBottomButton)) setOverlay(TableOverlay::NONE);
                         else if (In(canvas, TableHud::NewMatchButton)) {
-                            game = TableGame::WithRounds(matchSettingsMenu.SelectedRounds());
+                            resetMatch();
                             inStartMenu = false;
                             setOverlay(TableOverlay::NONE);
                         } else if (In(canvas, TableHud::RadioPowerButton)) radio.ToggleEnabled();
@@ -227,7 +245,7 @@ int main() {
                     if (matchAction == Ui::MatchSettingsAction::BACK) {
                         matchSettingsOpen = false;
                     } else if (matchAction == Ui::MatchSettingsAction::START) {
-                        game = TableGame::WithRounds(matchSettingsMenu.SelectedRounds());
+                        resetMatch();
                         matchSettingsOpen = false;
                         inStartMenu = false;
                     }
@@ -277,6 +295,10 @@ int main() {
                     setOverlay(overlay == TableOverlay::RADIO ? TableOverlay::NONE : TableOverlay::RADIO);
                 } else if (pressed && In(canvas, TableHud::PauseButton)) {
                     setOverlay(overlay == TableOverlay::PAUSE ? TableOverlay::NONE : TableOverlay::PAUSE);
+                } else if (pressed && In(canvas, TableHud::HomeButton)) {
+                    returnToTitle();
+                    drawTitleFrame();
+                    continue;
                 } else if (overlay == TableOverlay::PAUSE) {
                     const auto old = options;
                     const auto movement = GetMouseDelta();
@@ -297,7 +319,7 @@ int main() {
                         else if (In(canvas, TableHud::RadioMuteButton)) radio.ToggleMute();
                         else if (In(canvas, TableHud::VolumeHitBox)) draggingVolume = true;
                         else if (In(canvas, TableHud::NewMatchButton)) {
-                            game = TableGame::WithRounds(matchSettingsMenu.SelectedRounds());
+                            resetMatch();
                             setOverlay(TableOverlay::NONE);
                         } else {
                             for (std::size_t i = 0; i < TableHud::StationSlotCount; ++i)
@@ -309,40 +331,81 @@ int main() {
                     if (!IsMouseButtonDown(MOUSE_BUTTON_LEFT)) draggingVolume = false;
                 }
             } else if (!pauseKey) {
-                if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
-                    if (game.Dragging()) game.CancelDrag();
-                    else inspectingCard = game.HasCardAt(PlanPoint(canvas));
-                }
-                if (IsMouseButtonReleased(MOUSE_BUTTON_RIGHT)) inspectingCard = false;
-                if (pressed) {
-                    if (game.AwaitingDealerChoice() && In(canvas, TableHud::DealerCardLeft)) {
-                        game.SelectDealerCard(0);
-                    } else if (game.AwaitingDealerChoice() && In(canvas, TableHud::DealerCardRight)) {
-                        game.SelectDealerCard(1);
-                    } else if (In(canvas, TableHud::RadioMenuButton)) {
+                if (matchResultMenu.IsOpen()) {
+                    inspectingCard = false;
+                    if (pressed && In(canvas, TableHud::RadioMenuButton)) {
                         setOverlay(TableOverlay::RADIO);
-                    } else if (In(canvas, TableHud::PauseButton)) {
+                    } else if (pressed && In(canvas, TableHud::PauseButton)) {
                         setOverlay(TableOverlay::PAUSE);
-                    } else if (game.Rules().GetPhase() == Phase::ROUND_END && In(canvas, TableHud::RoundEndButton)) {
-                        if (game.MatchFinished()) game = TableGame::WithRounds(matchSettingsMenu.SelectedRounds());
-                        else game.NextRound();
-                    } else if (game.Rules().GetPhase() == Phase::AWAIT_DECISION && !game.Busy() &&
-                               game.Rules().CurrentPlayer() == Player::PLAYER && In(canvas, TableHud::KoiKoiButton)) {
-                        game.Choose(Decision::KOI_KOI);
-                    } else if (game.Rules().GetPhase() == Phase::AWAIT_DECISION && !game.Busy() &&
-                               game.Rules().CurrentPlayer() == Player::PLAYER && In(canvas, TableHud::ShobuButton)) {
-                        game.Choose(Decision::SHOUBU);
+                    } else if (pressed && In(canvas, TableHud::HomeButton)) {
+                        returnToTitle();
+                        drawTitleFrame();
+                        continue;
                     } else {
-                        game.PointerDown(PlanPoint(canvas));
+                        const auto movement = GetMouseDelta();
+                        const int horizontal =
+                            static_cast<int>(IsKeyPressed(KEY_RIGHT) || IsKeyPressedRepeat(KEY_RIGHT)) -
+                            static_cast<int>(IsKeyPressed(KEY_LEFT) || IsKeyPressedRepeat(KEY_LEFT));
+                        const auto resultAction = matchResultMenu.Update(
+                            canvas, movement.x != 0.0f || movement.y != 0.0f, pressed,
+                            horizontal, IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_SPACE));
+                        if (resultAction == Ui::MatchResultAction::BACK) {
+                            returnToTitle();
+                            drawTitleFrame();
+                            continue;
+                        } else if (resultAction == Ui::MatchResultAction::NEXT) {
+                            if (matchResultMenu.CurrentMode() == Ui::MatchResultMode::ROUND) {
+                                if (game.MatchFinished()) {
+                                    matchResultMenu.ShowMatchSummary();
+                                } else {
+                                    matchResultMenu.CloseRoundPopup();
+                                    game.NextRound();
+                                }
+                            } else {
+                                resetMatch();
+                            }
+                        }
+                    }
+                } else {
+                    if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
+                        if (game.Dragging()) game.CancelDrag();
+                        else inspectingCard = game.HasCardAt(PlanPoint(canvas));
+                    }
+                    if (IsMouseButtonReleased(MOUSE_BUTTON_RIGHT)) inspectingCard = false;
+                    if (pressed) {
+                        if (game.AwaitingDealerChoice() && In(canvas, TableHud::DealerCardLeft)) {
+                            game.SelectDealerCard(0);
+                        } else if (game.AwaitingDealerChoice() && In(canvas, TableHud::DealerCardRight)) {
+                            game.SelectDealerCard(1);
+                        } else if (In(canvas, TableHud::RadioMenuButton)) {
+                            setOverlay(TableOverlay::RADIO);
+                        } else if (In(canvas, TableHud::PauseButton)) {
+                            setOverlay(TableOverlay::PAUSE);
+                        } else if (In(canvas, TableHud::HomeButton)) {
+                            returnToTitle();
+                            drawTitleFrame();
+                            continue;
+                        } else if (game.Rules().GetPhase() == Phase::AWAIT_DECISION && !game.Busy() &&
+                                   game.Rules().CurrentPlayer() == Player::PLAYER && In(canvas, TableHud::KoiKoiButton)) {
+                            game.Choose(Decision::KOI_KOI);
+                        } else if (game.Rules().GetPhase() == Phase::AWAIT_DECISION && !game.Busy() &&
+                                   game.Rules().CurrentPlayer() == Player::PLAYER && In(canvas, TableHud::ShobuButton)) {
+                            game.Choose(Decision::SHOUBU);
+                        } else {
+                            game.PointerDown(PlanPoint(canvas));
+                        }
+                    }
+                    if (game.Dragging()) game.PointerMove(PlanPoint(canvas));
+                    if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) game.PointerUp(PlanPoint(canvas));
+                    if (overlay == TableOverlay::NONE) game.Update(dt);
+                    if (game.Rules().GetPhase() == Phase::ROUND_END && !game.Busy()) {
+                        matchResultMenu.SyncRoundEnd(game);
                     }
                 }
-                if (game.Dragging()) game.PointerMove(PlanPoint(canvas));
-                if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) game.PointerUp(PlanPoint(canvas));
-                if (overlay == TableOverlay::NONE) game.Update(dt);
             }
 
             const float desiredMagnification =
-                overlay == TableOverlay::NONE && inspectingCard ? 0.85f : 0.0f;
+                overlay == TableOverlay::NONE && !matchResultMenu.IsOpen() && inspectingCard ? 0.85f : 0.0f;
             const float magnifyBlend = 1.0f - std::exp(-12.0f * dt);
             magnify.amount += (desiredMagnification - magnify.amount) * magnifyBlend;
             magnify.focus.x += (canvas.x - magnify.focus.x) * magnifyBlend;
@@ -350,7 +413,7 @@ int main() {
 
             for (GameSfx cue : game.TakeSfx()) PlayGameSfx(sfx, cue);
             radio.Update();
-            scene.Draw(game, {overlay, radio.Status(), options, pause.Focus(), canvas}, magnify);
+            scene.Draw(game, {overlay, radio.Status(), options, pause.Focus(), canvas, &matchResultMenu}, magnify);
         }
         SaveOptions(optionsFile, options);
     } catch (const std::exception& error) {

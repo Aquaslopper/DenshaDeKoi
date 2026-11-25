@@ -27,6 +27,7 @@ inline constexpr Rect DealerCardRight{715.0f, 315.0f, 175.0f, 190.0f};
 // Separate right-side entry points. Icon artwork can replace the temporary labels later.
 inline constexpr Rect RadioMenuButton{1266.0f, 322.0f, 76.0f, 58.0f};
 inline constexpr Rect PauseButton{1266.0f, 390.0f, 76.0f, 58.0f};
+inline constexpr Rect HomeButton{1266.0f, 458.0f, 76.0f, 58.0f};
 
 // Centered Pause & Internet Radio overlay in 1360x768 HUD space.
 // Dimensions follow the supplied blue/white arcade-style menu mock-up.
@@ -50,7 +51,10 @@ inline constexpr std::size_t StationSlotCount = 6;
 }
 } // namespace TableHud
 
-namespace Ui { enum class OptionRow; }
+namespace Ui {
+enum class OptionRow;
+class MatchResultMenu;
+}
 
 enum class TableOverlay { NONE, RADIO, PAUSE };
 
@@ -60,6 +64,7 @@ struct TableHudState {
     GameOptions options{};
     Ui::OptionRow focusedOption{}; // First row on opening the pause menu.
     TableLayout::Point2 pointer{-1, -1};
+    const Ui::MatchResultMenu* matchResult = nullptr;
 };
 
 namespace Ui {
