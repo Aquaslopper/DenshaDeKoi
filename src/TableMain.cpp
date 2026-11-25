@@ -139,7 +139,11 @@ int main() {
         Ui::StartMenu startMenu(appDir, optionsFile.parent_path() / "start-menu-variant.txt");
         Ui::MatchSettingsMenu matchSettingsMenu(appDir);
         Ui::MatchOverMenu matchOverMenu(appDir);
-        Ui::TableHudRenderer hudRenderer({logo_, headingFont_, bodyFont_});
+        // Load HUD assets (logo texture + fonts)
+        Texture2D hudLogo = LoadTexture((appDir / "koidenscha.png").string().c_str());
+        Font hudHeadingFont = LoadFontEx((appDir / "fonts" / "Oxanium-Bold.ttf").string().c_str(), 64, nullptr, 0);
+        Font hudBodyFont = LoadFontEx((appDir / "fonts" / "Rajdhani-Bold.ttf").string().c_str(), 48, nullptr, 0);
+        Ui::TableHudRenderer hudRenderer({hudLogo, hudHeadingFont, hudBodyFont});
         bool inStartMenu = true;
         bool matchSettingsOpen = false;
         bool galleryOpen = false;
@@ -439,7 +443,13 @@ int main() {
             }
         }
         SaveOptions(optionsFile, options);
+    if (hudHeadingFont.texture.id != 0) UnloadFont(hudHeadingFont);
+    if (hudBodyFont.texture.id != 0) UnloadFont(hudBodyFont);
+    if (hudLogo.id != 0) UnloadTexture(hudLogo);
     } catch (const std::exception& error) {
+        if (hudHeadingFont.texture.id != 0) UnloadFont(hudHeadingFont);
+        if (hudBodyFont.texture.id != 0) UnloadFont(hudBodyFont);
+        if (hudLogo.id != 0) UnloadTexture(hudLogo);
         std::fprintf(stderr, "%s\n", error.what());
         result = 1;
     }
