@@ -1,4 +1,5 @@
 import { MousePointer2 } from "lucide-react";
+import tableScreenshot from "../../screenshots/table.jpg";
 import { Link } from "@/lib/router";
 import { Callout, CodeBlock, H2, Kbd, PageHeader, Step, Steps, Table } from "@/components/ui";
 
@@ -140,6 +141,12 @@ export default function ControlsPage() {
       </Table>
 
       <H2 id="screen">What you see on screen</H2>
+      <figure className="my-6">
+        <img src={tableScreenshot} alt="The match table with player and CPU hands, field, stock and capture panels" className="w-full rounded-2xl border border-slate-200 shadow-sm" />
+        <figcaption className="mt-2.5 text-center text-[13px] text-slate-400">
+          A newly dealt match: your hand is at the bottom, the CPU hand is at the top, and the shared field is in the middle.
+        </figcaption>
+      </figure>
       <p>
         The table is a fixed logical canvas of <strong>1360 × 768</strong>; resizing the window preserves its
         aspect ratio inside a letterbox. The painted station-and-table image is the background, cards lie on a
@@ -151,8 +158,9 @@ export default function ControlsPage() {
         <li><strong>Bottom:</strong> your hand; <strong>top:</strong> the CPU's face-down cards.</li>
         <li><strong>Sides:</strong> the capture piles and the face-down stock.</li>
         <li>
-          <strong>HUD:</strong> the round counter (<code>ROUND n / total</code>), match totals and the action
-          buttons. Round starts show a centered <code>MATCH START</code> / <code>ROUND START</code> cue.
+          <strong>HUD:</strong> the round counter (<code>ROUND n / total</code>) sits between the YOU and CPU
+          capture panels. Each panel groups captured cards by type in four sections: bright, animal, ribbon,
+          and plain. Round starts show a centered <code>MATCH START</code> / <code>ROUND START</code> cue.
         </li>
       </ul>
 

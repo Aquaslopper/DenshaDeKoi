@@ -1,5 +1,5 @@
 import { Eye } from "lucide-react";
-import pause from "@/assets/pause.jpg";
+import pause from "../../screenshots/pause.jpg";
 import { Link } from "@/lib/router";
 import { Callout, H2, Kbd, PageHeader, Panel, Table } from "@/components/ui";
 
@@ -17,7 +17,7 @@ const OPTIONS = [
   {
     n: 3,
     name: "Card Hints",
-    text: "Outlines matching field cards while you hover or drag a playable hand card, and the legal targets when a stock card needs a choice. Switching it off also hides the drag tip – legal moves and right-click inspection stay the same.",
+    text: "Outlines matching field cards while you hover or drag a playable hand card, and the legal targets when a stock card needs a choice. Switching it off leaves legal moves and right-click inspection unchanged.",
   },
   {
     n: 4,
