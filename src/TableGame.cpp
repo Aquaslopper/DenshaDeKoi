@@ -86,9 +86,11 @@ std::array<int, 2> DrawDealerCards() {
 }
 } // namespace
 
-TableGame::TableGame() : game_(Player::PLAYER), openingStage_(OpeningStage::DEALER_PICK),
-                         dealerCards_(DrawDealerCards()) {}
-TableGame::TableGame(std::uint32_t seed) : game_(DrawDealer(seed), seed) { Start(); }
+TableGame::TableGame(int totalRounds)
+    : game_(Player::PLAYER), openingStage_(OpeningStage::DEALER_PICK),
+      dealerCards_(DrawDealerCards()), totalRounds_(totalRounds) {}
+TableGame::TableGame(std::uint32_t seed, int totalRounds)
+    : game_(DrawDealer(seed), seed), totalRounds_(totalRounds) { Start(); }
 
 void TableGame::Start() {
     slots_.fill(-1);
@@ -439,7 +441,7 @@ void TableGame::RecordResult() {
         sfx_.push_back(game_.Result()->points[0] > game_.Result()->points[1]
                            ? GameSfx::ROUND_WIN : GameSfx::ROUND_LOSE);
         resultRecorded_ = true;
-        finished_ = round_ == TableLayout::MatchRounds;
+        finished_ = round_ == totalRounds_;
     }
 }
 void TableGame::Update(float seconds) {

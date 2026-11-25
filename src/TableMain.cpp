@@ -148,7 +148,7 @@ int main() {
                 inStartMenu = true;
                 galleryOpen = false;
                 startMenu.AdvanceVariant();
-                game = TableGame();
+                game = TableGame(matchSettingsMenu.SelectedRounds());
                 setOverlay(TableOverlay::NONE);
             }
             const bool pauseKey = !inStartMenu && (IsKeyPressed(KEY_ESCAPE) || IsKeyPressed(KEY_P));
@@ -199,7 +199,7 @@ int main() {
                     if (pressed) {
                         if (In(canvas, TableHud::ResumeBottomButton)) setOverlay(TableOverlay::NONE);
                         else if (In(canvas, TableHud::NewMatchButton)) {
-                            game = TableGame();
+                            game = TableGame(matchSettingsMenu.SelectedRounds());
                             inStartMenu = false;
                             setOverlay(TableOverlay::NONE);
                         } else if (In(canvas, TableHud::RadioPowerButton)) radio.ToggleEnabled();
@@ -227,7 +227,7 @@ int main() {
                     if (matchAction == Ui::MatchSettingsAction::BACK) {
                         matchSettingsOpen = false;
                     } else if (matchAction == Ui::MatchSettingsAction::START) {
-                        game = TableGame();
+                        game = TableGame(matchSettingsMenu.SelectedRounds());
                         matchSettingsOpen = false;
                         inStartMenu = false;
                     }
@@ -297,7 +297,7 @@ int main() {
                         else if (In(canvas, TableHud::RadioMuteButton)) radio.ToggleMute();
                         else if (In(canvas, TableHud::VolumeHitBox)) draggingVolume = true;
                         else if (In(canvas, TableHud::NewMatchButton)) {
-                            game = TableGame();
+                            game = TableGame(matchSettingsMenu.SelectedRounds());
                             setOverlay(TableOverlay::NONE);
                         } else {
                             for (std::size_t i = 0; i < TableHud::StationSlotCount; ++i)
@@ -324,7 +324,7 @@ int main() {
                     } else if (In(canvas, TableHud::PauseButton)) {
                         setOverlay(TableOverlay::PAUSE);
                     } else if (game.Rules().GetPhase() == Phase::ROUND_END && In(canvas, TableHud::RoundEndButton)) {
-                        if (game.MatchFinished()) game = TableGame();
+                        if (game.MatchFinished()) game = TableGame(matchSettingsMenu.SelectedRounds());
                         else game.NextRound();
                     } else if (game.Rules().GetPhase() == Phase::AWAIT_DECISION && !game.Busy() &&
                                game.Rules().CurrentPlayer() == Player::PLAYER && In(canvas, TableHud::KoiKoiButton)) {
