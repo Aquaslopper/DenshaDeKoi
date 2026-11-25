@@ -1,5 +1,5 @@
 #include "TableGame.hpp"
-#include "TableHud.hpp"
+#include "ui/Hud.hpp"
 #include "TableScene.hpp"
 #include "SimpleRadio.hpp"
 #include "SfxPlayer.hpp"

@@ -1,7 +1,7 @@
 #include "ui/PauseRadioMenu.hpp"
 
 #include "RadioPlaylist.hpp"
-#include "TableHud.hpp"
+#include "ui/Hud.hpp"
 #include "TableLayout.hpp"
 
 #include <algorithm>

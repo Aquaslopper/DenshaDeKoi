@@ -1,5 +1,7 @@
 #include "ui/Hud.hpp"
 
+#include "DeckRegister.hpp"
+#include "ui/PauseMenu.hpp"
 #include "ui/PauseRadioMenu.hpp"
 
 #include <algorithm>
@@ -57,7 +59,74 @@ void DrawRoundIntroCue(const Viewport& map, Font font, const char* text, float o
     DrawTextEx(font, text, origin, size, spacing, Color{255, 255, 255, alpha});
 }
 
+void DrawBulletTimeDimImpl(const TableGame& game, int canvasWidth, int canvasHeight) {
+    if (const float beat = game.RoundIntroBulletProgress(); beat < 1.0f) {
+        DrawRectangle(0, 0, canvasWidth, canvasHeight,
+                      Color{0, 0, 0, static_cast<unsigned char>(std::lround(110.0f * (1.0f - beat)))});
+    }
+}
+
+void DrawCardHintsImpl(const TableGame& game, const std::vector<TableCard>& cards, TableLayout::Point2 pointer) {
+    const auto& rules = game.Rules();
+    if (game.Busy() || rules.CurrentPlayer() != Player::PLAYER) return;
+    const auto phase = rules.GetPhase();
+    int month = 0;
+    if (phase == Phase::AWAIT_HAND_PLAY) {
+        const auto plan = TableLayout::Unproject(pointer);
+        const auto& hand = rules.Hand(Player::PLAYER);
+        for (auto it = cards.rbegin(); it != cards.rend(); ++it) {
+            const auto r = it->rect;
+            if (plan.x >= r.x && plan.x <= r.x + r.width && plan.y >= r.y && plan.y <= r.y + r.height &&
+                std::find(hand.begin(), hand.end(), it->id) != hand.end()) {
+                month = DeckRegister::At(it->id).month;
+                break;
+            }
+        }
+        if (!month) return;
+    } else if (phase != Phase::AWAIT_DRAW_CHOICE) return;
+    for (int id : (month ? rules.Field() : rules.Choices())) {
+        if (month && DeckRegister::At(id).month != month) continue;
+        const TableLayout::Rect r = game.FieldRect(id);
+        const auto corner = [](float x, float y) {
+            const auto p = TableLayout::Project(TableLayout::OnPlane(x, y, TableLayout::CardElevation + TableLayout::CardThickness));
+            return Vector2{p.x, p.y};
+        };
+        const float l = r.x - 2, t = r.y - 2, b = r.y + r.height + 2, right = r.x + r.width + 2;
+        const std::array points{corner(l, t), corner(right, t), corner(right, b), corner(l, b)};
+        for (std::size_t i = 0; i < points.size(); ++i)
+            DrawLineEx(points[i], points[(i + 1) % points.size()], 2.0f, Color{255, 218, 53, 235});
+    }
+}
+
+void DrawDealerSelectionImpl(const Viewport& map, const TableGame& game) {
+    DrawText("PICK A CARD TO DETERMINE DEALER", map.X(405), map.Y(100), map.Font(28), WHITE);
+    const int choice = game.DealerChoice();
+    if (choice < 0) {
+        DrawText("CLICK TO PICK", map.X(505), map.Y(520), map.Font(18), LIGHTGRAY);
+        DrawText("CLICK TO PICK", map.X(760), map.Y(520), map.Font(18), LIGHTGRAY);
+        return;
+    }
+    if (game.OpeningTimer() >= 0.9f) {
+        DrawText(choice == 0 ? "YOUR CARD" : "CPU CARD", map.X(520), map.Y(520), map.Font(18), WHITE);
+        DrawText(choice == 1 ? "YOUR CARD" : "CPU CARD", map.X(775), map.Y(520), map.Font(18), WHITE);
+        const char* result = game.OpeningDealer() == Player::PLAYER ? "YOU ARE DEALER" : "CPU IS DEALER";
+        DrawText(result, map.X(570), map.Y(575), map.Font(30), WHITE);
+    }
+}
+
 } // namespace
+
+void DrawBulletTimeDim(const TableGame& game, int canvasWidth, int canvasHeight) {
+    DrawBulletTimeDimImpl(game, canvasWidth, canvasHeight);
+}
+
+void DrawCardHints(const TableGame& game, const std::vector<TableCard>& cards, TableLayout::Point2 pointer) {
+    DrawCardHintsImpl(game, cards, pointer);
+}
+
+void DrawDealerSelection(const Viewport& viewport, const TableGame& game) {
+    DrawDealerSelectionImpl(viewport, game);
+}
 
 void DrawHud(const Viewport& viewport, const TableGame& game, const TableHudState& hud,
              Texture2D logo, Font headingFont, Font bodyFont) {
@@ -109,9 +178,16 @@ void DrawHud(const Viewport& viewport, const TableGame& game, const TableHudStat
             Color{95, 118, 138, 220}, 1.5f);
     DrawText("PAUSE", map.X(TableHud::PauseButton.x + 9.0f),
              map.Y(TableHud::PauseButton.y + 19.0f), map.Font(14), WHITE);
+}
 
+void DrawScreenOverlay(const Viewport& viewport, const TableHudState& hud, Resolution display,
+                       Texture2D logo, Texture2D optionsPanel, Texture2D optionsStripe,
+                       Font headingFont, Font bodyFont) {
     if (hud.overlay == TableOverlay::RADIO) {
-        DrawPauseRadioMenu(map, hud.radio, {logo, headingFont, bodyFont});
+        DrawPauseRadioMenu(viewport, hud.radio, {logo, headingFont, bodyFont});
+    } else if (hud.overlay == TableOverlay::PAUSE) {
+        DrawPauseMenu(viewport, hud.options, display, hud.focusedOption,
+                      {optionsPanel, optionsStripe, headingFont, bodyFont});
     }
 }
 

@@ -4,7 +4,6 @@
 #include "TableLayout.hpp"
 #include "TableGame.hpp"
 #include "ui/Hud.hpp"
-#include "ui/PauseMenu.hpp"
 #include "ui/UiViewport.hpp"
 
 #include <rlgl.h>
@@ -265,61 +264,6 @@ Texture2D CreateMatteCardBackTexture() {
 
 using ScreenMap = Ui::Viewport;
 
-void DrawBox(const ScreenMap& map, TableLayout::Rect rect, Color fill, Color border,
-             float borderPx = 1.5f) {
-    DrawRectangle(map.X(rect.x), map.Y(rect.y), map.W(rect.width), map.H(rect.height), fill);
-    DrawRectangleLinesEx(map.Rec(rect), std::max(1.0f, borderPx * map.scale), border);
-}
-
-void DrawDealerSelection(const ScreenMap& map, const TableGame& game) {
-    DrawText("PICK A CARD TO DETERMINE DEALER", map.X(405), map.Y(100), map.Font(28), WHITE);
-    const int choice = game.DealerChoice();
-    if (choice < 0) {
-        DrawText("CLICK TO PICK", map.X(505), map.Y(520), map.Font(18), LIGHTGRAY);
-        DrawText("CLICK TO PICK", map.X(760), map.Y(520), map.Font(18), LIGHTGRAY);
-        return;
-    }
-    if (game.OpeningTimer() >= 0.9f) {
-        DrawText(choice == 0 ? "YOUR CARD" : "CPU CARD", map.X(520), map.Y(520), map.Font(18), WHITE);
-        DrawText(choice == 1 ? "YOUR CARD" : "CPU CARD", map.X(775), map.Y(520), map.Font(18), WHITE);
-        const char* result = game.OpeningDealer() == Player::PLAYER ? "YOU ARE DEALER" : "CPU IS DEALER";
-        DrawText(result, map.X(570), map.Y(575), map.Font(30), WHITE);
-    }
-}
-
-// Read-only assistance: use visible hand cards and the rule engine's pending
-// choices. It never selects a card or participates in hit testing or scoring.
-void DrawCardHints(const TableGame& game, const std::vector<TableCard>& cards, TableLayout::Point2 pointer) {
-    const auto& rules = game.Rules();
-    if (game.Busy() || rules.CurrentPlayer() != Player::PLAYER) return;
-    const auto phase = rules.GetPhase();
-    int month = 0;
-    if (phase == Phase::AWAIT_HAND_PLAY) {
-        const auto plan = TableLayout::Unproject(pointer);
-        const auto& hand = rules.Hand(Player::PLAYER);
-        for (auto it = cards.rbegin(); it != cards.rend(); ++it) {
-            const auto r = it->rect;
-            if (plan.x >= r.x && plan.x <= r.x + r.width && plan.y >= r.y && plan.y <= r.y + r.height &&
-                std::find(hand.begin(), hand.end(), it->id) != hand.end()) {
-                month = DeckRegister::At(it->id).month;
-                break;
-            }
-        }
-        if (!month) return;
-    } else if (phase != Phase::AWAIT_DRAW_CHOICE) return;
-    for (int id : (month ? rules.Field() : rules.Choices())) {
-        if (month && DeckRegister::At(id).month != month) continue;
-        const Rect r = game.FieldRect(id);
-        const auto corner = [](float x, float y) {
-            const auto p = TableLayout::Project(TableLayout::OnPlane(x, y, TableLayout::CardElevation + TableLayout::CardThickness));
-            return Vector2{p.x, p.y};
-        };
-        const float l = r.x - 2, t = r.y - 2, b = r.y + r.height + 2, right = r.x + r.width + 2;
-        const std::array points{corner(l, t), corner(right, t), corner(right, b), corner(l, b)};
-        for (std::size_t i = 0; i < points.size(); ++i)
-            DrawLineEx(points[i], points[(i + 1) % points.size()], 2.0f, Color{255, 218, 53, 235});
-    }
-}
 
 
 Texture2D LoadRequiredTexture(const char* path) {
@@ -443,14 +387,11 @@ void TableScene::Draw(const TableGame& game, const TableHudState& hud,
                        canvasDestination, {0, 0}, 0, WHITE);
     }
     // Bullet time darkens the table behind the logo beat, fading out as the logo settles.
-    if (const float beat = game.RoundIntroBulletProgress(); beat < 1.0f) {
-        DrawRectangle(0, 0, world.texture.width, world.texture.height,
-                      Color{0, 0, 0, static_cast<unsigned char>(std::lround(110.0f * (1.0f - beat)))});
-    }
-    if (hud.options.cardHints && hud.overlay == TableOverlay::NONE) DrawCardHints(game, cards, hud.pointer);
+    Ui::DrawBulletTimeDim(game, world.texture.width, world.texture.height);
+    if (hud.options.cardHints && hud.overlay == TableOverlay::NONE) Ui::DrawCardHints(game, cards, hud.pointer);
     Ui::DrawHud(ScreenMap{canvasDestination, 1.0f}, game, hud, logo_, headingFont_, bodyFont_);
     if (game.DealerSelectionActive())
-        DrawDealerSelection(ScreenMap{canvasDestination, 1.0f}, game);
+        Ui::DrawDealerSelection(ScreenMap{canvasDestination, 1.0f}, game);
     EndTextureMode();
 
     const float scale = std::min(static_cast<float>(GetScreenWidth()) / TableLayout::ImageWidth,
@@ -473,9 +414,8 @@ void TableScene::Draw(const TableGame& game, const TableHudState& hud,
                                     -static_cast<float>(canvas_.texture.height)},
                    destination, {0, 0}, 0, WHITE);
     EndShaderMode();
-    // Keep the pause art above every game prompt and outside the inspection zoom.
-    if (hud.overlay == TableOverlay::PAUSE)
-        Ui::DrawPauseMenu({destination, scale}, hud.options, {GetScreenWidth(), GetScreenHeight()}, hud.focusedOption,
-                          {optionsPanel_, optionsStripe_, headingFont_, bodyFont_});
+    // Keep modal HUD overlays above every game prompt and outside the inspection zoom.
+    Ui::DrawScreenOverlay({destination, scale}, hud, {GetScreenWidth(), GetScreenHeight()},
+                          logo_, optionsPanel_, optionsStripe_, headingFont_, bodyFont_);
     EndDrawing();
 }
