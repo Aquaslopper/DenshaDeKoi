@@ -1,3 +1,4 @@
+import radioScreenshot from "../../screenshots/radio.jpg";
 import { Music, Radio, Volume2 } from "lucide-react";
 import { Link } from "@/lib/router";
 import { Callout, H2, Kbd, PageHeader, Pill, Table } from "@/components/ui";
@@ -93,6 +94,12 @@ export default function ExtrasPage() {
       </Callout>
 
       <H2 id="radio">Internet radio</H2>
+      <figure className="my-6">
+        <img src={radioScreenshot} alt="The in-game radio panel showing its volume control and six stations" className="w-full rounded-2xl border border-slate-200 shadow-sm" />
+        <figcaption className="mt-2.5 text-center text-[13px] text-slate-400">
+          The radio panel pauses the match while you choose a station or adjust its volume.
+        </figcaption>
+      </figure>
       <p>
         The separate <strong>RADIO</strong> button pauses the game and opens the J-Pop radio panel{" "}
         <Radio className="inline h-4 w-4 text-koi-500" />. Six Asia DREAM Radio stations are built in:
