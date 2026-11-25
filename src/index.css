@@ -1,0 +1,125 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", "Noto Sans JP", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Zen Kaku Gothic New", "Inter", "Noto Sans JP", ui-sans-serif, system-ui, sans-serif;
+
+  /* Bahn-Marineblau (Hauptfarbe für Text-Akzente und Buttons) */
+  --color-navy-50: #f3f6fc;
+  --color-navy-100: #e4eaf7;
+  --color-navy-200: #c6d2ec;
+  --color-navy-300: #9db1dc;
+  --color-navy-400: #6f88c4;
+  --color-navy-500: #4a65a9;
+  --color-navy-600: #324d8d;
+  --color-navy-700: #263c75;
+  --color-navy-800: #1a2c5b;
+  --color-navy-900: #101c40;
+
+  /* Koi-Pink (Highlights) */
+  --color-koi-50: #fff1f7;
+  --color-koi-100: #ffe0ee;
+  --color-koi-200: #ffc2dc;
+  --color-koi-400: #f2619f;
+  --color-koi-500: #e5408a;
+  --color-koi-600: #cc2874;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    @apply bg-white font-sans text-slate-700 antialiased;
+  }
+  ::selection {
+    background: #ffc2dc;
+    color: #101c40;
+  }
+  :focus-visible {
+    outline: 2px solid #4a65a9;
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+}
+
+/* Fließtext-Formatierung für Wiki-Inhalte */
+@layer components {
+  .wiki p {
+    @apply mb-4 text-[15.5px] leading-7 text-slate-600;
+  }
+  .wiki ul {
+    @apply mb-5 list-none space-y-2 pl-0 text-[15.5px] leading-7 text-slate-600;
+  }
+  .wiki ul > li {
+    @apply relative pl-6;
+  }
+  .wiki ul > li::before {
+    content: "";
+    @apply absolute left-1 top-[0.7em] h-2 w-2 rounded-full bg-navy-300;
+  }
+  .wiki ol {
+    @apply mb-5 list-decimal space-y-2 pl-6 text-[15.5px] leading-7 text-slate-600 marker:font-semibold marker:text-navy-500;
+  }
+  .wiki strong {
+    @apply font-semibold text-slate-900;
+  }
+  .wiki a:not([data-plain]) {
+    @apply font-medium text-navy-600 underline decoration-navy-200 decoration-2 underline-offset-[3px] transition-colors hover:text-koi-600 hover:decoration-koi-200;
+  }
+  .wiki code {
+    @apply rounded-md bg-slate-100 px-1.5 py-0.5 font-mono text-[0.85em] text-navy-800;
+  }
+  .wiki pre code {
+    @apply bg-transparent p-0 text-inherit;
+  }
+}
+
+/* Dezente Zug-Linie als Dekoration */
+.rail-stripe {
+  background: linear-gradient(90deg, #f97316 0%, #16a34a 38%, #e5408a 70%, #263c75 100%);
+}
+
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.fade-up {
+  animation: fade-up 0.35s ease both;
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.pop-in {
+  animation: pop-in 0.18s ease both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  .fade-up,
+  .pop-in {
+    animation: none;
+  }
+}
