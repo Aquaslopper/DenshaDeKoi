@@ -1,5 +1,6 @@
 #include "ui/TableHudRenderer.hpp"
 
+#include "DeckRegister.hpp"
 #include "ui/PauseRadioMenu.hpp"
 
 #include <algorithm>
@@ -60,6 +61,39 @@ void DrawRoundIntroCue(const ScreenMap& map, Font font, const char* text, float 
     DrawTextEx(font, text, origin, size, spacing, Color{255, 255, 255, alpha});
 }
 
+void DrawCardHints(const ScreenMap& map, const TableGame& game, TableLayout::Point2 pointer) {
+    const auto& rules = game.Rules();
+    if (game.Busy() || rules.CurrentPlayer() != Player::PLAYER) return;
+    const auto phase = rules.GetPhase();
+    int month = 0;
+    if (phase == Phase::AWAIT_HAND_PLAY) {
+        const auto plan = TableLayout::Unproject(pointer);
+        const auto& hand = rules.Hand(Player::PLAYER);
+        const auto& cards = game.Cards();
+        for (auto it = cards.rbegin(); it != cards.rend(); ++it) {
+            const auto r = it->rect;
+            if (plan.x >= r.x && plan.x <= r.x + r.width && plan.y >= r.y && plan.y <= r.y + r.height &&
+                std::find(hand.begin(), hand.end(), it->id) != hand.end()) {
+                month = DeckRegister::At(it->id).month;
+                break;
+            }
+        }
+        if (!month) return;
+    } else if (phase != Phase::AWAIT_DRAW_CHOICE) return;
+    for (int id : (month ? rules.Field() : rules.Choices())) {
+        if (month && DeckRegister::At(id).month != month) continue;
+        const Rect r = game.FieldRect(id);
+        const auto corner = [&](float x, float y) {
+            const auto p = TableLayout::Project(TableLayout::OnPlane(x, y, TableLayout::CardElevation + TableLayout::CardThickness));
+            return Vector2{p.x, p.y};
+        };
+        const float l = r.x - 2, t = r.y - 2, b = r.y + r.height + 2, right = r.x + r.width + 2;
+        const std::array points{corner(l, t), corner(right, t), corner(right, b), corner(l, b)};
+        for (std::size_t i = 0; i < points.size(); ++i)
+            DrawLineEx(points[i], points[(i + 1) % points.size()], 2.0f, Color{255, 218, 53, 235});
+    }
+}
+
 } // namespace
 
 void TableHudRenderer::Draw(const TableGame& game, const TableHudState& hud, const Viewport& viewport, float scale) const {
@@ -75,6 +109,10 @@ void TableHudRenderer::Draw(const TableGame& game, const TableHudState& hud, con
     DrawText(game.Status().c_str(), map.X(20), map.Y(51), map.Font(19), WHITE);
     if (hud.options.cardHints)
         DrawText("Drag a card to a match; right-click to cancel", map.X(20), map.Y(80), map.Font(15), LIGHTGRAY);
+
+    // Card hints (matching field cards for hovered hand card)
+    if (hud.options.cardHints)
+        DrawCardHints(map, game, hud.pointer);
 
     // Koi-Koi / Shobu buttons
     if (game.Rules().GetPhase() == Phase::AWAIT_DECISION && game.Rules().CurrentPlayer() == Player::PLAYER && !game.Busy()) {
@@ -122,6 +160,13 @@ void TableHudRenderer::Draw(const TableGame& game, const TableHudState& hud, con
     // Radio overlay
     if (hud.overlay == TableOverlay::RADIO) {
         Ui::DrawPauseRadioMenu(viewport, hud.radio, {logo_, headingFont_, bodyFont_});
+    }
+
+    // Pause menu overlay
+    if (hud.overlay == TableOverlay::PAUSE) {
+        Ui::PauseMenuAssets pauseAssets{panel_, stripe_, headingFont_, bodyFont_};
+        Ui::DrawPauseMenu(viewport, hud.options, {GetScreenWidth(), GetScreenHeight()},
+                          hud.focusedOption, pauseAssets);
     }
 }
 

@@ -136,9 +136,11 @@ int main() {
         Ui::MatchSettingsMenu matchSettingsMenu(appDir);
         Ui::MatchOverMenu matchOverMenu(appDir);
         Texture2D hudLogo = LoadTexture((appDir / "koidenscha.png").string().c_str());
+        Texture2D hudPanel = LoadTexture((appDir / "options" / "menu.png").string().c_str());
+        Texture2D hudStripe = LoadTexture((appDir / "options" / "setting-stripe.png").string().c_str());
         Font hudHeadingFont = LoadFontEx((appDir / "fonts" / "Oxanium-Bold.ttf").string().c_str(), 64, nullptr, 0);
         Font hudBodyFont = LoadFontEx((appDir / "fonts" / "Rajdhani-Bold.ttf").string().c_str(), 48, nullptr, 0);
-        Ui::TableHudRenderer hudRenderer({hudLogo, hudHeadingFont, hudBodyFont});
+        Ui::TableHudRenderer hudRenderer({hudLogo, hudPanel, hudStripe, hudHeadingFont, hudBodyFont});
         bool inStartMenu = true;
         bool matchSettingsOpen = false;
         bool galleryOpen = false;
@@ -415,6 +417,8 @@ int main() {
     if (hudHeadingFont.texture.id != 0) UnloadFont(hudHeadingFont);
     if (hudBodyFont.texture.id != 0) UnloadFont(hudBodyFont);
     if (hudLogo.id != 0) UnloadTexture(hudLogo);
+    if (hudPanel.id != 0) UnloadTexture(hudPanel);
+    if (hudStripe.id != 0) UnloadTexture(hudStripe);
     CloseAudioDevice();
     CloseWindow();
     return result;
