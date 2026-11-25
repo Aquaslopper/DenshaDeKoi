@@ -54,10 +54,13 @@ void TestCaptureLanes() {
           lanes[2] == std::vector<CardId>({1, 21}) &&
           lanes[3] == std::vector<CardId>({2, 10}),
           "Capture lanes must group by category and preserve capture order, including the cup");
-    constexpr float cardWidth = 31.0f * 179.0f / 264.0f;
+    constexpr float cardWidth = 28.0f * 179.0f / 264.0f;
     for (bool you : {false, true}) for (std::size_t column = 0; column < 2; ++column) {
         const auto sparse = Ui::MatchCaptureLayout(you, column, 2, cardWidth);
         const auto crowded = Ui::MatchCaptureLayout(you, column, 20, cardWidth);
+        Check(sparse.x >= (you ? 12.0f + (column == 0 ? 60.0f : 218.0f) * 398.0f / 397.0f :
+                           950.0f + (column == 0 ? 7.0f : 179.0f)) + 5.0f - 0.01f,
+              "Capture cards need an inset from the panel frame and dividers");
         Check(Near(sparse.step, cardWidth) && crowded.step < cardWidth && crowded.step > 0 &&
               19 * crowded.step + cardWidth <= crowded.width + 0.01f,
               "Crowded captures must overlap and stay inside their own cell");

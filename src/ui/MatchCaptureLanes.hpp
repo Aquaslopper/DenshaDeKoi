@@ -33,7 +33,7 @@ inline CaptureLaneLayout MatchCaptureLayout(bool you, std::size_t column, std::s
     const std::array<float, 3> edges = you
         ? std::array<float, 3>{12.0f + 60.0f * leftScale, 12.0f + 218.0f * leftScale, 12.0f + 387.0f * leftScale}
         : std::array<float, 3>{950.0f + 7.0f, 950.0f + 179.0f, 950.0f + 337.0f};
-    constexpr float padding = 3.0f;
+    constexpr float padding = 5.0f;
     const float x = edges[column] + padding;
     const float width = edges[column + 1] - edges[column] - 2.0f * padding;
     const float step = count > 1 ? std::min(cardWidth, (width - cardWidth) / static_cast<float>(count - 1)) : 0.0f;
