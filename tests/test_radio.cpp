@@ -21,9 +21,19 @@ void TestDefaultStations() {
     Check(stations.size() == 6, "Expected 6 default J-Pop stations");
     Check(stations[0].name == "J-Pop Powerplay", "First station must be J-Pop Powerplay");
     for (const auto& s : stations) {
-        Check(LooksLikePlaylistUrl(s.plsUrl), "Station plsUrl must be a .pls URL");
+        Check(!s.plsUrl.empty() || !s.fallbackUrl.empty(),
+              "Station must have a playlist or direct stream URL");
+        if (!s.plsUrl.empty()) {
+            Check(LooksLikePlaylistUrl(s.plsUrl), "Station plsUrl must be a .pls URL");
+        }
         Check(ParseUrl(s.fallbackUrl).valid, "Station fallbackUrl must be a valid URL");
     }
+    Check(stations[2].name == "J-Pop Sakura" && stations[2].plsUrl.empty() &&
+              stations[2].fallbackUrl == "http://quincy.torontocast.com:2070/;",
+          "J-Pop Sakura must use direct stream http://quincy.torontocast.com:2070/;");
+    Check(stations[3].name == "Japan Hits" && stations[3].plsUrl.empty() &&
+              stations[3].fallbackUrl == "http://quincy.torontocast.com:2020/;",
+          "Japan Hits must use direct stream http://quincy.torontocast.com:2020/;");
 }
 
 void TestUrlAndPlaylistParsing() {
