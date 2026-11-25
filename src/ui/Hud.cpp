@@ -2,6 +2,7 @@
 #include "TableGame.hpp"
 #include "ui/Hud.hpp"
 
+#include "ui/MatchResultMenu.hpp"
 #include "ui/PauseMenu.hpp"
 #include "ui/PauseRadioMenu.hpp"
 
@@ -140,7 +141,7 @@ void DrawHud(const Viewport& map, const TableGame& game, const TableHudState& hu
         DrawText("KOI-KOI", map.X(543), map.Y(349), map.Font(20), WHITE);
         DrawText("SHOBU", map.X(739), map.Y(349), map.Font(20), WHITE);
     }
-    if (game.Rules().GetPhase() == Phase::ROUND_END) {
+    if (game.Rules().GetPhase() == Phase::ROUND_END && !game.Busy() && hud.matchResult == nullptr) {
         DrawRectangle(map.X(TableHud::RoundEndButton.x), map.Y(TableHud::RoundEndButton.y),
                       map.W(TableHud::RoundEndButton.width), map.H(TableHud::RoundEndButton.height), Color{15, 20, 27, 235});
         DrawText(game.MatchFinished() ? "MATCH OVER" : "NEXT ROUND", map.X(615), map.Y(340), map.Font(20), WHITE);
@@ -170,11 +171,18 @@ void DrawHud(const Viewport& map, const TableGame& game, const TableHudState& hu
             Color{95, 118, 138, 220}, 1.5f);
     DrawText("PAUSE", map.X(TableHud::PauseButton.x + 9.0f),
              map.Y(TableHud::PauseButton.y + 19.0f), map.Font(14), WHITE);
+    DrawBox(map, TableHud::HomeButton, Color{15, 20, 27, 230},
+            Color{95, 118, 138, 220}, 1.5f);
+    DrawText("HOME", map.X(TableHud::HomeButton.x + 16.0f),
+             map.Y(TableHud::HomeButton.y + 19.0f), map.Font(14), WHITE);
 }
 
 void DrawScreenOverlay(const Viewport& viewport, const TableHudState& hud, Resolution display,
                        Texture2D logo, Texture2D optionsPanel, Texture2D optionsStripe,
                        Font headingFont, Font bodyFont) {
+    if (hud.matchResult && hud.matchResult->IsOpen()) {
+        hud.matchResult->Draw(viewport, hud.pointer, headingFont, bodyFont);
+    }
     if (hud.overlay == TableOverlay::RADIO) {
         DrawPauseRadioMenu(viewport, hud.radio, {logo, headingFont, bodyFont});
     } else if (hud.overlay == TableOverlay::PAUSE) {

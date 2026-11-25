@@ -1,6 +1,8 @@
+#include "DeckRegister.hpp"
 #include "TableLayout.hpp"
 #include "TableGame.hpp"
 #include "TableScene.hpp"
+#include "ui/MatchResultMenu.hpp"
 #include "ui/PauseMenu.hpp"
 #include <raylib.h>
 
@@ -152,10 +154,16 @@ void TestDraw() {
                    a.y + a.height <= b.y || b.y + b.height <= a.y;
         };
         Check(TableHud::PauseButton.x >= 1200.0f &&
+              TableHud::HomeButton.x == TableHud::PauseButton.x &&
+              TableHud::HomeButton.y > TableHud::PauseButton.y + TableHud::PauseButton.height &&
+              noOverlap(TableHud::PauseButton, TableHud::HomeButton) &&
+              noOverlap(TableHud::RadioMenuButton, TableHud::HomeButton) &&
               noOverlap(TableHud::PauseButton, TableHud::KoiKoiButton) &&
               noOverlap(TableHud::PauseButton, TableHud::ShobuButton) &&
               noOverlap(TableHud::PauseButton, TableHud::RoundEndButton),
-              "Right-side pause button must not overlap top-right decision banners");
+              "Right-side pause/home buttons must not overlap each other or decision banners");
+        Check(std::find(drawnTexts.begin(), drawnTexts.end(), "HOME") != drawnTexts.end(),
+              "HUD must draw the Home button under Radio and Pause");
 
         drawnTexts.clear();
         TableHudState pausedHud{};
@@ -279,6 +287,208 @@ void TestFailures() {
     try { TableScene scene("city", "atlas", "logo", "heading", "body", "options"); } catch (const std::runtime_error&) { threw = true; }
     Check(threw && unloaded == std::vector<unsigned int>({9, 8, 4, 5, 2, 1}) && renderUnloads == 0, "Canvas failure or texture cleanup failed");
 }
+
+void TestMatchResultMenu() {
+    // 1. Opening lucky hand combo extraction (Teshi + Both Opening Draw).
+    {
+        // Player hand = 4 Jan cards (Teshi) + 4 other cards; Opponent = normal; Field = 8 distinct months.
+        std::vector<CardId> perm{
+            0, 1, 2, 3, 4, 8, 12, 16,      // Player (Teshi on Jan)
+            5, 9, 13, 17, 20, 24, 28, 32,  // Opponent (no lucky hand)
+            6, 10, 14, 18, 21, 25, 29, 33  // Field (8 distinct months -> valid)
+        };
+        for (int id = 0; id < 48; ++id) {
+            if (std::find(perm.begin(), perm.end(), id) == perm.end()) perm.push_back(id);
+        }
+        KoiKoiStateMachine sm(Player::PLAYER);
+        Check(sm.TryStartDeal(perm) && sm.GetPhase() == Phase::ROUND_END &&
+              sm.Result()->reason == EndReason::OPENING_WIN &&
+              sm.Result()->winner == Player::PLAYER,
+              "Expected Teshi opening win for player");
+        const auto youCombos = Ui::MatchResultMenu::BuildPlayerCombos(sm, Player::PLAYER);
+        const auto cpuCombos = Ui::MatchResultMenu::BuildPlayerCombos(sm, Player::OPPONENT);
+        Check(youCombos.size() == 1 && youCombos[0].name == "Teshi (Lucky)" &&
+              youCombos[0].points == KoiKoiProfile::OpeningPoints &&
+              youCombos[0].cards.size() == 8 &&
+              std::is_sorted(youCombos[0].cards.begin(), youCombos[0].cards.end()) &&
+              cpuCombos.empty(),
+              "Lucky hand combo extraction must return sorted 8-card hand with 6 pts");
+
+        // All 8 KK-ADD-10 stacked combo families simultaneously, including sake cup as phantom plain in Kasu.
+        const std::vector<CardId> megaCapture{
+            0, 8, 28, 40, 44,                       // Goko (10)
+            20, 24, 36, 4, 32,                      // Ino-shika-cho (5) + Tane (5 animals -> 1) + Hanami (5) + Tsukimi (5) + sake cup
+            1, 5, 9, 21, 33, 37,                    // Akatan + Aotan (10) + Tanzaku (6 ribbons -> 3)
+            2, 3, 6, 7, 10, 11, 14, 15, 18          // 9 physical plains + sake cup (32) = 10 kasu units -> Kasu (1)
+        };
+        const auto megaCombos = Ui::MatchResultMenu::BuildCombosFromCaptures(megaCapture);
+        const YakuScore expectedMega = ScoreYaku(megaCapture);
+        int megaSum = 0;
+        bool hasGoko = false, hasAkatanAotan = false, hasKasuWithCup = false;
+        for (const auto& c : megaCombos) {
+            megaSum += c.points;
+            if (c.name == "Goko" && c.cards.size() == 5) hasGoko = true;
+            if (c.name == "Akatan + Aotan" && c.cards.size() == 6) hasAkatanAotan = true;
+            if (c.name == "Kasu (10)" && c.cards.size() == 10 &&
+                std::find(c.cards.begin(), c.cards.end(), 32) != c.cards.end()) hasKasuWithCup = true;
+        }
+        Check(megaCombos.size() == 8 && megaSum == expectedMega.base &&
+              hasGoko && hasAkatanAotan && hasKasuWithCup,
+              "Stacked KK-ADD-10 combo extraction must match ScoreYaku and include sake cup in Kasu");
+    }
+
+    // 2. Full 3-round match: round-end popup, mini card blits, pause-scale geometry, two-step match summary.
+    Reset();
+    {
+        TableScene scene("city", "atlas", "logo", "heading", "body", "options");
+        Ui::MatchResultMenu menu("app");
+        TableGame game(7u, 3);
+
+        auto playUntilRoundEnd = [](TableGame& g) {
+            for (int step = 0; step < 6000 && g.Rules().GetPhase() != Phase::ROUND_END; ++step) {
+                if (g.Busy()) { g.Update(0.05f); continue; }
+                const auto& r = g.Rules();
+                if (r.CurrentPlayer() == Player::PLAYER) {
+                    if (r.GetPhase() == Phase::AWAIT_HAND_PLAY) {
+                        const int card = r.Hand(Player::PLAYER).front();
+                        TableLayout::Rect handRect{};
+                        for (const auto& c : g.Cards()) if (c.id == card) { handRect = c.rect; break; }
+                        const TableLayout::Point2 start{handRect.x + handRect.width * 0.5f,
+                                                        handRect.y + handRect.height * 0.5f};
+                        g.PointerDown(start);
+                        TableLayout::Point2 drop{430.0f, 355.0f};
+                        for (int fid : r.Field()) {
+                            if (DeckRegister::At(fid).month == DeckRegister::At(card).month) {
+                                const auto fr = g.FieldRect(fid);
+                                drop = {fr.x + fr.width * 0.5f, fr.y + fr.height * 0.5f};
+                                break;
+                            }
+                        }
+                        g.PointerUp(drop);
+                        continue;
+                    }
+                    if (r.GetPhase() == Phase::AWAIT_DRAW_CHOICE) {
+                        const auto fr = g.FieldRect(r.Choices().front());
+                        g.PointerDown({fr.x + fr.width * 0.5f, fr.y + fr.height * 0.5f});
+                        continue;
+                    }
+                    if (r.GetPhase() == Phase::AWAIT_DECISION) {
+                        g.Choose(Decision::SHOUBU);
+                        continue;
+                    }
+                }
+                g.Update(0.05f);
+            }
+            for (int settle = 0; settle < 200 && g.Busy(); ++settle) g.Update(0.05f);
+            Check(g.Rules().GetPhase() == Phase::ROUND_END && !g.Busy(),
+                  "Test round must finish cleanly");
+        };
+
+        bool sawAnyMiniCards = false;
+        for (int round = 1; round <= 3; ++round) {
+            playUntilRoundEnd(game);
+            menu.SyncRoundEnd(game);
+            menu.SyncRoundEnd(game); // Idempotent within the same round.
+            Check(menu.IsOpen() && menu.CurrentMode() == Ui::MatchResultMode::ROUND &&
+                  static_cast<int>(menu.Ledger().size()) == round,
+                  "MatchResultMenu must open in ROUND mode and record each round once");
+
+            // Check combo points match ScoreYaku base for normal Shoubu/draw rounds.
+            if (game.Rules().Result()->reason == EndReason::SHOUBU ||
+                game.Rules().Result()->reason == EndReason::EXHAUSTIVE_DRAW) {
+                for (Player p : {Player::PLAYER, Player::OPPONENT}) {
+                    const int expectedBase = ScoreYaku(game.Rules().Captured(p)).base;
+                    int comboSum = 0;
+                    for (const auto& c : menu.Combos(p)) comboSum += c.points;
+                    Check(comboSum == expectedBase, "Displayed combo points must sum to ScoreYaku base");
+                }
+            }
+
+            TableHudState hud{};
+            hud.matchResult = &menu;
+            for (Resolution size : {Resolution{680, 384}, Resolution{1600, 900}, Resolution{1920, 768}}) {
+                width = size.width; height = size.height;
+                drawnTexts.clear(); blits.clear(); sources.clear(); destinations.clear();
+                scene.Draw(game, hud);
+
+                const auto panelIt = std::find(blits.begin(), blits.end(), 11u);
+                Check(panelIt != blits.end(), "MatchResultMenu must blit matchresult.png");
+                const auto panelDst = destinations[static_cast<std::size_t>(panelIt - blits.begin())];
+                const float scale = std::min(width / 1360.0f, height / 768.0f);
+                Check(Near(panelDst.x + panelDst.width * 0.5f, width * 0.5f) &&
+                      Near(panelDst.y + panelDst.height * 0.5f, height * 0.5f) &&
+                      Near(panelDst.width, Ui::MatchResultPanel.width * scale) &&
+                      Near(panelDst.height, Ui::MatchResultPanel.height * scale),
+                      "MatchResultMenu must keep 81.5% pause-menu scale and centered letterboxing");
+
+                Check(std::find(drawnTexts.begin(), drawnTexts.end(), "NEXT ROUND") == drawnTexts.end() &&
+                      std::find(drawnTexts.begin(), drawnTexts.end(), "MATCH OVER") == drawnTexts.end(),
+                      "Old placeholder round-end box must stay hidden when MatchResultMenu is attached");
+
+                for (std::size_t i = 0; i < blits.size(); ++i) {
+                    if (blits[i] == 12u) {
+                        sawAnyMiniCards = true;
+                        Check(Near(sources[i].width, 179.0f) && Near(sources[i].height, 264.0f),
+                              "Miniature cards must sample complete 179x264 atlas cells");
+                    }
+                }
+            }
+            width = 1600; height = 900;
+
+            // Pause overlay must render above MatchResultMenu when open.
+            drawnTexts.clear();
+            hud.overlay = TableOverlay::PAUSE;
+            scene.Draw(game, hud);
+            const auto hasText = [&](const std::string& needle) {
+                return std::any_of(drawnTexts.begin(), drawnTexts.end(),
+                                   [&](const std::string& s) { return s.find(needle) != std::string::npos; });
+            };
+            Check(hasText("Master Volume"), "Pause menu must render above MatchResultMenu");
+
+            // Check Back and Next button hit testing + keyboard navigation.
+            const TableLayout::Point2 backCanvas{
+                Ui::MatchResultPanel.x + (Ui::MatchResultLayout::BackButton.x + 60.0f) * Ui::MatchResultArtScale,
+                Ui::MatchResultPanel.y + (Ui::MatchResultLayout::BackButton.y + 25.0f) * Ui::MatchResultArtScale};
+            const TableLayout::Point2 nextCanvas{
+                Ui::MatchResultPanel.x + (Ui::MatchResultLayout::NextButton.x + 60.0f) * Ui::MatchResultArtScale,
+                Ui::MatchResultPanel.y + (Ui::MatchResultLayout::NextButton.y + 25.0f) * Ui::MatchResultArtScale};
+            Check(menu.Update(backCanvas, true, true, 0, false) == Ui::MatchResultAction::BACK,
+                  "Clicking Back half of pill must return BACK");
+            Check(menu.Update(nextCanvas, true, true, 0, false) == Ui::MatchResultAction::NEXT,
+                  "Clicking Next half of pill must return NEXT");
+            Check(menu.Update({0, 0}, false, false, -1, false) == Ui::MatchResultAction::NONE &&
+                  menu.FocusedButton() == 0 &&
+                  menu.Update({0, 0}, false, false, 0, true) == Ui::MatchResultAction::BACK,
+                  "Left arrow + Enter must activate Back");
+            Check(menu.Update({0, 0}, false, false, 1, true) == Ui::MatchResultAction::NEXT,
+                  "Right arrow + Enter must activate Next");
+
+            if (round < 3) {
+                Check(!game.MatchFinished(), "Match must not finish before final round");
+                menu.CloseRoundPopup();
+                Check(!menu.IsOpen(), "CloseRoundPopup must close popup for next round");
+                game.NextRound();
+            } else {
+                Check(game.MatchFinished(), "Match must be finished on round 3 of 3");
+                menu.ShowMatchSummary();
+                Check(menu.IsOpen() && menu.CurrentMode() == Ui::MatchResultMode::MATCH,
+                      "Final round Next must switch popup to MATCH summary mode");
+                drawnTexts.clear();
+                hud.overlay = TableOverlay::NONE;
+                scene.Draw(game, hud);
+                Check(hasText("ROUND LEDGER") &&
+                      (hasText("YOU WIN THE MATCH!") || hasText("CPU WINS THE MATCH!") || hasText("MATCH DRAW!")),
+                      "Match summary must draw round ledger and match winner banner");
+            }
+        }
+        Check(sawAnyMiniCards, "Expected at least one combo with miniature cards across a 3-round match");
+        menu.ResetMatch();
+        Check(!menu.IsOpen() && menu.Ledger().empty(), "ResetMatch must clear ledger and close popup");
+    }
+    Check(std::find(unloaded.begin(), unloaded.end(), 11u) != unloaded.end() &&
+          std::find(unloaded.begin(), unloaded.end(), 12u) != unloaded.end(),
+          "MatchResultMenu must unload its panel and atlas textures on destruction");
+}
 } // namespace
 
 Texture2D LoadTexture(const char* path) {
@@ -289,6 +499,8 @@ Texture2D LoadTexture(const char* path) {
     if (std::filesystem::path(path).filename() == "menu.png") return {8, 1205, 763, 1, 0};
     if (std::filesystem::path(path).filename() == "setting-stripe.png")
         return failStripe ? Texture2D{} : Texture2D{9, 810, 63, 1, 0};
+    if (std::filesystem::path(path).filename() == "matchresult.png") return {11, 1164, 785, 1, 0};
+    if (std::filesystem::path(path).filename() == "cards_atlas.png") return {12, 2148, 1056, 1, 0};
     return {5, 187, 82, 1, 0};
 }
 Texture2D LoadTextureFromImage(Image img) {
@@ -355,6 +567,6 @@ int main(int argc, char** argv) {
             std::cout << "Pause options, artwork, hints and anti-aliasing passed.\n";
             return 0;
         }
-        TestGeometry(); TestDraw(); TestFailures(); std::cout << "Table layout and rendering commands passed.\n"; return 0; }
+        TestGeometry(); TestDraw(); TestMatchResultMenu(); TestFailures(); std::cout << "Table layout and rendering commands passed.\n"; return 0; }
     catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }
 }
