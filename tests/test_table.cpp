@@ -76,8 +76,13 @@ void TestDraw() {
     {
         TableScene scene("city", "atlas", "logo", "heading", "body", "options");
         TableGame game(42);
+        Check(!game.DealerSelectionActive() && game.TotalRounds() == TableLayout::MatchRounds,
+              "Seeded TableGame(int) constructor must seed a standard match instead of overriding rounds");
         scene.Draw(game);
         const auto cards = game.Cards();
+        Check(cards.size() > 2 && std::any_of(cards.begin(), cards.end(),
+                                              [](const TableCard& c) { return c.id >= 0; }),
+              "Seeded table draw must include face-up cards");
         std::size_t expectedShadows = 0;
         for (const auto& card : cards) if (card.shadow) ++expectedShadows;
         const std::size_t shadowVertices = expectedShadows * 4;
@@ -174,6 +179,11 @@ void TestDraw() {
               noOverlap(TableHud::RadioPowerButton, TableHud::RadioMuteButton) &&
               noOverlap(TableHud::VolumeHitBox, TableHud::RadioMuteButton),
               "Radio controls must not overlap each other or the station grid");
+
+        drawnTexts.clear();
+        TableGame sixRoundGame(42u, 6);
+        scene.Draw(sixRoundGame);
+        Check(hasText("ROUND 1 / 6"), "HUD must display configured total rounds");
     }
     Check(renderUnloads == 1 && unloaded == std::vector<unsigned int>({9, 8, 4, 5, 2, 1}) &&
           unloadedFonts == std::vector<unsigned int>({7, 6}), "Resources not released");

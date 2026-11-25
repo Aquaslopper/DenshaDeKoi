@@ -389,8 +389,46 @@ void TestMatches() {
     }
     Check(totalTurns > 100 && decisions > 0 && stockChoices > 0, "Match simulation did not cover inputs");
 }
+void TestConfigurableRounds() {
+    TableGame seededInt(42);
+    Check(!seededInt.DealerSelectionActive() && seededInt.TotalRounds() == TableLayout::MatchRounds,
+          "TableGame(42) must select the seeded constructor, not totalRounds");
+
+    TableGame sixRounds = TableGame::WithRounds(6);
+    Check(sixRounds.AwaitingDealerChoice() && sixRounds.TotalRounds() == 6,
+          "WithRounds(6) must create a 6-round opening match");
+    TableGame clamped = TableGame::WithRounds(0);
+    Check(clamped.TotalRounds() == 1, "TotalRounds must clamp below 1 to 1");
+
+    for (int targetRounds : {1, 6}) {
+        TableGame game(123u, targetRounds);
+        Check(game.TotalRounds() == targetRounds, "Seeded configurable-round match has wrong totalRounds");
+        int steps = 0;
+        while (!game.MatchFinished() && steps++ < 12000) {
+            if (game.Busy()) { game.Update(0.1f); continue; }
+            auto phase = game.Rules().GetPhase();
+            if (phase == Phase::ROUND_END) { game.NextRound(); continue; }
+            if (game.Rules().CurrentPlayer() == Player::PLAYER && phase == Phase::AWAIT_HAND_PLAY) {
+                PlayFirst(game); continue;
+            }
+            if (game.Rules().CurrentPlayer() == Player::PLAYER && phase == Phase::AWAIT_DRAW_CHOICE) {
+                game.PointerDown(Center(game.FieldRect(game.Rules().Choices().front())));
+                game.Update(0.1f);
+                continue;
+            }
+            if (game.Rules().CurrentPlayer() == Player::PLAYER && phase == Phase::AWAIT_DECISION) {
+                game.Choose(Decision::SHOUBU); continue;
+            }
+            game.Update(0.1f);
+        }
+        Check(game.MatchFinished() && game.Round() == targetRounds,
+              "Configurable-round match did not stop at the configured round count");
+        game.NextRound();
+        Check(game.Round() == targetRounds, "Finished match must not advance past totalRounds");
+    }
+}
 } // namespace
 int main() {
-    try { TestOpeningPresentation(); TestRoundIntroBulletTime(); TestProjection(); TestReturnAndFreeze(); TestFlips(); TestStockAvoidsDeferredCapture(); TestDropTolerance(); TestHandSlides(); TestMatches(); std::cout << "Table gameplay passed.\n"; return 0; }
+    try { TestOpeningPresentation(); TestRoundIntroBulletTime(); TestProjection(); TestReturnAndFreeze(); TestFlips(); TestStockAvoidsDeferredCapture(); TestDropTolerance(); TestHandSlides(); TestMatches(); TestConfigurableRounds(); std::cout << "Table gameplay passed.\n"; return 0; }
     catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }
 }

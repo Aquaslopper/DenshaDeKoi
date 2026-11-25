@@ -40,6 +40,8 @@ class TableGame {
 public:
     TableGame();
     explicit TableGame(std::uint32_t seed);
+    TableGame(std::uint32_t seed, int totalRounds);
+    [[nodiscard]] static TableGame WithRounds(int totalRounds);
     void Update(float seconds);
     void PointerDown(TableLayout::Point2 p);
     void PointerMove(TableLayout::Point2 p);
@@ -65,6 +67,7 @@ public:
     [[nodiscard]] const KoiKoiStateMachine& Rules() const { return game_; }
     [[nodiscard]] const std::array<int, 2>& Scores() const { return scores_; }
     [[nodiscard]] int Round() const { return round_; }
+    [[nodiscard]] int TotalRounds() const { return totalRounds_; }
     [[nodiscard]] bool MatchFinished() const { return finished_; }
     [[nodiscard]] bool Busy() const { return animation_ != Animation::NONE || openingStage_ != OpeningStage::PLAYING; }
     [[nodiscard]] bool Dragging() const { return dragged_.has_value(); }
@@ -120,6 +123,7 @@ private:
     std::array<int, 48> slots_{};
     std::array<int, 2> scores_{};
     int round_ = 1;
+    int totalRounds_ = TableLayout::MatchRounds;
     bool resultRecorded_ = false;
     bool finished_ = false;
     float cpuDelay_ = 0;
