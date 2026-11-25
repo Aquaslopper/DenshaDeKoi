@@ -15,7 +15,7 @@ namespace Ui {
 // screens, three-second hold, then the same pair of fades to the other screen.
 class LoadingScreen {
 public:
-    static constexpr float FadeSeconds = 0.05f;
+    static constexpr float FadeSeconds = 0.15f;
     static constexpr float HoldSeconds = 3.0f;
 
     explicit LoadingScreen(const std::filesystem::path& appDirectory) {
