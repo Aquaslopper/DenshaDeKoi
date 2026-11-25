@@ -2,6 +2,7 @@
 #include "TableLayout.hpp"
 #include "TableGame.hpp"
 #include "TableScene.hpp"
+#include "ui/MatchCaptureLanes.hpp"
 #include "ui/MatchResultMenu.hpp"
 #include "ui/PauseMenu.hpp"
 #include <raylib.h>
@@ -34,14 +35,28 @@ int width = 1600, height = 900;
 int loads = 0, renderUnloads = 0;
 int draws = 0;
 std::vector<std::string> drawnTexts;
+struct TextDraw { std::string text; Vector2 pos; unsigned int font; };
+std::vector<TextDraw> textDraws;
 bool failAtlas = false, invalidAtlas = false, failCanvas = false, failStripe = false;
 
 void Check(bool condition, const char* text) { if (!condition) throw std::runtime_error(text); }
 bool Near(float a, float b, float tolerance = 0.01f) { return std::abs(a - b) < tolerance; }
 void Reset() {
     vertices.clear(); unloaded.clear(); unloadedFonts.clear(); destinations.clear(); sources.clear();
-    drawnTexts.clear(); blits.clear(); renderSizes.clear(); hintEdges = 0;
+    drawnTexts.clear(); textDraws.clear(); blits.clear(); renderSizes.clear(); hintEdges = 0;
     loads = renderUnloads = draws = 0; failAtlas = invalidAtlas = failCanvas = failStripe = false;
+}
+void TestCaptureLanes() {
+    const std::array<CardId, 8> captures{2, 32, 1, 0, 4, 10, 8, 21};
+    const auto lanes = Ui::MatchCaptureLanes(captures);
+    Check(lanes[0] == std::vector<CardId>({0, 8}) &&
+          lanes[1] == std::vector<CardId>({32, 4}) &&
+          lanes[2] == std::vector<CardId>({1, 21}) &&
+          lanes[3] == std::vector<CardId>({2, 10}),
+          "Capture lanes must group by category and preserve capture order, including the cup");
+    const auto empty = Ui::MatchCaptureLanes(std::span<const CardId>{});
+    Check(std::all_of(empty.begin(), empty.end(), [](const auto& lane) { return lane.empty(); }),
+          "Empty captures must produce empty lanes");
 }
 void TestGeometry() {
     using namespace TableLayout;
@@ -75,6 +90,7 @@ void TestGeometry() {
 }
 void TestDraw() {
     Reset();
+    TestCaptureLanes();
     {
         TableScene scene("city", "atlas", "logo", "heading", "body", "options");
         TableGame game(42);
@@ -144,8 +160,8 @@ void TestDraw() {
             }
         }
         Check(camera.projection == CAMERA_PERSPECTIVE && Near(camera.fovy, 45), "Wrong 3D camera");
-        Check(destinations.size() == 2 && Near(destinations[1].height, 900) &&
-              Near(destinations[1].width, 1360.0f * 900.0f / 768.0f) && sources[1].height < 0,
+        Check(destinations.size() == 4 && Near(destinations.back().height, 900) &&
+              Near(destinations.back().width, 1360.0f * 900.0f / 768.0f) && sources.back().height < 0,
               "Window resize must preserve aspect ratio and flip render target");
 
         // Verify right-side pause button stays clear of decision banners and renders pause menu radio presets.
@@ -188,10 +204,16 @@ void TestDraw() {
               noOverlap(TableHud::VolumeHitBox, TableHud::RadioMuteButton),
               "Radio controls must not overlap each other or the station grid");
 
-        drawnTexts.clear();
+        drawnTexts.clear(); textDraws.clear();
         TableGame sixRoundGame(42u, 6);
         scene.Draw(sixRoundGame);
-        Check(hasText("ROUND 1 / 6"), "HUD must display configured total rounds");
+        Check(hasText("ROUND 1 / 6"), "The current round and configured total must be visible");
+        Check(std::any_of(textDraws.begin(), textDraws.end(), [](const TextDraw& draw) {
+            return draw.text == "ROUND 1 / 6" && draw.font == 7 &&
+                   Near(draw.pos.x + 11.0f * 24.0f / 4.0f, 680.0f) && Near(draw.pos.y, 20.0f);
+        }), "Round indicator must use the game font and be centered at the top");
+        Check(hasText("RADIO") && hasText("PAUSE") && hasText("HOME"),
+              "Radio, pause and home controls must remain visible");
     }
     Check(renderUnloads == 1 && unloaded == std::vector<unsigned int>({9, 8, 4, 5, 2, 1}) &&
           unloadedFonts == std::vector<unsigned int>({7, 6}), "Resources not released");
@@ -491,11 +513,13 @@ void TestMatchResultMenu() {
 }
 } // namespace
 
+const char* GetApplicationDirectory() { return "."; }
 Texture2D LoadTexture(const char* path) {
     ++loads;
     if (loads == 2 && failAtlas) return {};
     if (loads == 1) return {1, 1360, 768, 1, 0};
     if (loads == 2) return {2, invalidAtlas ? 2147 : 2148, 1056, 1, 0};
+    if (std::filesystem::path(path).filename() == "MatchUI.png") return {13, 1334, 81, 1, 0};
     if (std::filesystem::path(path).filename() == "menu.png") return {8, 1205, 763, 1, 0};
     if (std::filesystem::path(path).filename() == "setting-stripe.png")
         return failStripe ? Texture2D{} : Texture2D{9, 810, 63, 1, 0};
@@ -514,8 +538,8 @@ Font LoadFontEx(const char* name, int size, int*, int) {
 }
 Font GetFontDefault() { return {10, 96, 0, {98, 128, 128, 1, 0}, nullptr, nullptr}; }
 void UnloadFont(Font font) { unloadedFonts.push_back(font.texture.id); }
-void DrawTextEx(Font, const char* text, Vector2, float, float, Color) {
-    if (text) drawnTexts.emplace_back(text);
+void DrawTextEx(Font font, const char* text, Vector2 pos, float, float, Color) {
+    if (text) { drawnTexts.emplace_back(text); textDraws.push_back({text, pos, font.texture.id}); }
 }
 void UnloadTexture(Texture2D t) { unloaded.push_back(t.id); }
 void SetTextureFilter(Texture2D, int) {}
