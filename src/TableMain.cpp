@@ -443,16 +443,13 @@ int main() {
             }
         }
         SaveOptions(optionsFile, options);
-    if (hudHeadingFont.texture.id != 0) UnloadFont(hudHeadingFont);
-    if (hudBodyFont.texture.id != 0) UnloadFont(hudBodyFont);
-    if (hudLogo.id != 0) UnloadTexture(hudLogo);
     } catch (const std::exception& error) {
-        if (hudHeadingFont.texture.id != 0) UnloadFont(hudHeadingFont);
-        if (hudBodyFont.texture.id != 0) UnloadFont(hudBodyFont);
-        if (hudLogo.id != 0) UnloadTexture(hudLogo);
         std::fprintf(stderr, "%s\n", error.what());
         result = 1;
     }
+    if (hudHeadingFont.texture.id != 0) UnloadFont(hudHeadingFont);
+    if (hudBodyFont.texture.id != 0) UnloadFont(hudBodyFont);
+    if (hudLogo.id != 0) UnloadTexture(hudLogo);
     CloseAudioDevice();
     CloseWindow();
     return result;
