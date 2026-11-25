@@ -54,7 +54,7 @@ if(BUILD_DESKTOP_APP)
     )
     FetchContent_MakeAvailable(raylib)
 
-    add_executable(denshadekoi
+    add_executable(denshadekoi WIN32
         src/TableMain.cpp
         src/GameOptions.cpp
         src/TableScene.cpp
@@ -69,6 +69,9 @@ if(BUILD_DESKTOP_APP)
     target_include_directories(denshadekoi PRIVATE "${raylib_SOURCE_DIR}/src")
     target_link_libraries(denshadekoi PRIVATE raylib hanafuda_core)
     if(WIN32)
+        if(MSVC)
+            target_link_options(denshadekoi PRIVATE "/ENTRY:mainCRTStartup")
+        endif()
         target_link_libraries(denshadekoi PRIVATE winhttp ws2_32 winmm ole32)
     else()
         find_package(Threads REQUIRED)
