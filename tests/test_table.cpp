@@ -1,7 +1,9 @@
 #include "TableLayout.hpp"
 #include "TableGame.hpp"
 #include "TableScene.hpp"
+#include "TableHud.hpp"
 #include "ui/PauseMenu.hpp"
+#include "ui/TableHudRenderer.hpp"
 #include <raylib.h>
 
 #include <algorithm>
@@ -162,7 +164,10 @@ void TestDraw() {
         pausedHud.radio.statusText = "Live";
         pausedHud.radio.volume = 0.75f;
         pausedHud.radio.bufferedSec = 2.8f;
-        scene.Draw(game, pausedHud);
+        // Test HUD rendering via TableHudRenderer (HUD moved out of TableScene)
+        Ui::TableHudRenderer hudRenderer({{}, {}, {}}); // assets not needed for text capture
+        const Ui::Viewport viewport{{0, 0, float(width), float(height)}, float(width) / 1360.0f};
+        hudRenderer.Draw(game, pausedHud, viewport, viewport.scale);
         const auto hasText = [&](const std::string& needle) {
             return std::any_of(drawnTexts.begin(), drawnTexts.end(),
                                [&](const std::string& s) { return s.find(needle) != std::string::npos; });
@@ -187,10 +192,14 @@ void TestPauseRendering() {
     hud.options.masterVolume = 43;
     hud.options.sfxVolume = 67;
     hud.focusedOption = Ui::OptionRow::AA;
+    
+    // Test HUD rendering via TableHudRenderer
+    Ui::TableHudRenderer hudRenderer({{}, {}, {}});
     for (Resolution size : {Resolution{680, 384}, Resolution{1200, 900}, Resolution{1920, 768}}) {
         width = size.width; height = size.height;
         drawnTexts.clear(); blits.clear(); destinations.clear();
-        scene.Draw(game, hud);
+        const Ui::Viewport viewport{{0, 0, float(width), float(height)}, float(width) / 1360.0f};
+        hudRenderer.Draw(game, hud, viewport, viewport.scale);
         for (const char* text : {"Master Volume", "Sound Effects", "Card Hints", "Display Resolution", "Screen Mode",
                                  "Anti-Aliasing", "43", "67", "ON", "OFF", "Windowed", "Borderless", "Fullscreen", "2x", "3x", "4x"})
             Check(std::find(drawnTexts.begin(), drawnTexts.end(), text) != drawnTexts.end(), "Options text missing");
@@ -204,6 +213,8 @@ void TestPauseRendering() {
         Check(std::find(drawnTexts.begin(), drawnTexts.end(), "CLICK TO PICK") <
               std::find(drawnTexts.begin(), drawnTexts.end(), "Master Volume"), "Game prompts must stay behind pause");
     }
+    
+    // Test scene rendering (AA, supersampled world) via TableScene
     width = 1600; height = 900;
     for (int n : {2, 3, 4}) {
         Check(scene.SetAntiAliasing(n) == n, "Could not enable AA");
@@ -213,7 +224,7 @@ void TestPauseRendering() {
         const auto allocations = renderSizes.size();
         Check(scene.SetAntiAliasing(n) == n && allocations == renderSizes.size(), "Unchanged AA must reuse its target");
         destinations.clear(); sources.clear();
-        scene.Draw(game, hud);
+        scene.Draw(game, {});
         Check(Near(destinations[0].width, r.width) && Near(sources[1].height, -r.height) &&
               Near(destinations[1].width, 1360), "Supersampled world must resolve to the logical canvas");
     }
@@ -238,11 +249,11 @@ void TestCardHints() {
             if (!matches) continue;
             hud.pointer = TableLayout::Project(TableLayout::OnPlane(card.rect.x + card.rect.width / 2,
                                            card.rect.y + card.rect.height / 2, TableLayout::CardElevation));
-            scene.Draw(game, hud);
+            scene.Draw(game, {});
             Check(hintEdges == matches * 4, "Show matching field cards for the hovered hand card");
             hud.options.cardHints = false;
             hintEdges = 0; drawnTexts.clear();
-            scene.Draw(game, hud);
+            scene.Draw(game, {});
             Check(hintEdges == 0 && std::find(drawnTexts.begin(), drawnTexts.end(), "Drag a card to a match; right-click to cancel") == drawnTexts.end(),
                   "Disabled card hints must suppress outlines and helper text");
             return;

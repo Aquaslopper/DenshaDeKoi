@@ -1,7 +1,6 @@
 #pragma once
 
 #include "TableGame.hpp" // Parse card enums before Raylib defines its BLUE color macro.
-#include "TableHud.hpp"
 #include <raylib.h>
 
 #include <filesystem>
@@ -26,8 +25,7 @@ public:
 
     // Returns the applied sample density; keeps the old target on allocation failure.
     int SetAntiAliasing(int samples);
-    void Draw(const TableGame& game, const TableHudState& hud = {},
-              const MagnifyEffect& magnify = {}) const;
+    void Draw(const TableGame& game, const MagnifyEffect& magnify = {}) const;
 
 private:
     Texture2D background_{};

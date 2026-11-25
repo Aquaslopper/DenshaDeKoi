@@ -14,9 +14,10 @@ void TestInput() {
     GameOptions o;
     Ui::PauseMenu menu;
     constexpr Resolution desktop{1920, 1080};
+    constexpr float dt = 1.0f / 60.0f;
     const auto input = [&](float x, float y, bool pressed, bool down) {
         return menu.Update(o, {{Ui::PausePanel.x + x * Ui::PauseArtScale, Ui::PausePanel.y + y * Ui::PauseArtScale},
-                               true, pressed, down, 0, 0, false}, o.resolution, desktop);
+                               true, pressed, down, 0, 0, false}, o.resolution, desktop, dt);
     };
     const auto click = [&](float x, float y) {
         const auto resume = input(x, y, true, true);
@@ -24,7 +25,7 @@ void TestInput() {
         return resume;
     };
     const auto key = [&](int v, int h, bool enter = false) {
-        return menu.Update(o, {{-1, -1}, false, false, false, v, h, enter}, o.resolution, desktop);
+        return menu.Update(o, {{-1, -1}, false, false, false, v, h, enter}, o.resolution, desktop, dt);
     };
     Check(!input(616, 240, true, true) && o.masterVolume == 50, "Slider hit must track the actual meter");
     input(900, 318, false, true);

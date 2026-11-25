@@ -5,7 +5,9 @@
 #include "SfxPlayer.hpp"
 #include "ui/PauseMenu.hpp"
 #include "ui/MatchSettingsMenu.hpp"
+#include "ui/MatchOverMenu.hpp"
 #include "ui/StartMenu.hpp"
+#include "ui/TableHudRenderer.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -79,6 +81,24 @@ void PlayGameSfx(SfxPlayer& player, GameSfx cue) {
         case GameSfx::ROUND_LOSE: player.Play(SfxId::RoundLose); break;
     }
 }
+
+// Overlay fade for smooth transitions (start menu only).
+struct OverlayFade {
+    float alpha = 0.0f;       // 0 = hidden, 1 = visible
+    float target = 0.0f;
+    float speed = 8.0f;       // fade speed
+
+    void Show() { target = 1.0f; }
+    void Hide() { target = 0.0f; }
+    void Update(float dt) {
+        const float diff = target - alpha;
+        if (std::fabs(diff) < 0.001f) { alpha = target; return; }
+        alpha += diff * speed * dt;
+        alpha = std::clamp(alpha, 0.0f, 1.0f);
+    }
+    [[nodiscard]] bool IsVisible() const { return alpha > 0.001f; }
+};
+
 } // namespace
 
 int main() {
@@ -118,12 +138,17 @@ int main() {
         Ui::PauseMenu pause;
         Ui::StartMenu startMenu(appDir, optionsFile.parent_path() / "start-menu-variant.txt");
         Ui::MatchSettingsMenu matchSettingsMenu(appDir);
+        Ui::MatchOverMenu matchOverMenu(appDir);
+        Ui::TableHudRenderer hudRenderer({logo_, headingFont_, bodyFont_});
         bool inStartMenu = true;
         bool matchSettingsOpen = false;
         bool galleryOpen = false;
+        bool matchOverOpen = false;
+        int matchRounds = matchSettingsMenu.SelectedRounds(); // Track selected rounds
         bool draggingVolume = false; // Radio's own channel slider.
         bool inspectingCard = false;
         MagnifyEffect magnify{};
+        OverlayFade galleryFade, matchSettingsFade;
         const auto setOverlay = [&](TableOverlay next) {
             overlay = next;
             draggingVolume = false;
@@ -164,6 +189,7 @@ int main() {
                 if (escape && (overlay != TableOverlay::NONE ||
                                (galleryOpen && !startMenu.GalleryViewerOpen()))) {
                     setOverlay(TableOverlay::NONE);
+                    if (galleryOpen) galleryFade.Hide();
                     galleryOpen = false;
                 }
                 if (galleryOpen) {
@@ -188,7 +214,7 @@ int main() {
                         IsMouseButtonDown(MOUSE_BUTTON_LEFT), IsKeyPressed(KEY_DOWN) - IsKeyPressed(KEY_UP),
                         IsKeyPressed(KEY_RIGHT) - IsKeyPressed(KEY_LEFT),
                         IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_SPACE)};
-                    if (startMenu.OptionsMenu().Update(options, input, display, desktop)) setOverlay(TableOverlay::NONE);
+                    if (startMenu.OptionsMenu().Update(options, input, display, desktop, dt)) setOverlay(TableOverlay::NONE);
                     if (old.masterVolume != options.masterVolume && IsAudioDeviceReady())
                         SetMasterVolume(options.masterVolume / 100.0f);
                     if (old.sfxVolume != options.sfxVolume) sfx.SetVolume(options.sfxVolume / 100.0f);
@@ -225,9 +251,11 @@ int main() {
                         canvas, movement.x != 0.0f || movement.y != 0.0f, pressed,
                         vertical, horizontal, IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_SPACE), escape);
                     if (matchAction == Ui::MatchSettingsAction::BACK) {
-                        matchSettingsOpen = false;
+                        matchSettingsFade.Hide();
                     } else if (matchAction == Ui::MatchSettingsAction::START) {
                         game = TableGame();
+                        matchRounds = matchSettingsMenu.SelectedRounds(); // Update configured rounds
+                        matchSettingsFade.Hide();
                         matchSettingsOpen = false;
                         inStartMenu = false;
                     }
@@ -240,6 +268,7 @@ int main() {
                         case Ui::StartMenuAction::PLAY:
                             matchSettingsMenu.ResetFocus();
                             matchSettingsOpen = true;
+                            matchSettingsFade.Show();
                             break;
                         case Ui::StartMenuAction::OPTIONS:
                             setOverlay(TableOverlay::PAUSE);
@@ -249,6 +278,7 @@ int main() {
                             break;
                         case Ui::StartMenuAction::GALLERY:
                             galleryOpen = true;
+                            galleryFade.Show();
                             break;
                         case Ui::StartMenuAction::EXIT:
                             quitRequested = true;
@@ -258,17 +288,33 @@ int main() {
                     }
                 }
 
+                // Update fades.
+                galleryFade.Update(dt);
+                matchSettingsFade.Update(dt);
+
                 radio.Update();
                 BeginDrawing();
                 ClearBackground(BLACK);
                 const Ui::Viewport viewport = ScreenViewport();
                 startMenu.DrawBackground(viewport);
-                if (matchSettingsOpen) matchSettingsMenu.Draw(viewport, canvas);
-                if (galleryOpen) startMenu.DrawGallery(viewport);
-                else if (overlay == TableOverlay::PAUSE)
+                if (matchSettingsOpen) {
+                    matchSettingsMenu.Draw(viewport, canvas);
+                    if (matchSettingsFade.alpha < 1.0f) {
+                        const unsigned char a = static_cast<unsigned char>((1.0f - matchSettingsFade.alpha) * 255);
+                        DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), Color{0, 0, 0, a});
+                    }
+                }
+                if (galleryOpen) {
+                    startMenu.DrawGallery(viewport);
+                    if (galleryFade.alpha < 1.0f) {
+                        const unsigned char a = static_cast<unsigned char>((1.0f - galleryFade.alpha) * 255);
+                        DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), Color{0, 0, 0, a});
+                    }
+                } else if (overlay == TableOverlay::PAUSE) {
                     startMenu.DrawOptions(viewport, options, display);
-                else if (overlay == TableOverlay::RADIO)
+                } else if (overlay == TableOverlay::RADIO) {
                     startMenu.DrawRadio(viewport, radio.Status());
+                }
                 EndDrawing();
                 continue;
             }
@@ -283,7 +329,7 @@ int main() {
                     const Ui::PauseInput input{canvas, movement.x != 0 || movement.y != 0, pressed,
                         IsMouseButtonDown(MOUSE_BUTTON_LEFT), IsKeyPressed(KEY_DOWN) - IsKeyPressed(KEY_UP),
                         IsKeyPressed(KEY_RIGHT) - IsKeyPressed(KEY_LEFT), IsKeyPressed(KEY_ENTER)};
-                    if (pause.Update(options, input, display, desktop)) setOverlay(TableOverlay::NONE);
+                    if (pause.Update(options, input, display, desktop, dt)) setOverlay(TableOverlay::NONE);
                     if (old.masterVolume != options.masterVolume && IsAudioDeviceReady())
                         SetMasterVolume(options.masterVolume / 100.0f);
                     if (old.sfxVolume != options.sfxVolume) sfx.SetVolume(options.sfxVolume / 100.0f);
@@ -324,8 +370,12 @@ int main() {
                     } else if (In(canvas, TableHud::PauseButton)) {
                         setOverlay(TableOverlay::PAUSE);
                     } else if (game.Rules().GetPhase() == Phase::ROUND_END && In(canvas, TableHud::RoundEndButton)) {
-                        if (game.MatchFinished()) game = TableGame();
-                        else game.NextRound();
+                        if (game.MatchFinished()) {
+                            matchOverMenu.SetResult(game.Scores()[0], game.Scores()[1], game.Round());
+                            matchOverOpen = true;
+                        } else {
+                            game.NextRound();
+                        }
                     } else if (game.Rules().GetPhase() == Phase::AWAIT_DECISION && !game.Busy() &&
                                game.Rules().CurrentPlayer() == Player::PLAYER && In(canvas, TableHud::KoiKoiButton)) {
                         game.Choose(Decision::KOI_KOI);
@@ -338,7 +388,32 @@ int main() {
                 }
                 if (game.Dragging()) game.PointerMove(PlanPoint(canvas));
                 if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) game.PointerUp(PlanPoint(canvas));
-                if (overlay == TableOverlay::NONE) game.Update(dt);
+                if (overlay == TableOverlay::NONE) {
+                    game.Update(dt);
+
+                    // Check if match should end based on configured rounds.
+                    // Match ends when round ends and current round >= configured rounds.
+                    if (game.Rules().GetPhase() == Phase::ROUND_END && game.Round() >= matchRounds) {
+                        matchOverMenu.SetResult(game.Scores()[0], game.Scores()[1], game.Round());
+                        matchOverOpen = true;
+                    }
+                }
+
+            // Handle match-over overlay.
+            if (matchOverOpen) {
+                const bool escape = IsKeyPressed(KEY_ESCAPE);
+                const auto action = matchOverMenu.Update(canvas, GetMouseDelta().x != 0 || GetMouseDelta().y != 0, pressed, escape);
+                if (action == Ui::MatchOverAction::RESTART) {
+                    game = TableGame();
+                    matchOverOpen = false;
+                } else if (action == Ui::MatchOverAction::EXIT) {
+                    inStartMenu = true;
+                    galleryOpen = false;
+                    startMenu.AdvanceVariant();
+                    game = TableGame();
+                    matchOverOpen = false;
+                    setOverlay(TableOverlay::NONE);
+                }
             }
 
             const float desiredMagnification =
@@ -350,7 +425,18 @@ int main() {
 
             for (GameSfx cue : game.TakeSfx()) PlayGameSfx(sfx, cue);
             radio.Update();
-            scene.Draw(game, {overlay, radio.Status(), options, pause.Focus(), canvas}, magnify);
+            scene.Draw(game, magnify);
+
+            // Draw HUD on top (after scene.Draw, like pause/radio).
+            const Ui::Viewport viewport = ScreenViewport();
+            const float scale = std::min(static_cast<float>(GetScreenWidth()) / TableLayout::ImageWidth,
+                                       static_cast<float>(GetScreenHeight()) / TableLayout::ImageHeight);
+            hudRenderer.Draw(game, {overlay, radio.Status(), options, pause.Focus(), canvas}, viewport, scale);
+
+            // Draw match-over overlay on top.
+            if (matchOverOpen) {
+                matchOverMenu.Draw(viewport, canvas);
+            }
         }
         SaveOptions(optionsFile, options);
     } catch (const std::exception& error) {

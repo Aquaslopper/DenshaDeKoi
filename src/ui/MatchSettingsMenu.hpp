@@ -39,7 +39,7 @@ public:
     [[nodiscard]] int SelectedRounds() const { return kRoundOptions[roundIndex_]; }
     [[nodiscard]] const char* SelectedRoute() const { return kRouteOptions[routeIndex_]; }
 
-    void ResetFocus() { focusRow_ = 0; }
+    void ResetFocus() { focusRow_ = 0; focusAnim_ = 0.0f; }
 
     [[nodiscard]] MatchSettingsAction Update(TableLayout::Point2 pointer, bool moved, bool pressed,
                                              int vertical, int horizontal, bool activate, bool escape) {
@@ -47,20 +47,30 @@ public:
 
         const Rectangle panelRect = PanelRect();
 
+        // Track hover for visual feedback.
+        hoverRound_ = -1;
+        hoverRoute_ = false;
+        hoverBack_ = false;
+        hoverStart_ = false;
+
         if (moved) {
             for (int i = 0; i < 4; ++i) {
                 if (InRect(pointer, RoundButtonRect(panelRect, i))) {
+                    hoverRound_ = i;
                     focusRow_ = 0;
                     break;
                 }
             }
             if (InRect(pointer, RouteBarRect(panelRect))) {
+                hoverRoute_ = true;
                 focusRow_ = 1;
             }
             if (InRect(pointer, BackButtonRect(panelRect))) {
+                hoverBack_ = true;
                 focusRow_ = 2;
                 bottomFocus_ = 0;
             } else if (InRect(pointer, StartButtonRect(panelRect))) {
+                hoverStart_ = true;
                 focusRow_ = 2;
                 bottomFocus_ = 1;
             }
@@ -86,6 +96,7 @@ public:
                 if (InRect(pointer, RoundButtonRect(panelRect, i))) {
                     roundIndex_ = i;
                     focusRow_ = 0;
+                    pressAnim_[i] = 1.0f; // Trigger press animation
                     return MatchSettingsAction::NONE;
                 }
             }
@@ -93,17 +104,21 @@ public:
                 routeIndex_ = (routeIndex_ + static_cast<int>(kRouteOptions.size()) - 1) %
                               static_cast<int>(kRouteOptions.size());
                 focusRow_ = 1;
+                pressAnim_[4] = 1.0f;
                 return MatchSettingsAction::NONE;
             }
             if (InRect(pointer, RouteRightArrowRect(panelRect))) {
                 routeIndex_ = (routeIndex_ + 1) % static_cast<int>(kRouteOptions.size());
                 focusRow_ = 1;
+                pressAnim_[5] = 1.0f;
                 return MatchSettingsAction::NONE;
             }
             if (InRect(pointer, BackButtonRect(panelRect))) {
+                pressAnim_[6] = 1.0f;
                 return MatchSettingsAction::BACK;
             }
             if (InRect(pointer, StartButtonRect(panelRect))) {
+                pressAnim_[7] = 1.0f;
                 return MatchSettingsAction::START;
             }
         }
@@ -133,11 +148,23 @@ public:
         DrawLabel(viewport, "of Rounds", panelRect.x + 56.0f, panelRect.y + 139.0f, 26.0f, WHITE);
         DrawLabel(viewport, "Route", panelRect.x + 56.0f, panelRect.y + 198.0f, 26.0f, WHITE);
 
-        // Focus indicator bar on the left of the active row
-        if (focusRow_ == 0) {
-            DrawRectangleRec(ToScreen(viewport, {panelRect.x + 42.0f, panelRect.y + 116.0f, 5.0f, 44.0f}), YELLOW);
-        } else if (focusRow_ == 1) {
-            DrawRectangleRec(ToScreen(viewport, {panelRect.x + 42.0f, panelRect.y + 195.0f, 5.0f, 32.0f}), YELLOW);
+        // Animated focus indicator bar - smoothly transitions between rows.
+        const float dt = GetFrameTime();
+        float focusTarget = static_cast<float>(focusRow_);
+        // Note: focusAnim_ is updated in Draw (const) via mutable
+        if (std::fabs(focusAnim_ - focusTarget) > 0.02f) {
+            focusAnim_ += (focusTarget - focusAnim_) * 0.15f;
+        } else {
+            focusAnim_ = focusTarget;
+        }
+
+        const float focusY = (focusAnim_ == 0) ? panelRect.y + 116.0f : panelRect.y + 195.0f;
+        const float focusH = (focusAnim_ == 0) ? 44.0f : 32.0f;
+        DrawRectangleRec(ToScreen(viewport, {panelRect.x + 42.0f, focusY, 5.0f, focusH}), YELLOW);
+
+        // Update press animations.
+        for (int i = 0; i < 8; ++i) {
+            if (pressAnim_[i] > 0.0f) pressAnim_[i] = std::max(0.0f, pressAnim_[i] - dt * 8.0f);
         }
 
         // Round buttons: 1, 3, 6, 12
@@ -146,17 +173,27 @@ public:
         for (int i = 0; i < 4; ++i) {
             const Rectangle dst = RoundButtonRect(panelRect, i);
             const bool selected = (i == roundIndex_);
-            const bool hovered = InRect(pointer, dst);
+            const bool hovered = hoverRound_ == i;
+            const float pressScale = 1.0f - pressAnim_[i] * 0.08f; // Slight scale down on press
+
             if (buttons_.id != 0) {
                 const Color tint = selected ? WHITE : (hovered ? Color{200, 210, 235, 255} : Color{140, 150, 180, 255});
-                DrawTexturePro(buttons_, selected ? yellowSrc : silverSrc, ToScreen(viewport, dst),
-                               {0.0f, 0.0f}, 0.0f, tint);
+                Rectangle drawDst = ToScreen(viewport, dst);
+                if (pressScale < 1.0f) {
+                    const float cx = drawDst.x + drawDst.width * 0.5f;
+                    const float cy = drawDst.y + drawDst.height * 0.5f;
+                    drawDst.width *= pressScale;
+                    drawDst.height *= pressScale;
+                    drawDst.x = cx - drawDst.width * 0.5f;
+                    drawDst.y = cy - drawDst.height * 0.5f;
+                }
+                DrawTexturePro(buttons_, selected ? yellowSrc : silverSrc, drawDst, {0.0f, 0.0f}, 0.0f, tint);
             }
             const std::string label = std::to_string(kRoundOptions[i]);
             DrawCenteredLabel(viewport, label.c_str(), dst, 26.0f, selected ? BLACK : WHITE);
         }
 
-        // Route selector bar
+        // Route selector bar with arrow hover feedback.
         const Rectangle routeRect = RouteBarRect(panelRect);
         if (buttons_.id != 0) {
             const Rectangle barSrc{0.0f, 106.0f, 665.0f, 98.0f};
@@ -164,23 +201,54 @@ public:
         }
         DrawCenteredLabel(viewport, kRouteOptions[routeIndex_], routeRect, 25.0f, WHITE);
 
-        // BACK and Start buttons
+        // Route arrows with hover highlight.
+        const Rectangle leftArrow = RouteLeftArrowRect(panelRect);
+        const Rectangle rightArrow = RouteRightArrowRect(panelRect);
+        if (buttons_.id != 0 && hoverRoute_) {
+            const Rectangle arrowSrc{506.0f, 106.0f, 46.0f, 98.0f};
+            DrawTexturePro(buttons_, arrowSrc, ToScreen(viewport, leftArrow), {0.0f, 0.0f}, 0.0f, WHITE);
+            DrawTexturePro(buttons_, arrowSrc, ToScreen(viewport, rightArrow), {0.0f, 0.0f}, 0.0f, WHITE);
+        }
+
+        // BACK and Start buttons with press animation.
         const Rectangle backRect = BackButtonRect(panelRect);
         if (backButton_.id != 0) {
-            const bool backHot = InRect(pointer, backRect) || (focusRow_ == 2 && bottomFocus_ == 0);
+            const bool backHot = hoverBack_ || (focusRow_ == 2 && bottomFocus_ == 0);
+            const float pressScale = 1.0f - pressAnim_[6] * 0.1f;
+            Color tint = backHot ? Color{255, 255, 255, 255} : Color{225, 225, 235, 255};
+            if (focusRow_ == 2 && bottomFocus_ == 0) tint = YELLOW;
+            Rectangle drawBack = ToScreen(viewport, backRect);
+            if (pressScale < 1.0f) {
+                const float cx = drawBack.x + drawBack.width * 0.5f;
+                const float cy = drawBack.y + drawBack.height * 0.5f;
+                drawBack.width *= pressScale;
+                drawBack.height *= pressScale;
+                drawBack.x = cx - drawBack.width * 0.5f;
+                drawBack.y = cy - drawBack.height * 0.5f;
+            }
             DrawTexturePro(backButton_,
                            {0.0f, 0.0f, static_cast<float>(backButton_.width), static_cast<float>(backButton_.height)},
-                           ToScreen(viewport, backRect), {0.0f, 0.0f}, 0.0f,
-                           backHot ? Color{255, 255, 255, 255} : Color{225, 225, 235, 255});
+                           drawBack, {0.0f, 0.0f}, 0.0f, tint);
         }
 
         const Rectangle startRect = StartButtonRect(panelRect);
         if (startButton_.id != 0) {
-            const bool startHot = InRect(pointer, startRect) || (focusRow_ == 2 && bottomFocus_ == 1);
+            const bool startHot = hoverStart_ || (focusRow_ == 2 && bottomFocus_ == 1);
+            const float pressScale = 1.0f - pressAnim_[7] * 0.1f;
+            Color tint = startHot ? WHITE : Color{240, 240, 220, 255};
+            if (focusRow_ == 2 && bottomFocus_ == 1) tint = YELLOW;
+            Rectangle drawStart = ToScreen(viewport, startRect);
+            if (pressScale < 1.0f) {
+                const float cx = drawStart.x + drawStart.width * 0.5f;
+                const float cy = drawStart.y + drawStart.height * 0.5f;
+                drawStart.width *= pressScale;
+                drawStart.height *= pressScale;
+                drawStart.x = cx - drawStart.width * 0.5f;
+                drawStart.y = cy - drawStart.height * 0.5f;
+            }
             DrawTexturePro(startButton_,
                            {0.0f, 0.0f, static_cast<float>(startButton_.width), static_cast<float>(startButton_.height)},
-                           ToScreen(viewport, startRect), {0.0f, 0.0f}, 0.0f,
-                           startHot ? WHITE : Color{240, 240, 220, 255});
+                           drawStart, {0.0f, 0.0f}, 0.0f, tint);
         }
     }
 
@@ -266,6 +334,12 @@ private:
     int routeIndex_ = 0; // Default: The City
     int focusRow_ = 0;   // 0 = rounds, 1 = route, 2 = bottom buttons
     int bottomFocus_ = 1; // 0 = BACK, 1 = Start
+    mutable float focusAnim_ = 0.0f;
+    mutable float pressAnim_[8] = {}; // 4 round buttons + 2 route arrows + back + start
+    int hoverRound_ = -1;
+    bool hoverRoute_ = false;
+    bool hoverBack_ = false;
+    bool hoverStart_ = false;
 };
 
 } // namespace Ui

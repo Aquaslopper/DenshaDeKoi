@@ -58,11 +58,14 @@ public:
     StartMenu& operator=(const StartMenu&) = delete;
 
     void AdvanceVariant() {
-        variant_ = (variant_ + 1) % static_cast<int>(backgrounds_.size());
+        nextVariant_ = (variant_ + 1) % static_cast<int>(backgrounds_.size());
+        crossfadeTimer_ = 0.0f;
+        crossfadeDuration_ = 1.2f; // Smooth crossfade over 1.2 seconds
+
         std::error_code error;
         std::filesystem::create_directories(variantFile_.parent_path(), error);
         std::ofstream output(variantFile_, std::ios::trunc);
-        if (output) output << variant_ << '\n';
+        if (output) output << nextVariant_ << '\n';
     }
 
     [[nodiscard]] int Variant() const { return variant_; }
@@ -75,6 +78,13 @@ public:
 
     [[nodiscard]] StartMenuAction Update(TableLayout::Point2 pointer, bool moved, bool pressed,
                                          int vertical, bool activate) {
+        // Update crossfade animation.
+        if (crossfadeTimer_ < crossfadeDuration_) crossfadeTimer_ += GetFrameTime();
+        if (crossfadeTimer_ >= crossfadeDuration_ && crossfadeDuration_ > 0.0f) {
+            variant_ = nextVariant_;
+            crossfadeDuration_ = 0.0f;
+        }
+
         if (moved) {
             for (int i = 0; i < static_cast<int>(Buttons.size()); ++i) {
                 if (Contains(Buttons[static_cast<std::size_t>(i)], pointer)) {
@@ -96,14 +106,32 @@ public:
     }
 
     void DrawBackground(const Viewport& viewport) const {
-        const Texture2D background = backgrounds_[static_cast<std::size_t>(variant_)];
         const Rectangle destination = viewport.box;
-        if (background.id != 0) {
-            DrawTexturePro(background, {0, 0, static_cast<float>(background.width), static_cast<float>(background.height)},
-                           destination, {0, 0}, 0, WHITE);
+
+        if (crossfadeDuration_ > 0.0f) {
+            // Crossfade between current and next variant.
+            const float t = std::clamp(crossfadeTimer_ / crossfadeDuration_, 0.0f, 1.0f);
+            const float ease = t * t * (3.0f - 2.0f * t); // Smoothstep
+            const Texture2D current = backgrounds_[static_cast<std::size_t>(variant_)];
+            const Texture2D next = backgrounds_[static_cast<std::size_t>(nextVariant_)];
+
+            if (current.id != 0) {
+                DrawTexturePro(current, {0, 0, static_cast<float>(current.width), static_cast<float>(current.height)},
+                               destination, {0, 0}, 0, Color{255, 255, 255, static_cast<unsigned char>((1.0f - ease) * 255)});
+            }
+            if (next.id != 0) {
+                DrawTexturePro(next, {0, 0, static_cast<float>(next.width), static_cast<float>(next.height)},
+                               destination, {0, 0}, 0, Color{255, 255, 255, static_cast<unsigned char>(ease * 255)});
+            }
         } else {
-            ClearBackground(Color{10, 22, 54, 255});
-            DrawText("DENSHA DE KOI", viewport.X(470), viewport.Y(190), viewport.Font(64), WHITE);
+            const Texture2D background = backgrounds_[static_cast<std::size_t>(variant_)];
+            if (background.id != 0) {
+                DrawTexturePro(background, {0, 0, static_cast<float>(background.width), static_cast<float>(background.height)},
+                               destination, {0, 0}, 0, WHITE);
+            } else {
+                ClearBackground(Color{10, 22, 54, 255});
+                DrawText("DENSHA DE KOI", viewport.X(470), viewport.Y(190), viewport.Font(64), WHITE);
+            }
         }
 
         // Keep the supplied artwork clean: indicate focus with a feathered,
@@ -123,7 +151,7 @@ public:
     }
 
     void DrawOptions(const Viewport& viewport, const GameOptions& options, Resolution display) const {
-        DrawPauseMenu(viewport, options, display, optionMenu_.Focus(),
+        DrawPauseMenu(viewport, options, display, optionMenu_.Focus(), optionMenu_,
                       {optionsPanel_, optionsStripe_, headingFont_, bodyFont_});
     }
 
@@ -173,7 +201,10 @@ private:
     Font bodyFont_{};
     PauseMenu optionMenu_{};
     int variant_ = 3;
+    int nextVariant_ = 0;
     int selected_ = 0;
+    float crossfadeTimer_ = 0.0f;
+    float crossfadeDuration_ = 0.0f;
     CardGallery gallery_;
 };
 

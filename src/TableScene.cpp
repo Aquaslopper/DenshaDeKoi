@@ -361,64 +361,6 @@ void DrawRoundIntroCue(const ScreenMap& map, Font font, const char* text, float 
     DrawTextEx(font, text, origin, size, spacing, Color{255, 255, 255, alpha});
 }
 
-// The HUD belongs to the screen, not the world canvas: it is drawn after the
-// world blit, in the same 1360x768 design space as the click rectangles.
-void DrawHud(const TableGame& game, const TableHudState& hud, Rectangle destination, float scale,
-             Texture2D logo, Font headingFont, Font bodyFont) {
-    const ScreenMap map{destination, scale};
-    DrawRectangle(map.X(8), map.Y(8), map.W(500), map.H(102), Color{15, 20, 27, 220});
-    const std::string label = "ROUND " + std::to_string(game.Round()) + " / " +
-        std::to_string(TableLayout::MatchRounds) +
-        "    YOU " + std::to_string(game.Scores()[PlayerIndex(Player::PLAYER)]) +
-        "  -  CPU " + std::to_string(game.Scores()[PlayerIndex(Player::OPPONENT)]);
-    DrawText(label.c_str(), map.X(20), map.Y(18), map.Font(22), WHITE);
-    DrawText(game.Status().c_str(), map.X(20), map.Y(51), map.Font(19), WHITE);
-    if (hud.options.cardHints)
-        DrawText("Drag a card to a match; right-click to cancel", map.X(20), map.Y(80), map.Font(15), LIGHTGRAY);
-    if (game.Rules().GetPhase() == Phase::AWAIT_DECISION && game.Rules().CurrentPlayer() == Player::PLAYER && !game.Busy()) {
-        DrawRectangle(map.X(TableHud::KoiKoiButton.x), map.Y(TableHud::KoiKoiButton.y),
-                      map.W(TableHud::KoiKoiButton.width), map.H(TableHud::KoiKoiButton.height), Color{31, 75, 58, 245});
-        DrawRectangle(map.X(TableHud::ShobuButton.x), map.Y(TableHud::ShobuButton.y),
-                      map.W(TableHud::ShobuButton.width), map.H(TableHud::ShobuButton.height), Color{100, 50, 38, 245});
-        DrawText("KOI-KOI", map.X(543), map.Y(349), map.Font(20), WHITE);
-        DrawText("SHOBU", map.X(739), map.Y(349), map.Font(20), WHITE);
-    }
-    if (game.Rules().GetPhase() == Phase::ROUND_END) {
-        DrawRectangle(map.X(TableHud::RoundEndButton.x), map.Y(TableHud::RoundEndButton.y),
-                      map.W(TableHud::RoundEndButton.width), map.H(TableHud::RoundEndButton.height), Color{15, 20, 27, 235});
-        DrawText(game.MatchFinished() ? "MATCH OVER" : "NEXT ROUND", map.X(615), map.Y(340), map.Font(20), WHITE);
-        DrawText(game.MatchFinished() ? "Click to restart" : "Click to continue", map.X(604), map.Y(370), map.Font(16), LIGHTGRAY);
-    }
-    if (game.RoundIntroActive()) {
-        // The logo and match cue share one opacity, so they leave together when play resumes.
-        const float opacity = game.RoundIntroCueOpacity();
-        const float beat = game.RoundIntroBulletProgress();
-        if (opacity > 0.0f) {
-            DrawRoundIntroLogo(map, logo, beat, opacity);
-            if (beat >= 1.0f) {
-                DrawRoundIntroCue(map, bodyFont, game.Round() == 1 ? "MATCH START" : "ROUND START", opacity);
-            }
-        }
-    }
-
-    // Separate radio and pause entry points; labels are temporary icon-asset placeholders.
-    const bool liveRadio = hud.radio.enabled && !hud.radio.muted;
-    DrawBox(map, TableHud::RadioMenuButton,
-            hud.overlay == TableOverlay::RADIO ? Color{34, 62, 56, 240} : Color{15, 20, 27, 230},
-            liveRadio ? Color{102, 186, 152, 240} : Color{95, 118, 138, 220}, 1.5f);
-    DrawText("RADIO", map.X(TableHud::RadioMenuButton.x + 10.0f),
-             map.Y(TableHud::RadioMenuButton.y + 19.0f), map.Font(14), WHITE);
-    DrawBox(map, TableHud::PauseButton,
-            hud.overlay == TableOverlay::PAUSE ? Color{34, 62, 56, 240} : Color{15, 20, 27, 230},
-            Color{95, 118, 138, 220}, 1.5f);
-    DrawText("PAUSE", map.X(TableHud::PauseButton.x + 9.0f),
-             map.Y(TableHud::PauseButton.y + 19.0f), map.Font(14), WHITE);
-
-    if (hud.overlay == TableOverlay::RADIO) {
-        Ui::DrawPauseRadioMenu(map, hud.radio, {logo, headingFont, bodyFont});
-    }
-}
-
 Texture2D LoadRequiredTexture(const char* path) {
     Texture2D texture = LoadTexture(path);
     if (texture.id == 0 || texture.width <= 0 || texture.height <= 0) {
@@ -514,8 +456,7 @@ int TableScene::SetAntiAliasing(int samples) {
     return aaSamples_ = samples;
 }
 
-void TableScene::Draw(const TableGame& game, const TableHudState& hud,
-                      const MagnifyEffect& magnify) const {
+void TableScene::Draw(const TableGame& game, const MagnifyEffect& magnify) const {
     const auto world = sampledWorld_.id ? sampledWorld_ : canvas_;
     BeginTextureMode(world);
     ClearBackground(BLACK);
@@ -544,8 +485,7 @@ void TableScene::Draw(const TableGame& game, const TableHudState& hud,
         DrawRectangle(0, 0, world.texture.width, world.texture.height,
                       Color{0, 0, 0, static_cast<unsigned char>(std::lround(110.0f * (1.0f - beat)))});
     }
-    if (hud.options.cardHints && hud.overlay == TableOverlay::NONE) DrawCardHints(game, cards, hud.pointer);
-    DrawHud(game, hud, canvasDestination, 1.0f, logo_, headingFont_, bodyFont_);
+    // Card hints and dealer selection are drawn by TableHudRenderer from TableMain.
     if (game.DealerSelectionActive())
         DrawDealerSelection(ScreenMap{canvasDestination, 1.0f}, game);
     EndTextureMode();
@@ -570,9 +510,5 @@ void TableScene::Draw(const TableGame& game, const TableHudState& hud,
                                     -static_cast<float>(canvas_.texture.height)},
                    destination, {0, 0}, 0, WHITE);
     EndShaderMode();
-    // Keep the pause art above every game prompt and outside the inspection zoom.
-    if (hud.overlay == TableOverlay::PAUSE)
-        Ui::DrawPauseMenu({destination, scale}, hud.options, {GetScreenWidth(), GetScreenHeight()}, hud.focusedOption,
-                          {optionsPanel_, optionsStripe_, headingFont_, bodyFont_});
     EndDrawing();
 }
