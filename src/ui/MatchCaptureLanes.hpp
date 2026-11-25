@@ -24,6 +24,13 @@ inline std::array<std::vector<CardId>, 4> MatchCaptureLanes(std::span<const Card
     }
     return lanes;
 }
+// Visible vertical interiors in the 81-pixel artwork, excluding the frame and
+// central colored stripe. Center in each one instead of anchoring at the top.
+inline float MatchCaptureY(std::size_t row, float cardHeight) {
+    constexpr std::array<float, 2> centers{(8.0f + 38.0f) * 0.5f, (43.0f + 74.0f) * 0.5f};
+    return 10.0f + centers[row] - cardHeight * 0.5f;
+}
+
 // Bounds follow the actual dividers in each half of MatchUI.png. The right
 // panel is not a simple mirror of the left panel's two cell widths.
 struct CaptureLaneLayout { float x; float width; float step; };

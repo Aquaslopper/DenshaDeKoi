@@ -68,7 +68,7 @@ void DrawCapturePanel(const Viewport& map, const TableGame& game, Player player,
     for (std::size_t lane = 0; lane < lanes.size(); ++lane) {
         const auto& cards = lanes[lane];
         const auto layout = MatchCaptureLayout(you, lane % 2, cards.size(), cardWidth);
-        const float y = 18.0f + static_cast<float>(lane / 2) * 38.0f;
+        const float y = MatchCaptureY(lane / 2, cardHeight);
         for (std::size_t i = 0; i < cards.size(); ++i) {
             const auto& card = DeckRegister::At(cards[i]);
             const auto src = AtlasLayout::GetCardSourceRect(static_cast<float>(textures.atlas.width),

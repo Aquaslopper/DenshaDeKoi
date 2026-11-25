@@ -55,6 +55,9 @@ void TestCaptureLanes() {
           lanes[3] == std::vector<CardId>({2, 10}),
           "Capture lanes must group by category and preserve capture order, including the cup");
     constexpr float cardWidth = 28.0f * 179.0f / 264.0f;
+    Check(Near(Ui::MatchCaptureY(0, 28.0f), 19.0f) &&
+          Near(Ui::MatchCaptureY(1, 28.0f), 54.5f),
+          "Capture cards must be vertically centered between the panel frame and divider");
     for (bool you : {false, true}) for (std::size_t column = 0; column < 2; ++column) {
         const auto sparse = Ui::MatchCaptureLayout(you, column, 2, cardWidth);
         const auto crowded = Ui::MatchCaptureLayout(you, column, 20, cardWidth);
