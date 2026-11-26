@@ -1,0 +1,16 @@
+# Four start-menu backgrounds and their focus halo.
+title
+frames 2
+variant 1
+frames 2
+shot 02-title-a
+variant 2
+frames 2
+shot 02-title-b
+variant 3
+frames 2
+shot 02-title-c
+variant 4
+frames 2
+shot 02-title-d
+state

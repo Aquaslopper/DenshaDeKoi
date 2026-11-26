@@ -1,0 +1,11 @@
+# Round intro: the bullet-time logo beat, stepped frame by frame.
+match 3 7
+frames 1
+shot 09-intro-1
+frames 10 16
+shot 09-intro-2
+frames 20 16
+shot 09-intro-3
+frames 40 16
+shot 09-intro-done
+state

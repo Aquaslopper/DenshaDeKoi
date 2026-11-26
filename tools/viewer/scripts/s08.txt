@@ -1,0 +1,8 @@
+# Dealer draw at the start of a match, then the reveal.
+matchdealer
+frames 2
+shot 08-dealer-choice
+pickdealer 0
+frames 2
+shot 08-dealer-reveal
+state

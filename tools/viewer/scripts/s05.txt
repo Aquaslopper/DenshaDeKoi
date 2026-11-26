@@ -1,0 +1,15 @@
+# Radio from the start menu: off, on, muted, a station selected.
+title
+frames 2
+menu radio
+frames 2
+radio power 0
+shot 05-radio-off
+radio power 1
+radio station 2
+shot 05-radio-on
+radio mute 1
+shot 05-radio-muted
+radiovolume 0.25
+shot 05-radio-quiet
+state

@@ -1,0 +1,14 @@
+# Match settings, as ALT+down arrow would open it from PLAY.
+title
+frames 2
+menu settings
+frames 2
+settingsrow 0
+shot 03-settings-rounds
+settingsrounds 2
+frames 1
+shot 03-settings-six
+settingsrow 2
+frames 1
+shot 03-settings-buttons
+state
