@@ -1,0 +1,19 @@
+# Card gallery: one month, then the 3D viewer on a card.
+title
+frames 2
+menu gallery
+frames 2
+gallery 1 0
+shot 06-gallery-january
+gallery 8 0
+shot 06-gallery-august
+gallery 9 0
+shot 06-gallery-september
+viewer3d
+frames 4
+shot 06-viewer3d
+viewerdrag 680 384 60 40
+shot 06-viewer3d-turned
+viewerclose
+shot 06-gallery-after-viewer
+state

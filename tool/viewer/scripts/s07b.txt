@@ -1,0 +1,11 @@
+# Pause over a live match, then radio over it.
+match 3 1
+frames 3
+await
+key 80
+frames 2
+shot 07-pause-over-table
+click 1313 351
+frames 2
+shot 07-radio-over-table
+state
