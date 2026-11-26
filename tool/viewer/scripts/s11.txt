@@ -1,6 +1,0 @@
-# The round result panel and the match summary ledger.
-match 1 3
-playmatch
-frames 2
-shot 11-match-summary
-state
