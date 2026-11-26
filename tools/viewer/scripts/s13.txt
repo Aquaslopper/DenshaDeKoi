@@ -1,0 +1,7 @@
+# The smallest window the client allows: 680 x 384.
+title
+frames 2
+shot 13-title-small
+menu options
+optionsrow 0
+shot 13-options-small
