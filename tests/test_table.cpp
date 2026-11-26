@@ -527,7 +527,53 @@ void TestMatchResultMenu() {
     {
         TableScene scene("city", "atlas", "logo", "heading", "body", "options");
         Ui::MatchResultMenu menu("app");
-        TableGame game(1u, 3);
+        const auto reachesPlayerDecision = [](unsigned seed) {
+            TableGame candidate(seed, 3);
+            for (int step = 0; step < 6000; ++step) {
+                if (candidate.Busy()) { candidate.Update(0.05f); continue; }
+                const auto& rules = candidate.Rules();
+                const Phase phase = rules.GetPhase();
+                if (phase == Phase::ROUND_END) return false;
+                if (rules.CurrentPlayer() == Player::PLAYER) {
+                    if (phase == Phase::AWAIT_DECISION) return true;
+                    if (phase == Phase::AWAIT_HAND_PLAY) {
+                        const int card = rules.Hand(Player::PLAYER).front();
+                        TableLayout::Rect handRect{};
+                        for (const auto& c : candidate.Cards())
+                            if (c.id == card) { handRect = c.rect; break; }
+                        if (handRect.width <= 0.0f || handRect.height <= 0.0f) return false;
+                        const TableLayout::Point2 start{handRect.x + handRect.width * 0.5f,
+                                                        handRect.y + handRect.height * 0.5f};
+                        candidate.PointerDown(start);
+                        TableLayout::Point2 drop{430.0f, 355.0f};
+                        for (int fieldCard : rules.Field()) {
+                            if (DeckRegister::At(fieldCard).month == DeckRegister::At(card).month) {
+                                const auto fieldRect = candidate.FieldRect(fieldCard);
+                                drop = {fieldRect.x + fieldRect.width * 0.5f,
+                                        fieldRect.y + fieldRect.height * 0.5f};
+                                break;
+                            }
+                        }
+                        candidate.PointerUp(drop);
+                        continue;
+                    }
+                    if (phase == Phase::AWAIT_DRAW_CHOICE) {
+                        if (rules.Choices().empty()) return false;
+                        const auto fieldRect = candidate.FieldRect(rules.Choices().front());
+                        candidate.PointerDown({fieldRect.x + fieldRect.width * 0.5f,
+                                               fieldRect.y + fieldRect.height * 0.5f});
+                        continue;
+                    }
+                }
+                candidate.Update(0.05f);
+            }
+            return false;
+        };
+        unsigned matchSeed = 1;
+        while (matchSeed <= 500 && !reachesPlayerDecision(matchSeed)) ++matchSeed;
+        Check(matchSeed <= 500,
+              "Cross-platform seed search must find a player decision for HUD styling coverage");
+        TableGame game(matchSeed, 3);
         width = 1360; height = 768;
         bool sawDecisionButtons = false;
 

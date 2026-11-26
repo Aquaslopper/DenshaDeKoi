@@ -63,30 +63,32 @@ Exact CTest output:
 Internal ctest changing into directory: /home/user/DenshaDeKoi/build-headless
 Test project /home/user/DenshaDeKoi/build-headless
     Start 1: table
-1/9 Test #1: table ............................   Passed    0.05 sec
+1/9 Test #1: table ............................   Passed    0.07 sec
     Start 2: pause_options
-2/9 Test #2: pause_options ....................   Passed    0.02 sec
+2/9 Test #2: pause_options ....................   Passed    0.03 sec
     Start 3: table_game
 3/9 Test #3: table_game .......................   Passed    0.93 sec
     Start 4: radio
 4/9 Test #4: radio ............................   Passed    0.03 sec
     Start 5: rules
-5/9 Test #5: rules ............................   Passed    0.78 sec
+5/9 Test #5: rules ............................   Passed    0.76 sec
     Start 6: deck
 6/9 Test #6: deck .............................   Passed    0.00 sec
     Start 7: atlas_math
 7/9 Test #7: atlas_math .......................   Passed    0.00 sec
     Start 8: atlas_frames
-8/9 Test #8: atlas_frames .....................   Passed    2.09 sec
+8/9 Test #8: atlas_frames .....................   Passed    2.21 sec
     Start 9: inspector
 9/9 Test #9: inspector ........................   Passed    0.00 sec
 
 100% tests passed, 0 tests failed out of 9
 
-Total Test time (real) =   3.92 sec
+Total Test time (real) =   4.03 sec
 ```
 
 The table test now records HUD draw calls and shadow vertices. It asserts the fixed side-button rectangles `{1266,322,76,58}`, `{1266,390,76,58}`, `{1266,458,76,58}`, the decision rectangles `{505,336,165,48}` / `{690,336,165,48}`, and round-end `{520,326,320,72}`. It also checks the centered plate at 680×384, visual states and labels, and each card’s expected top vertices against the shadow pass (zero card-outline vertex movement). The fake Raylib surface was extended only for mouse-button state and draw-call capture.
+
+A Windows Release run exposed that a fixed seed does not reliably reach the player decision phase because `std::shuffle` can differ between standard-library implementations. The table test now searches seeds 1–500 using its scripted player actions before selecting the full-match seed, so the Koi-Koi/Shobu rendering assertions run on both toolchains. The updated headless suite passed 9/9 locally.
 
 ### Protected-file self-check
 
