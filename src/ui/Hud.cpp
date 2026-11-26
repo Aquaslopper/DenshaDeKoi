@@ -74,20 +74,21 @@ struct MatchHudTextures {
     }
 };
 
-void DrawCapturePanel(const Viewport& map, const TableGame& game, Player player,
+void DrawMatchHudPanel(const Viewport& map, const MatchHudTextures& textures) {
+    if (!textures.panel.id) return;
+    const float w = static_cast<float>(textures.panel.width);
+    const float h = static_cast<float>(textures.panel.height);
+    DrawTexturePro(textures.panel, {0, 0, w, h}, map.Rec({12.0f, 10.0f, w, h}), {0, 0}, 0, WHITE);
+}
+
+void DrawCaptureCards(const Viewport& map, const TableGame& game, Player player,
                       const MatchHudTextures& textures) {
-    const bool you = player == Player::PLAYER;
-    // MatchUI is 1334x81: two separate panels with transparent space between.
-    const float panelX = you ? 12.0f : 950.0f;
-    if (textures.panel.id) {
-        const Rectangle source = you ? Rectangle{0, 0, 397, 81} : Rectangle{936, 0, 398, 81};
-        DrawTexturePro(textures.panel, source, map.Rec({panelX, 10, 398, 81}), {0, 0}, 0, WHITE);
-    }
     if (!textures.atlas.id) return;
+    const bool you = player == Player::PLAYER;
     const auto lanes = MatchCaptureLanes(game.Rules().Captured(player));
     // Xeno Koi's B/A/R/P lane order, folded row-major into the 2x2 grid.
     // YOU's label is at the left and CPU's at the right.
-    constexpr float cardHeight = 28.0f;
+    constexpr float cardHeight = 26.0f;
     constexpr float cardWidth = cardHeight * 179.0f / 264.0f;
     for (std::size_t lane = 0; lane < lanes.size(); ++lane) {
         const auto& cards = lanes[lane];
@@ -208,17 +209,18 @@ void DrawDealerSelection(const Viewport& map, const TableGame& game) {
 void DrawHud(const Viewport& map, const TableGame& game, const TableHudState& hud,
              Texture2D logo, Font bodyFont) {
     static const MatchHudTextures matchHud;
-    DrawCapturePanel(map, game, Player::PLAYER, matchHud);
-    DrawCapturePanel(map, game, Player::OPPONENT, matchHud);
+    DrawMatchHudPanel(map, matchHud);
+    DrawCaptureCards(map, game, Player::PLAYER, matchHud);
+    DrawCaptureCards(map, game, Player::OPPONENT, matchHud);
     matchBodyFont = bodyFont;
     const std::string roundLabel = "ROUND " + std::to_string(game.Round()) + " / " +
                                    std::to_string(game.TotalRounds());
     const Font roundFont = bodyFont.texture.id ? bodyFont : GetFontDefault();
-    const float roundSize = 24.0f * map.scale;
+    const float roundSize = 19.0f * map.scale;
     const float spacing = 0.5f * map.scale;
-    const Vector2 roundWidth = MeasureTextEx(roundFont, roundLabel.c_str(), roundSize, spacing);
-    const Vector2 roundPos{map.box.x + 680.0f * map.scale - roundWidth.x * 0.5f,
-                           map.box.y + 20.0f * map.scale};
+    const Vector2 roundBounds = MeasureTextEx(roundFont, roundLabel.c_str(), roundSize, spacing);
+    const Vector2 roundPos{map.box.x + 676.5f * map.scale - roundBounds.x * 0.5f,
+                           map.box.y + 30.0f * map.scale - roundBounds.y * 0.5f};
     DrawTextEx(roundFont, roundLabel.c_str(), {roundPos.x + map.scale, roundPos.y + map.scale},
                roundSize, spacing, Color{0, 0, 0, 200});
     DrawTextEx(roundFont, roundLabel.c_str(), roundPos, roundSize, spacing, WHITE);

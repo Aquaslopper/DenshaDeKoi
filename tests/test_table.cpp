@@ -54,17 +54,19 @@ void TestCaptureLanes() {
           lanes[2] == std::vector<CardId>({1, 21}) &&
           lanes[3] == std::vector<CardId>({2, 10}),
           "Capture lanes must group by category and preserve capture order, including the cup");
-    constexpr float cardWidth = 28.0f * 179.0f / 264.0f;
-    Check(Near(Ui::MatchCaptureY(0, 28.0f), 19.0f) &&
-          Near(Ui::MatchCaptureY(1, 28.0f), 54.5f),
+    constexpr float cardHeight = 26.0f;
+    constexpr float cardWidth = cardHeight * 179.0f / 264.0f;
+    Check(Near(Ui::MatchCaptureY(0, cardHeight), 19.5f) &&
+          Near(Ui::MatchCaptureY(1, cardHeight), 55.5f),
           "Capture cards must be vertically centered between the panel frame and divider");
     for (bool you : {false, true}) for (std::size_t column = 0; column < 2; ++column) {
         const auto sparse = Ui::MatchCaptureLayout(you, column, 2, cardWidth);
         const auto crowded = Ui::MatchCaptureLayout(you, column, 20, cardWidth);
-        Check(sparse.x >= (you ? 12.0f + (column == 0 ? 60.0f : 218.0f) * 398.0f / 397.0f :
-                           950.0f + (column == 0 ? 7.0f : 179.0f)) + 5.0f - 0.01f,
+        const float expectedLeft = (you ? 12.0f + (column == 0 ? 62.0f : 220.0f)
+                                        : 12.0f + (column == 0 ? 946.0f : 1117.0f)) + 4.0f;
+        Check(Near(sparse.x, expectedLeft),
               "Capture cards need an inset from the panel frame and dividers");
-        Check(Near(sparse.step, cardWidth) && crowded.step < cardWidth && crowded.step > 0 &&
+        Check(Near(sparse.step, cardWidth + 2.0f) && crowded.step < cardWidth && crowded.step > 0 &&
               19 * crowded.step + cardWidth <= crowded.width + 0.01f,
               "Crowded captures must overlap and stay inside their own cell");
         if (column == 0) {
@@ -178,9 +180,20 @@ void TestDraw() {
             }
         }
         Check(camera.projection == CAMERA_PERSPECTIVE && Near(camera.fovy, 45), "Wrong 3D camera");
-        Check(destinations.size() == 7 && Near(destinations.back().height, 900) &&
+        Check(destinations.size() == 6 && Near(destinations.back().height, 900) &&
               Near(destinations.back().width, 1360.0f * 900.0f / 768.0f) && sources.back().height < 0,
               "Window resize must preserve aspect ratio and flip render target");
+        Check(std::count(blits.begin(), blits.end(), 13u) == 1,
+              "MatchUI.png must be drawn once in full without slicing");
+        {
+            const auto it = std::find(blits.begin(), blits.end(), 13u);
+            const auto idx = static_cast<std::size_t>(it - blits.begin());
+            Check(Near(sources[idx].x, 0.0f) && Near(sources[idx].y, 0.0f) &&
+                  Near(sources[idx].width, 1334.0f) && Near(sources[idx].height, 81.0f) &&
+                  Near(destinations[idx].x, 12.0f) && Near(destinations[idx].y, 10.0f) &&
+                  Near(destinations[idx].width, 1334.0f) && Near(destinations[idx].height, 81.0f),
+                  "MatchUI.png must draw un-sliced at 1:1 size in 1360x768 HUD space");
+        }
 
         // Verify right-side pause button stays clear of decision banners and renders pause menu radio presets.
         const auto noOverlap = [](TableLayout::Rect a, TableLayout::Rect b) {
@@ -248,8 +261,9 @@ void TestDraw() {
         Check(hasText("ROUND 1 / 6"), "The current round and configured total must be visible");
         Check(std::any_of(textDraws.begin(), textDraws.end(), [](const TextDraw& draw) {
             return draw.text == "ROUND 1 / 6" && draw.font == 7 &&
-                   Near(draw.pos.x + 11.0f * 24.0f / 4.0f, 680.0f) && Near(draw.pos.y, 20.0f);
-        }), "Round indicator must use the game font and be centered at the top");
+                   Near(draw.pos.x + 11.0f * 19.0f / 4.0f, 676.5f) &&
+                   Near(draw.pos.y + 19.0f * 0.5f, 30.0f);
+        }), "Round indicator must use the game font and be centered in the MatchUI round bar");
         Check(std::count(blits.begin(), blits.end(), 14u) == 1 &&
               std::count(blits.begin(), blits.end(), 15u) == 1 &&
               std::count(blits.begin(), blits.end(), 16u) == 1,
