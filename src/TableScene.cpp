@@ -100,18 +100,50 @@ void DrawShadows(const std::vector<TableCard>& cards) {
         const float flipScale = 0.25f + 0.75f * std::abs(std::cos(card.flipAngle));
         const float shx = hx * flipScale + 0.002f + h * 0.12f;
         const float shz = hz + 0.002f + h * 0.12f;
-        const unsigned char alpha = static_cast<unsigned char>(std::clamp(58.0f - h * 260.0f, 22.0f, 64.0f));
-        constexpr float shadowY = 0.0005f;
+        const unsigned char contactAlpha = static_cast<unsigned char>(
+            std::clamp(58.0f - h * 260.0f, 22.0f, 64.0f));
+        const unsigned char ambientAlpha = static_cast<unsigned char>(
+            std::clamp(18.0f - h * 30.0f, 4.0f, 18.0f));
+        const float contactSoftness = 0.004f + h * 0.04f;
+        const float ambientSoftness = 0.014f + h * 0.08f;
         const float cosY = std::cos(card.yaw), sinY = std::sin(card.yaw);
-        const auto emitCorner = [&](float lx, float lz, float u, float v) {
+        const auto emitCorner = [&](float lx, float lz, float y, float u, float v,
+                                    Color tint, unsigned char alpha) {
+            rlColor4ub(tint.r, tint.g, tint.b, alpha);
             rlTexCoord2f(u, v);
-            rlVertex3f(cx + lx * cosY + lz * sinY, shadowY, cz - lx * sinY + lz * cosY);
+            rlVertex3f(cx + lx * cosY + lz * sinY, y, cz - lx * sinY + lz * cosY);
         };
-        rlColor4ub(0, 0, 0, alpha);
-        emitCorner(-shx, -shz, 0.0f, 0.0f);
-        emitCorner(-shx,  shz, 0.0f, 1.0f);
-        emitCorner( shx,  shz, 1.0f, 1.0f);
-        emitCorner( shx, -shz, 1.0f, 0.0f);
+        const auto drawSoftRing = [&](float innerX, float innerZ, float outerX, float outerZ,
+                                      float y, Color tint, unsigned char alpha) {
+            // Four feathered strips form a soft rectangular halo without covering
+            // the card's black frame or changing any card vertex.
+            emitCorner(-innerX, -innerZ, y, 0.0f, 0.0f, tint, alpha);
+            emitCorner( innerX, -innerZ, y, 1.0f, 0.0f, tint, alpha);
+            emitCorner( outerX, -outerZ, y, 1.0f, 0.0f, tint, 0);
+            emitCorner(-outerX, -outerZ, y, 0.0f, 0.0f, tint, 0);
+
+            emitCorner( innerX, -innerZ, y, 1.0f, 0.0f, tint, alpha);
+            emitCorner( innerX,  innerZ, y, 1.0f, 1.0f, tint, alpha);
+            emitCorner( outerX,  outerZ, y, 1.0f, 1.0f, tint, 0);
+            emitCorner( outerX, -outerZ, y, 1.0f, 0.0f, tint, 0);
+
+            emitCorner( innerX,  innerZ, y, 1.0f, 1.0f, tint, alpha);
+            emitCorner(-innerX,  innerZ, y, 0.0f, 1.0f, tint, alpha);
+            emitCorner(-outerX,  outerZ, y, 0.0f, 1.0f, tint, 0);
+            emitCorner( outerX,  outerZ, y, 1.0f, 1.0f, tint, 0);
+
+            emitCorner(-innerX,  innerZ, y, 0.0f, 1.0f, tint, alpha);
+            emitCorner(-innerX, -innerZ, y, 0.0f, 0.0f, tint, alpha);
+            emitCorner(-outerX, -outerZ, y, 0.0f, 0.0f, tint, 0);
+            emitCorner(-outerX,  outerZ, y, 0.0f, 1.0f, tint, 0);
+        };
+
+        // A faint warm ambient edge blends the shadow into both pale stone and wood;
+        // the tighter cool contact ring supplies depth under the card.
+        drawSoftRing(shx, shz, shx + ambientSoftness, shz + ambientSoftness,
+                     0.00035f, Color{70, 53, 34, 255}, ambientAlpha);
+        drawSoftRing(shx, shz, shx + contactSoftness, shz + contactSoftness,
+                     0.00055f, Color{7, 9, 15, 255}, contactAlpha);
     }
     rlEnd();
 }

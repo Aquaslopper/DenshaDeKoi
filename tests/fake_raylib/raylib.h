@@ -23,6 +23,8 @@ bool IsWindowReady();
 void CloseWindow();
 void SetTargetFPS(int fps);
 bool WindowShouldClose();
+inline constexpr int MOUSE_BUTTON_LEFT = 0;
+bool IsMouseButtonDown(int button);
 Vector2 GetMousePosition();
 void BeginDrawing();
 void EndDrawing();

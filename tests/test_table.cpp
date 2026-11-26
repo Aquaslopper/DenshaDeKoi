@@ -35,15 +35,21 @@ int width = 1600, height = 900;
 int loads = 0, renderUnloads = 0;
 int draws = 0;
 std::vector<std::string> drawnTexts;
-struct TextDraw { std::string text; Vector2 pos; unsigned int font; };
+struct TextDraw { std::string text; Vector2 pos; unsigned int font; float size; Color color; };
+struct RectDraw { int x, y, width, height; Color color; };
+struct BorderDraw { Rectangle rect; float thickness; Color color; };
 std::vector<TextDraw> textDraws;
+std::vector<RectDraw> rectangleDraws;
+std::vector<BorderDraw> borderDraws;
+bool mouseButtonDown = false;
 bool failAtlas = false, invalidAtlas = false, failCanvas = false, failStripe = false;
 
 void Check(bool condition, const char* text) { if (!condition) throw std::runtime_error(text); }
 bool Near(float a, float b, float tolerance = 0.01f) { return std::abs(a - b) < tolerance; }
 void Reset() {
     vertices.clear(); unloaded.clear(); unloadedFonts.clear(); destinations.clear(); sources.clear();
-    drawnTexts.clear(); textDraws.clear(); blits.clear(); renderSizes.clear(); hintEdges = 0;
+    drawnTexts.clear(); textDraws.clear(); rectangleDraws.clear(); borderDraws.clear();
+    blits.clear(); renderSizes.clear(); hintEdges = 0; mouseButtonDown = false;
     loads = renderUnloads = draws = 0; failAtlas = invalidAtlas = failCanvas = failStripe = false;
 }
 void TestCaptureLanes() {
@@ -75,6 +81,37 @@ void TestCaptureLanes() {
     const auto empty = Ui::MatchCaptureLanes(std::span<const CardId>{});
     Check(std::all_of(empty.begin(), empty.end(), [](const auto& lane) { return lane.empty(); }),
           "Empty captures must produce empty lanes");
+}
+std::array<Vector3, 4> ExpectedCardTop(const TableCard& card) {
+    const auto p00 = TableLayout::OnPlane(card.rect.x, card.rect.y, 0.0f);
+    const auto p11 = TableLayout::OnPlane(card.rect.x + card.rect.width,
+                                          card.rect.y + card.rect.height, 0.0f);
+    const float hx = 0.5f * (p11.x - p00.x);
+    const float hz = 0.5f * (p11.z - p00.z);
+    const float hy = 0.5f * card.thickness;
+    const float rz = card.flipAngle + card.roll;
+    const float rx = card.pitch;
+    const float ry = card.yaw;
+    const float cosZ = std::cos(rz), sinZ = std::sin(rz);
+    const float cosX = std::cos(rx), sinX = std::sin(rx);
+    const float cosY = std::cos(ry), sinY = std::sin(ry);
+    const float extentY = std::abs(hx * sinZ * cosX) +
+                          std::abs(hy * cosZ * cosX) +
+                          std::abs(hz * sinX);
+    const float cx = 0.5f * (p00.x + p11.x);
+    const float cy = card.elevation + extentY;
+    const float cz = 0.5f * (p00.z + p11.z);
+    const auto transform = [&](float lx, float ly, float lz) {
+        const float x1 = lx * cosZ - ly * sinZ;
+        const float y1 = lx * sinZ + ly * cosZ;
+        const float y2 = y1 * cosX - lz * sinX;
+        const float z2 = y1 * sinX + lz * cosX;
+        const float x3 = x1 * cosY + z2 * sinY;
+        const float z3 = -x1 * sinY + z2 * cosY;
+        return Vector3{cx + x3, cy + y2, cz + z3};
+    };
+    return {transform(-hx, hy, -hz), transform(-hx, hy, hz),
+            transform(hx, hy, hz), transform(hx, hy, -hz)};
 }
 void TestGeometry() {
     using namespace TableLayout;
@@ -121,21 +158,43 @@ void TestDraw() {
               "Seeded table draw must include face-up cards");
         std::size_t expectedShadows = 0;
         for (const auto& card : cards) if (card.shadow) ++expectedShadows;
-        const std::size_t shadowVertices = expectedShadows * 4;
+        constexpr std::size_t ShadowVerticesPerCard = 32;
+        const std::size_t shadowVertices = expectedShadows * ShadowVerticesPerCard;
         const std::size_t cardVertices = cards.size() * 24;
         Check(vertices.size() == shadowVertices + cardVertices, "Card render count differs from game state");
         for (std::size_t i = 0; i < expectedShadows; ++i) {
-            for (std::size_t j = 0; j < 4; ++j) {
-                const auto& shadowVert = vertices[i * 4 + j];
+            bool hasFeatheredEdge = false, hasContactEdge = false;
+            bool hasTransparentEdge = false;
+            for (std::size_t j = 0; j < ShadowVerticesPerCard; ++j) {
+                const auto& shadowVert = vertices[i * ShadowVerticesPerCard + j];
                 Check(shadowVert.texture == 99 && shadowVert.y < TableLayout::CardElevation &&
-                      shadowVert.color.r == 0 && shadowVert.color.g == 0 && shadowVert.color.b == 0 &&
-                      shadowVert.color.a > 0 && shadowVert.color.a < 255,
-                      "Card shadow must sit below the card plane");
+                      shadowVert.color.a <= 64,
+                      "Card shadow must sit below the card plane with translucent edges");
+                if (j < 16) {
+                    Check(shadowVert.color.r == 70 && shadowVert.color.g == 53 && shadowVert.color.b == 34 &&
+                          Near(shadowVert.y, 0.00035f), "Ambient shadow tint must remain faint and warm");
+                    hasFeatheredEdge = hasFeatheredEdge || shadowVert.color.a > 0;
+                } else {
+                    Check(shadowVert.color.r == 7 && shadowVert.color.g == 9 && shadowVert.color.b == 15 &&
+                          Near(shadowVert.y, 0.00055f), "Contact shadow must remain cool and below the card");
+                    hasContactEdge = hasContactEdge || shadowVert.color.a > 0;
+                }
+                hasTransparentEdge = hasTransparentEdge || shadowVert.color.a == 0;
             }
+            Check(hasFeatheredEdge && hasContactEdge && hasTransparentEdge,
+                  "Contact shadows must feather to transparent beyond the card frame");
         }
         for (std::size_t i = 0; i < cards.size(); ++i) {
             const auto& card = cards[i];
             const std::size_t base = shadowVertices + i * 24;
+            const auto expectedTop = ExpectedCardTop(card);
+            for (std::size_t j = 0; j < expectedTop.size(); ++j) {
+                const auto& vert = vertices[base + j];
+                Check(Near(vert.x, expectedTop[j].x, 0.00001f) &&
+                      Near(vert.y, expectedTop[j].y, 0.00001f) &&
+                      Near(vert.z, expectedTop[j].z, 0.00001f),
+                      "Soft shadows must not move a card outline vertex");
+            }
             for (std::size_t j = 0; j < 4; ++j) {
                 const auto& vert = vertices[base + j];
                 Check(Near(vert.y, card.elevation + card.thickness) && vert.color.a == 255,
@@ -178,7 +237,7 @@ void TestDraw() {
             }
         }
         Check(camera.projection == CAMERA_PERSPECTIVE && Near(camera.fovy, 45), "Wrong 3D camera");
-        Check(destinations.size() == 4 && Near(destinations.back().height, 900) &&
+        Check(destinations.size() >= 4 && Near(destinations.back().height, 900) &&
               Near(destinations.back().width, 1360.0f * 900.0f / 768.0f) && sources.back().height < 0,
               "Window resize must preserve aspect ratio and flip render target");
 
@@ -187,6 +246,20 @@ void TestDraw() {
             return a.x + a.width <= b.x || b.x + b.width <= a.x ||
                    a.y + a.height <= b.y || b.y + b.height <= a.y;
         };
+        Check(TableHud::RadioMenuButton.x == 1266.0f && TableHud::RadioMenuButton.y == 322.0f &&
+              TableHud::RadioMenuButton.width == 76.0f && TableHud::RadioMenuButton.height == 58.0f &&
+              TableHud::PauseButton.x == 1266.0f && TableHud::PauseButton.y == 390.0f &&
+              TableHud::PauseButton.width == 76.0f && TableHud::PauseButton.height == 58.0f &&
+              TableHud::HomeButton.x == 1266.0f && TableHud::HomeButton.y == 458.0f &&
+              TableHud::HomeButton.width == 76.0f && TableHud::HomeButton.height == 58.0f,
+              "Icon plates must preserve all three existing HUD hit rectangles");
+        Check(TableHud::KoiKoiButton.x == 505.0f && TableHud::KoiKoiButton.y == 336.0f &&
+              TableHud::KoiKoiButton.width == 165.0f && TableHud::KoiKoiButton.height == 48.0f &&
+              TableHud::ShobuButton.x == 690.0f && TableHud::ShobuButton.y == 336.0f &&
+              TableHud::ShobuButton.width == 165.0f && TableHud::ShobuButton.height == 48.0f &&
+              TableHud::RoundEndButton.x == 520.0f && TableHud::RoundEndButton.y == 326.0f &&
+              TableHud::RoundEndButton.width == 320.0f && TableHud::RoundEndButton.height == 72.0f,
+              "Decision and round-end buttons must preserve their existing hit rectangles");
         Check(TableHud::PauseButton.x >= 1200.0f &&
               TableHud::HomeButton.x == TableHud::PauseButton.x &&
               TableHud::HomeButton.y > TableHud::PauseButton.y + TableHud::PauseButton.height &&
@@ -196,8 +269,13 @@ void TestDraw() {
               noOverlap(TableHud::PauseButton, TableHud::ShobuButton) &&
               noOverlap(TableHud::PauseButton, TableHud::RoundEndButton),
               "Right-side pause/home buttons must not overlap each other or decision banners");
-        Check(std::find(drawnTexts.begin(), drawnTexts.end(), "HOME") != drawnTexts.end(),
-              "HUD must draw the Home button under Radio and Pause");
+        Check(std::find(drawnTexts.begin(), drawnTexts.end(), "HOME") != drawnTexts.end() &&
+              std::find(drawnTexts.begin(), drawnTexts.end(), "RADIO") != drawnTexts.end() &&
+              std::find(drawnTexts.begin(), drawnTexts.end(), "PAUSE") != drawnTexts.end(),
+              "HUD must draw all three bilingual icon plates");
+        for (unsigned int icon : {14u, 15u, 16u, 17u})
+            Check(std::find(blits.begin(), blits.end(), icon) != blits.end(),
+                  "HUD icon and kana artwork must be loaded and blitted");
 
         drawnTexts.clear();
         TableHudState pausedHud{};
@@ -222,16 +300,79 @@ void TestDraw() {
               noOverlap(TableHud::VolumeHitBox, TableHud::RadioMuteButton),
               "Radio controls must not overlap each other or the station grid");
 
-        drawnTexts.clear(); textDraws.clear();
+        drawnTexts.clear(); textDraws.clear(); rectangleDraws.clear();
         TableGame sixRoundGame(42u, 6);
         scene.Draw(sixRoundGame);
-        Check(hasText("ROUND 1 / 6"), "The current round and configured total must be visible");
+        Check(hasText("ROUND ") && hasText("1") && hasText("/") && hasText("6"),
+              "The round plate must show the current and total round numerals");
         Check(std::any_of(textDraws.begin(), textDraws.end(), [](const TextDraw& draw) {
-            return draw.text == "ROUND 1 / 6" && draw.font == 7 &&
-                   Near(draw.pos.x + 11.0f * 24.0f / 4.0f, 680.0f) && Near(draw.pos.y, 20.0f);
-        }), "Round indicator must use the game font and be centered at the top");
+            return draw.text == "ROUND " && draw.font == 7 &&
+                   Near(draw.pos.x + 11.0f * 22.0f / 4.0f, 680.0f) && Near(draw.pos.y, 22.0f);
+        }), "Round indicator must use the game font and remain centered at the top");
+        Check(std::any_of(textDraws.begin(), textDraws.end(), [](const TextDraw& draw) {
+            return draw.text == "1" && draw.color.r == 255 && draw.color.g == 213 && draw.color.b == 25;
+        }) && std::any_of(textDraws.begin(), textDraws.end(), [](const TextDraw& draw) {
+            return draw.text == "6" && draw.color.r == 255 && draw.color.g == 213 && draw.color.b == 25;
+        }), "Round numerals must use the pause-menu signal yellow");
+        const auto hasRoundPlate = [] {
+            return std::any_of(rectangleDraws.begin(), rectangleDraws.end(), [](const RectDraw& draw) {
+                return draw.x == 574 && draw.y == 9 && draw.width == 212 && draw.height == 48 &&
+                       draw.color.r == 8 && draw.color.g == 31 && draw.color.b == 122;
+            });
+        };
+        Check(hasRoundPlate() && 574.0f > 410.0f && 574.0f + 212.0f < 950.0f,
+              "Opaque navy round plate must sit between the player panels");
         Check(hasText("RADIO") && hasText("PAUSE") && hasText("HOME"),
               "Radio, pause and home controls must remain visible");
+
+        width = 680; height = 384;
+        drawnTexts.clear(); textDraws.clear(); rectangleDraws.clear(); destinations.clear();
+        scene.Draw(sixRoundGame);
+        Check(hasRoundPlate() && destinations.back().width == 680.0f &&
+              destinations.back().height == 384.0f &&
+              574.0f * 0.5f > 410.0f * 0.5f && (574.0f + 212.0f) * 0.5f < 950.0f * 0.5f,
+              "Round plate must stay centered and clear of player panels at the 680x384 minimum");
+
+        const auto hasBorder = [](TableLayout::Rect rect, Color expected) {
+            return std::any_of(borderDraws.begin(), borderDraws.end(), [&](const BorderDraw& border) {
+                return Near(border.rect.x, rect.x) && Near(border.rect.y, rect.y) &&
+                       Near(border.rect.width, rect.width) && Near(border.rect.height, rect.height) &&
+                       border.color.r == expected.r && border.color.g == expected.g && border.color.b == expected.b;
+            });
+        };
+        const auto hasFill = [](int x, int y, int w, int h, Color expected) {
+            return std::any_of(rectangleDraws.begin(), rectangleDraws.end(), [&](const RectDraw& rect) {
+                return rect.x == x && rect.y == y && rect.width == w && rect.height == h &&
+                       rect.color.r == expected.r && rect.color.g == expected.g && rect.color.b == expected.b;
+            });
+        };
+        TableHudState activeHud{};
+        activeHud.radio.enabled = true;
+        drawnTexts.clear(); textDraws.clear(); rectangleDraws.clear(); borderDraws.clear();
+        scene.Draw(sixRoundGame, activeHud);
+        Check(hasFill(1266, 322, 76, 58, {7, 26, 100, 255}) &&
+              hasText("RADIO") && hasBorder(TableHud::RadioMenuButton, {196, 207, 227, 255}),
+              "An active radio entry must use the navy plate and signal-yellow detail");
+
+        TableHudState hoverHud{};
+        hoverHud.pointer = {TableHud::PauseButton.x + TableHud::PauseButton.width * 0.5f,
+                            TableHud::PauseButton.y + TableHud::PauseButton.height * 0.5f};
+        drawnTexts.clear(); textDraws.clear(); rectangleDraws.clear(); borderDraws.clear();
+        scene.Draw(sixRoundGame, hoverHud);
+        Check(hasFill(1266, 390, 76, 58, {17, 45, 142, 255}) &&
+              hasBorder(TableHud::PauseButton, {255, 213, 25, 255}),
+              "Hovering a side plate must create a signal-yellow focus bevel");
+
+        TableHudState pressedHud{};
+        pressedHud.pointer = {TableHud::HomeButton.x + TableHud::HomeButton.width * 0.5f,
+                              TableHud::HomeButton.y + TableHud::HomeButton.height * 0.5f};
+        mouseButtonDown = true;
+        drawnTexts.clear(); textDraws.clear(); rectangleDraws.clear(); borderDraws.clear();
+        scene.Draw(sixRoundGame, pressedHud);
+        mouseButtonDown = false;
+        Check(hasFill(1267, 459, 74, 56, {4, 13, 46, 255}) &&
+              hasBorder(TableHud::HomeButton, {255, 213, 25, 255}),
+              "Pressing a side plate must show the inset pressed state without changing its hit rect");
     }
     Check(renderUnloads == 1 && unloaded == std::vector<unsigned int>({9, 8, 4, 5, 2, 1}) &&
           unloadedFonts == std::vector<unsigned int>({7, 6}), "Resources not released");
@@ -249,6 +390,10 @@ void TestPauseRendering() {
         width = size.width; height = size.height;
         drawnTexts.clear(); blits.clear(); destinations.clear();
         scene.Draw(game, hud);
+        Check(std::find(drawnTexts.begin(), drawnTexts.end(), "PICK A CARD TO DETERMINE DEALER") != drawnTexts.end() &&
+              std::find(drawnTexts.begin(), drawnTexts.end(), "PICK CARD") != drawnTexts.end() &&
+              std::find(blits.begin(), blits.end(), 17u) != blits.end(),
+              "Dealer selection must use the paired kana/English signage prompt");
         for (const char* text : {"Master Volume", "Sound Effects", "Card Hints", "Display Resolution", "Screen Mode",
                                  "Anti-Aliasing", "43", "67", "ON", "OFF", "Windowed", "Borderless", "Fullscreen", "2x", "3x", "4x"})
             Check(std::find(drawnTexts.begin(), drawnTexts.end(), text) != drawnTexts.end(), "Options text missing");
@@ -259,7 +404,7 @@ void TestPauseRendering() {
         Check(Near(panel.x + panel.width / 2, width / 2.0f) && Near(panel.width, Ui::PausePanel.width * scale) &&
               Near(panel.y, (height - 768 * scale) / 2 + Ui::PausePanel.y * scale), "Pause artwork lost letterboxing");
         Check(std::find(drawnTexts.begin(), drawnTexts.end(), "J-Pop Powerplay") == drawnTexts.end(), "Options must not draw radio presets");
-        Check(std::find(drawnTexts.begin(), drawnTexts.end(), "CLICK TO PICK") <
+        Check(std::find(drawnTexts.begin(), drawnTexts.end(), "PICK CARD") <
               std::find(drawnTexts.begin(), drawnTexts.end(), "Master Volume"), "Game prompts must stay behind pause");
     }
     width = 1600; height = 900;
@@ -382,9 +527,11 @@ void TestMatchResultMenu() {
     {
         TableScene scene("city", "atlas", "logo", "heading", "body", "options");
         Ui::MatchResultMenu menu("app");
-        TableGame game(7u, 3);
+        TableGame game(1u, 3);
+        width = 1360; height = 768;
+        bool sawDecisionButtons = false;
 
-        auto playUntilRoundEnd = [](TableGame& g) {
+        auto playUntilRoundEnd = [&](TableGame& g) {
             for (int step = 0; step < 6000 && g.Rules().GetPhase() != Phase::ROUND_END; ++step) {
                 if (g.Busy()) { g.Update(0.05f); continue; }
                 const auto& r = g.Rules();
@@ -413,6 +560,27 @@ void TestMatchResultMenu() {
                         continue;
                     }
                     if (r.GetPhase() == Phase::AWAIT_DECISION) {
+                        TableHudState decisionHud{};
+                        decisionHud.pointer = {TableHud::KoiKoiButton.x + TableHud::KoiKoiButton.width * 0.5f,
+                                               TableHud::KoiKoiButton.y + TableHud::KoiKoiButton.height * 0.5f};
+                        mouseButtonDown = true;
+                        drawnTexts.clear(); textDraws.clear(); blits.clear();
+                        rectangleDraws.clear(); borderDraws.clear();
+                        scene.Draw(g, decisionHud);
+                        mouseButtonDown = false;
+                        Check(std::find(drawnTexts.begin(), drawnTexts.end(), "KOI-KOI") != drawnTexts.end() &&
+                              std::find(drawnTexts.begin(), drawnTexts.end(), "SHOBU") != drawnTexts.end() &&
+                              std::find(blits.begin(), blits.end(), 17u) != blits.end(),
+                              "Koi-Koi and Shobu must render paired kana/English signage");
+                        Check(std::any_of(borderDraws.begin(), borderDraws.end(), [](const BorderDraw& border) {
+                            return Near(border.rect.x, TableHud::KoiKoiButton.x) &&
+                                   Near(border.rect.y, TableHud::KoiKoiButton.y) &&
+                                   border.color.r == 255 && border.color.g == 213 && border.color.b == 25;
+                        }) && std::any_of(textDraws.begin(), textDraws.end(), [](const TextDraw& draw) {
+                            return draw.text == "KOI-KOI" && draw.color.r == 255 &&
+                                   draw.color.g == 213 && draw.color.b == 25;
+                        }), "Hovered, pressed decision buttons must show signal-yellow focus");
+                        sawDecisionButtons = true;
                         g.Choose(Decision::SHOUBU);
                         continue;
                     }
@@ -422,6 +590,24 @@ void TestMatchResultMenu() {
             for (int settle = 0; settle < 200 && g.Busy(); ++settle) g.Update(0.05f);
             Check(g.Rules().GetPhase() == Phase::ROUND_END && !g.Busy(),
                   "Test round must finish cleanly");
+            TableHudState roundEndHud{};
+            roundEndHud.pointer = {TableHud::RoundEndButton.x + TableHud::RoundEndButton.width * 0.5f,
+                                   TableHud::RoundEndButton.y + TableHud::RoundEndButton.height * 0.5f};
+            mouseButtonDown = true;
+            drawnTexts.clear(); textDraws.clear(); blits.clear(); rectangleDraws.clear(); borderDraws.clear();
+            scene.Draw(g, roundEndHud);
+            mouseButtonDown = false;
+            const char* title = g.MatchFinished() ? "MATCH OVER" : "NEXT ROUND";
+            const char* action = g.MatchFinished() ? "CLICK TO RESTART" : "CLICK TO CONTINUE";
+            Check(std::find(drawnTexts.begin(), drawnTexts.end(), title) != drawnTexts.end() &&
+                  std::find(drawnTexts.begin(), drawnTexts.end(), action) != drawnTexts.end() &&
+                  std::find(blits.begin(), blits.end(), 17u) != blits.end(),
+                  "Round-end actions must render bilingual, state-appropriate labels");
+            Check(std::any_of(borderDraws.begin(), borderDraws.end(), [](const BorderDraw& border) {
+                return Near(border.rect.x, TableHud::RoundEndButton.x) &&
+                       Near(border.rect.y, TableHud::RoundEndButton.y) &&
+                       border.color.r == 255 && border.color.g == 213 && border.color.b == 25;
+            }), "Pressed round-end action must keep its exact bounds and yellow focus");
         };
 
         bool sawAnyMiniCards = false;
@@ -521,6 +707,7 @@ void TestMatchResultMenu() {
                       "Match summary must draw round ledger and match winner banner");
             }
         }
+        Check(sawDecisionButtons, "A player decision state must exercise Koi-Koi/Shobu hover and pressed styling");
         Check(sawAnyMiniCards, "Expected at least one combo with miniature cards across a 3-round match");
         menu.ResetMatch();
         Check(!menu.IsOpen() && menu.Ledger().empty(), "ResetMatch must clear ledger and close popup");
@@ -538,6 +725,10 @@ Texture2D LoadTexture(const char* path) {
     if (loads == 1) return {1, 1360, 768, 1, 0};
     if (loads == 2) return {2, invalidAtlas ? 2147 : 2148, 1056, 1, 0};
     if (std::filesystem::path(path).filename() == "MatchUI.png") return {13, 1334, 81, 1, 0};
+    if (std::filesystem::path(path).filename() == "radio-icon.png") return {14, 64, 64, 1, 0};
+    if (std::filesystem::path(path).filename() == "pause-icon.png") return {15, 64, 64, 1, 0};
+    if (std::filesystem::path(path).filename() == "home-icon.png") return {16, 64, 64, 1, 0};
+    if (std::filesystem::path(path).filename() == "hud-kana.png") return {17, 192, 432, 1, 0};
     if (std::filesystem::path(path).filename() == "menu.png") return {8, 1205, 763, 1, 0};
     if (std::filesystem::path(path).filename() == "setting-stripe.png")
         return failStripe ? Texture2D{} : Texture2D{9, 810, 63, 1, 0};
@@ -556,8 +747,9 @@ Font LoadFontEx(const char* name, int size, int*, int) {
 }
 Font GetFontDefault() { return {10, 96, 0, {98, 128, 128, 1, 0}, nullptr, nullptr}; }
 void UnloadFont(Font font) { unloadedFonts.push_back(font.texture.id); }
-void DrawTextEx(Font font, const char* text, Vector2 pos, float, float, Color) {
-    if (text) { drawnTexts.emplace_back(text); textDraws.push_back({text, pos, font.texture.id}); }
+bool IsMouseButtonDown(int button) { return button == MOUSE_BUTTON_LEFT && mouseButtonDown; }
+void DrawTextEx(Font font, const char* text, Vector2 pos, float size, float, Color tint) {
+    if (text) { drawnTexts.emplace_back(text); textDraws.push_back({text, pos, font.texture.id, size, tint}); }
 }
 void UnloadTexture(Texture2D t) { unloaded.push_back(t.id); }
 void SetTextureFilter(Texture2D, int) {}
@@ -579,8 +771,8 @@ void BeginMode3D(Camera3D c) { camera = c; }
 void EndMode3D() {}
 void ClearBackground(Color) {}
 void DrawText(const char* text, int, int, int, Color) { if (text) drawnTexts.emplace_back(text); }
-void DrawRectangle(int, int, int, int, Color) {}
-void DrawRectangleLinesEx(Rectangle, float, Color) {}
+void DrawRectangle(int x, int y, int w, int h, Color c) { rectangleDraws.push_back({x, y, w, h, c}); }
+void DrawRectangleLinesEx(Rectangle rect, float thickness, Color c) { borderDraws.push_back({rect, thickness, c}); }
 Vector2 MeasureTextEx(Font, const char* text, float size, float) { return {std::string(text).size() * size / 2, size}; }
 void DrawLineEx(Vector2, Vector2, float, Color c) { if (c.r == 255 && c.g == 218) ++hintEdges; }
 void DrawTriangle(Vector2, Vector2, Vector2, Color) {}
