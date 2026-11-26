@@ -1,8 +1,0 @@
-# Title screen, fresh install.
-title
-frames 3
-textlog on
-frames 1
-shot 01-title
-hits start
-state

@@ -1,4 +1,0 @@
-# Not includable (the viewer has no include command); after the title screen,
-# every scenario starts with these lines. Copied into the scripts below.
-#   title
-#   frames 3

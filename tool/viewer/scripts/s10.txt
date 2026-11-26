@@ -1,7 +1,0 @@
-# Play the first hand card of a seeded match onto a matching field slot.
-match 3 1
-await
-shot 10-hand-before
-playcard 0
-shot 10-hand-after
-state
