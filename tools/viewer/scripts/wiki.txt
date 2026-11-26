@@ -1,0 +1,24 @@
+# Four start menu backgrounds and the game's menus/gallery.
+scene start
+variant 1
+shot start-menu-1
+variant 2
+shot start-menu-2
+variant 3
+shot start-menu-3
+variant 4
+shot start-menu-4
+variant 1
+scene settings
+shot match-settings
+scene options
+shot menu-options
+scene radio
+shot menu-radio
+scene gallery
+month 1
+shot gallery-january
+month 8
+shot gallery-august
+month 9
+shot gallery-september
