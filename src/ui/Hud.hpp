@@ -24,10 +24,11 @@ inline constexpr Rect RoundEndButton{520.0f, 326.0f, 320.0f, 72.0f};
 inline constexpr Rect DealerCardLeft{490.0f, 315.0f, 155.0f, 190.0f};
 inline constexpr Rect DealerCardRight{715.0f, 315.0f, 175.0f, 190.0f};
 
-// Separate right-side entry points. Icon artwork can replace the temporary labels later.
-inline constexpr Rect RadioMenuButton{1266.0f, 322.0f, 76.0f, 58.0f};
-inline constexpr Rect PauseButton{1266.0f, 390.0f, 76.0f, 58.0f};
-inline constexpr Rect HomeButton{1266.0f, 458.0f, 76.0f, 58.0f};
+// Separate right-side entry points. Square icon buttons (home/pause/radio artwork),
+// right-aligned to the same edge as the former text buttons.
+inline constexpr Rect RadioMenuButton{1284.0f, 322.0f, 58.0f, 58.0f};
+inline constexpr Rect PauseButton{1284.0f, 390.0f, 58.0f, 58.0f};
+inline constexpr Rect HomeButton{1284.0f, 458.0f, 58.0f, 58.0f};
 
 // Centered Pause & Internet Radio overlay in 1360x768 HUD space.
 // Dimensions follow the supplied blue/white arcade-style menu mock-up.
