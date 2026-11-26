@@ -37,26 +37,17 @@ void DrawBox(const Viewport& map, TableLayout::Rect rect, Color fill, Color bord
 }
 
 // Square icon button for the right-side match UI. The icon artwork already
-// carries its own rounded tile and glow; the border only signals state:
-// green when the radio is live, bright when its overlay is open. If the
-// artwork failed to load, fall back to the former text button so the entry
-// point stays visible and clickable.
-void DrawIconButton(const Viewport& map, TableLayout::Rect rect, Texture2D icon, Color border,
-                    bool active, Font bodyFont, const char* fallbackLabel, float fallbackXOffset) {
+// carries its own rounded tile and glow, so it is drawn as-is with no extra
+// outline. If the artwork failed to load, fall back to the former text
+// button so the entry point stays visible and clickable.
+void DrawIconButton(const Viewport& map, TableLayout::Rect rect, Texture2D icon, Font bodyFont,
+                    const char* fallbackLabel, float fallbackXOffset) {
     if (icon.id) {
         const Rectangle source{0, 0, static_cast<float>(icon.width), static_cast<float>(icon.height)};
         DrawTexturePro(icon, source, map.Rec(rect), {0, 0}, 0, WHITE);
-        const Color outline = active ? Color{102, 186, 152, 255} : border;
-        DrawRectangleLinesEx(map.Rec(rect), std::max(1.0f, 2.0f * map.scale), outline);
-        if (active) {
-            const TableLayout::Rect inner{rect.x + 3.0f, rect.y + 3.0f, rect.width - 6.0f,
-                                          rect.height - 6.0f};
-            DrawRectangleLinesEx(map.Rec(inner), std::max(1.0f, 1.0f * map.scale),
-                                 Color{255, 255, 255, 120});
-        }
         return;
     }
-    DrawBox(map, rect, active ? Color{34, 62, 56, 240} : Color{15, 20, 27, 230}, border, 1.5f);
+    DrawBox(map, rect, Color{15, 20, 27, 230}, Color{95, 118, 138, 220}, 1.5f);
     DrawMatchText(map, bodyFont, fallbackLabel, rect.x + fallbackXOffset, rect.y + 19.0f, 14, WHITE);
 }
 
@@ -258,14 +249,9 @@ void DrawHud(const Viewport& map, const TableGame& game, const TableHudState& hu
     }
 
     // Separate right-side icon entry points: radio, pause, home (top to bottom).
-    const bool liveRadio = hud.radio.enabled && !hud.radio.muted;
-    DrawIconButton(map, TableHud::RadioMenuButton, matchHud.radioIcon,
-                   liveRadio ? Color{102, 186, 152, 240} : Color{95, 118, 138, 220},
-                   hud.overlay == TableOverlay::RADIO, bodyFont, "RADIO", 11.0f);
-    DrawIconButton(map, TableHud::PauseButton, matchHud.pauseIcon, Color{95, 118, 138, 220},
-                   hud.overlay == TableOverlay::PAUSE, bodyFont, "PAUSE", 11.0f);
-    DrawIconButton(map, TableHud::HomeButton, matchHud.homeIcon, Color{95, 118, 138, 220},
-                   false, bodyFont, "HOME", 15.0f);
+    DrawIconButton(map, TableHud::RadioMenuButton, matchHud.radioIcon, bodyFont, "RADIO", 11.0f);
+    DrawIconButton(map, TableHud::PauseButton, matchHud.pauseIcon, bodyFont, "PAUSE", 11.0f);
+    DrawIconButton(map, TableHud::HomeButton, matchHud.homeIcon, bodyFont, "HOME", 15.0f);
 }
 
 void DrawScreenOverlay(const Viewport& viewport, const TableHudState& hud, Resolution display,
