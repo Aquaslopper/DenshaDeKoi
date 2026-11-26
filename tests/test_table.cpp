@@ -178,7 +178,7 @@ void TestDraw() {
             }
         }
         Check(camera.projection == CAMERA_PERSPECTIVE && Near(camera.fovy, 45), "Wrong 3D camera");
-        Check(destinations.size() == 4 && Near(destinations.back().height, 900) &&
+        Check(destinations.size() == 7 && Near(destinations.back().height, 900) &&
               Near(destinations.back().width, 1360.0f * 900.0f / 768.0f) && sources.back().height < 0,
               "Window resize must preserve aspect ratio and flip render target");
 
@@ -196,8 +196,28 @@ void TestDraw() {
               noOverlap(TableHud::PauseButton, TableHud::ShobuButton) &&
               noOverlap(TableHud::PauseButton, TableHud::RoundEndButton),
               "Right-side pause/home buttons must not overlap each other or decision banners");
-        Check(std::find(drawnTexts.begin(), drawnTexts.end(), "HOME") != drawnTexts.end(),
-              "HUD must draw the Home button under Radio and Pause");
+        Check(TableHud::RadioMenuButton.width == TableHud::RadioMenuButton.height &&
+              TableHud::PauseButton.width == TableHud::PauseButton.height &&
+              TableHud::HomeButton.width == TableHud::HomeButton.height,
+              "Right-side icon buttons must be square");
+        Check(std::count(blits.begin(), blits.end(), 14u) == 1 &&
+              std::count(blits.begin(), blits.end(), 15u) == 1 &&
+              std::count(blits.begin(), blits.end(), 16u) == 1,
+              "HUD must blit the radio, pause and home icons on the right side");
+        {
+            const auto iconDest = [&](unsigned int id) {
+                const auto it = std::find(blits.begin(), blits.end(), id);
+                return destinations[static_cast<std::size_t>(it - blits.begin())];
+            };
+            const auto radioDst = iconDest(14u);
+            const auto pauseDst = iconDest(15u);
+            const auto homeDst = iconDest(16u);
+            Check(Near(radioDst.x, TableHud::RadioMenuButton.x) && Near(radioDst.y, TableHud::RadioMenuButton.y) &&
+                  Near(radioDst.width, TableHud::RadioMenuButton.width) &&
+                  Near(radioDst.height, TableHud::RadioMenuButton.height) &&
+                  Near(pauseDst.y, TableHud::PauseButton.y) && Near(homeDst.y, TableHud::HomeButton.y),
+                  "Icon buttons must draw at their hit rects");
+        }
 
         drawnTexts.clear();
         TableHudState pausedHud{};
@@ -222,7 +242,7 @@ void TestDraw() {
               noOverlap(TableHud::VolumeHitBox, TableHud::RadioMuteButton),
               "Radio controls must not overlap each other or the station grid");
 
-        drawnTexts.clear(); textDraws.clear();
+        drawnTexts.clear(); textDraws.clear(); blits.clear(); destinations.clear();
         TableGame sixRoundGame(42u, 6);
         scene.Draw(sixRoundGame);
         Check(hasText("ROUND 1 / 6"), "The current round and configured total must be visible");
@@ -230,8 +250,10 @@ void TestDraw() {
             return draw.text == "ROUND 1 / 6" && draw.font == 7 &&
                    Near(draw.pos.x + 11.0f * 24.0f / 4.0f, 680.0f) && Near(draw.pos.y, 20.0f);
         }), "Round indicator must use the game font and be centered at the top");
-        Check(hasText("RADIO") && hasText("PAUSE") && hasText("HOME"),
-              "Radio, pause and home controls must remain visible");
+        Check(std::count(blits.begin(), blits.end(), 14u) == 1 &&
+              std::count(blits.begin(), blits.end(), 15u) == 1 &&
+              std::count(blits.begin(), blits.end(), 16u) == 1,
+              "Radio, pause and home icon controls must remain visible");
     }
     Check(renderUnloads == 1 && unloaded == std::vector<unsigned int>({9, 8, 4, 5, 2, 1}) &&
           unloadedFonts == std::vector<unsigned int>({7, 6}), "Resources not released");
@@ -538,6 +560,9 @@ Texture2D LoadTexture(const char* path) {
     if (loads == 1) return {1, 1360, 768, 1, 0};
     if (loads == 2) return {2, invalidAtlas ? 2147 : 2148, 1056, 1, 0};
     if (std::filesystem::path(path).filename() == "MatchUI.png") return {13, 1334, 81, 1, 0};
+    if (std::filesystem::path(path).filename() == "radio.png") return {14, 512, 512, 1, 0};
+    if (std::filesystem::path(path).filename() == "pause.png") return {15, 512, 512, 1, 0};
+    if (std::filesystem::path(path).filename() == "home.png") return {16, 512, 512, 1, 0};
     if (std::filesystem::path(path).filename() == "menu.png") return {8, 1205, 763, 1, 0};
     if (std::filesystem::path(path).filename() == "setting-stripe.png")
         return failStripe ? Texture2D{} : Texture2D{9, 810, 63, 1, 0};

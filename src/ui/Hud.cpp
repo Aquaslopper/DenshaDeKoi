@@ -36,17 +36,41 @@ void DrawBox(const Viewport& map, TableLayout::Rect rect, Color fill, Color bord
     DrawRectangleLinesEx(map.Rec(rect), std::max(1.0f, borderPx * map.scale), border);
 }
 
+// Square icon button for the right-side match UI. The icon artwork already
+// carries its own rounded tile and glow, so it is drawn as-is with no extra
+// outline. If the artwork failed to load, fall back to the former text
+// button so the entry point stays visible and clickable.
+void DrawIconButton(const Viewport& map, TableLayout::Rect rect, Texture2D icon, Font bodyFont,
+                    const char* fallbackLabel, float fallbackXOffset) {
+    if (icon.id) {
+        const Rectangle source{0, 0, static_cast<float>(icon.width), static_cast<float>(icon.height)};
+        DrawTexturePro(icon, source, map.Rec(rect), {0, 0}, 0, WHITE);
+        return;
+    }
+    DrawBox(map, rect, Color{15, 20, 27, 230}, Color{95, 118, 138, 220}, 1.5f);
+    DrawMatchText(map, bodyFont, fallbackLabel, rect.x + fallbackXOffset, rect.y + 19.0f, 14, WHITE);
+}
+
 // The HUD owns these textures for the lifetime of the Raylib window. They are
 // loaded once on the render thread; CloseWindow releases the graphics context.
 struct MatchHudTextures {
     Texture2D panel{};
     Texture2D atlas{};
+    Texture2D radioIcon{};
+    Texture2D pauseIcon{};
+    Texture2D homeIcon{};
     MatchHudTextures() {
         const std::filesystem::path dir(GetApplicationDirectory());
         panel = LoadTexture((dir / "options" / "match-hud" / "MatchUI.png").string().c_str());
         atlas = LoadTexture((dir / "cards_atlas.png").string().c_str());
+        radioIcon = LoadTexture((dir / "options" / "match-hud" / "radio.png").string().c_str());
+        pauseIcon = LoadTexture((dir / "options" / "match-hud" / "pause.png").string().c_str());
+        homeIcon = LoadTexture((dir / "options" / "match-hud" / "home.png").string().c_str());
         if (panel.id) SetTextureFilter(panel, TEXTURE_FILTER_BILINEAR);
         if (atlas.id) SetTextureFilter(atlas, TEXTURE_FILTER_POINT);
+        if (radioIcon.id) SetTextureFilter(radioIcon, TEXTURE_FILTER_BILINEAR);
+        if (pauseIcon.id) SetTextureFilter(pauseIcon, TEXTURE_FILTER_BILINEAR);
+        if (homeIcon.id) SetTextureFilter(homeIcon, TEXTURE_FILTER_BILINEAR);
     }
 };
 
@@ -224,19 +248,10 @@ void DrawHud(const Viewport& map, const TableGame& game, const TableHudState& hu
         }
     }
 
-    // Separate radio and pause entry points; labels are temporary icon-asset placeholders.
-    const bool liveRadio = hud.radio.enabled && !hud.radio.muted;
-    DrawBox(map, TableHud::RadioMenuButton,
-            hud.overlay == TableOverlay::RADIO ? Color{34, 62, 56, 240} : Color{15, 20, 27, 230},
-            liveRadio ? Color{102, 186, 152, 240} : Color{95, 118, 138, 220}, 1.5f);
-    DrawMatchText(map, bodyFont, "RADIO", TableHud::RadioMenuButton.x + 10.0f, TableHud::RadioMenuButton.y + 19.0f, 14, WHITE);
-    DrawBox(map, TableHud::PauseButton,
-            hud.overlay == TableOverlay::PAUSE ? Color{34, 62, 56, 240} : Color{15, 20, 27, 230},
-            Color{95, 118, 138, 220}, 1.5f);
-    DrawMatchText(map, bodyFont, "PAUSE", TableHud::PauseButton.x + 9.0f, TableHud::PauseButton.y + 19.0f, 14, WHITE);
-    DrawBox(map, TableHud::HomeButton, Color{15, 20, 27, 230},
-            Color{95, 118, 138, 220}, 1.5f);
-    DrawMatchText(map, bodyFont, "HOME", TableHud::HomeButton.x + 16.0f, TableHud::HomeButton.y + 19.0f, 14, WHITE);
+    // Separate right-side icon entry points: radio, pause, home (top to bottom).
+    DrawIconButton(map, TableHud::RadioMenuButton, matchHud.radioIcon, bodyFont, "RADIO", 11.0f);
+    DrawIconButton(map, TableHud::PauseButton, matchHud.pauseIcon, bodyFont, "PAUSE", 11.0f);
+    DrawIconButton(map, TableHud::HomeButton, matchHud.homeIcon, bodyFont, "HOME", 15.0f);
 }
 
 void DrawScreenOverlay(const Viewport& viewport, const TableHudState& hud, Resolution display,
