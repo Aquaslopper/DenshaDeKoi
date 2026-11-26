@@ -35,7 +35,7 @@ int width = 1600, height = 900;
 int loads = 0, renderUnloads = 0;
 int draws = 0;
 std::vector<std::string> drawnTexts;
-struct TextDraw { std::string text; Vector2 pos; unsigned int font; };
+struct TextDraw { std::string text; Vector2 pos; unsigned int font; float size; Color color; };
 std::vector<TextDraw> textDraws;
 bool failAtlas = false, invalidAtlas = false, failCanvas = false, failStripe = false;
 
@@ -268,6 +268,53 @@ void TestDraw() {
               std::count(blits.begin(), blits.end(), 15u) == 1 &&
               std::count(blits.begin(), blits.end(), 16u) == 1,
               "Radio, pause and home icon controls must remain visible");
+
+        const int savedWidth = width;
+        const int savedHeight = height;
+        width = 1360; height = 768;
+        drawnTexts.clear(); textDraws.clear();
+        TableGame dealerGame;
+        scene.Draw(dealerGame);
+        Check(!hasText("PICK A CARD TO DETERMINE DEALER"),
+              "Unnecessary dealer instruction banner must be removed");
+        const auto findMainTexts = [&](const std::string& label) {
+            std::vector<TextDraw> hits;
+            for (const auto& d : textDraws) {
+                if (d.text == label && d.color.r == 255 && d.color.g == 255 && d.color.b == 255) {
+                    hits.push_back(d);
+                }
+            }
+            return hits;
+        };
+        const auto clickLabels = findMainTexts("CLICK TO PICK");
+        Check(clickLabels.size() == 2 && clickLabels[0].font == 6u && clickLabels[1].font == 6u &&
+              clickLabels[0].size >= 27.0f && Near(clickLabels[0].size, clickLabels[1].size) &&
+              Near(clickLabels[0].pos.y, clickLabels[1].pos.y),
+              "CLICK TO PICK labels must share the bold heading font, larger size, and y alignment");
+        Check(Near(clickLabels[0].pos.x + 13.0f * clickLabels[0].size / 4.0f, 554.0f) &&
+              Near(clickLabels[1].pos.x + 13.0f * clickLabels[1].size / 4.0f, 806.0f),
+              "CLICK TO PICK labels must be centered under the two dealer cards");
+
+        dealerGame.SelectDealerCard(0);
+        Check(dealerGame.DealerChoice() == 0, "Dealer card selection should record choice");
+        dealerGame.Update(1.2f);
+        drawnTexts.clear(); textDraws.clear();
+        scene.Draw(dealerGame);
+        Check(!hasText("PICK A CARD TO DETERMINE DEALER"),
+              "Dealer instruction banner must remain absent after reveal");
+        const auto yourCards = findMainTexts("YOUR CARD");
+        const auto cpuCards = findMainTexts("CPU CARD");
+        const auto youDealer = findMainTexts("YOU ARE DEALER");
+        const auto cpuDealer = findMainTexts("CPU IS DEALER");
+        const auto& resultLabels = youDealer.empty() ? cpuDealer : youDealer;
+        Check(yourCards.size() == 1 && cpuCards.size() == 1 && resultLabels.size() == 1,
+              "Dealer reveal must draw one YOUR CARD, one CPU CARD, and one dealer result");
+        Check(yourCards[0].font == 6u && cpuCards[0].font == 6u && resultLabels[0].font == 6u &&
+              Near(yourCards[0].size, clickLabels[0].size) && Near(cpuCards[0].size, clickLabels[0].size) &&
+              Near(yourCards[0].pos.y, clickLabels[0].pos.y) && Near(cpuCards[0].pos.y, clickLabels[0].pos.y) &&
+              Near(resultLabels[0].pos.x + resultLabels[0].text.size() * resultLabels[0].size / 4.0f, 680.0f),
+              "Dealer reveal labels must match CLICK TO PICK typography and center cleanly");
+        width = savedWidth; height = savedHeight;
     }
     Check(renderUnloads == 1 && unloaded == std::vector<unsigned int>({9, 8, 4, 5, 2, 1}) &&
           unloadedFonts == std::vector<unsigned int>({7, 6}), "Resources not released");
@@ -590,13 +637,14 @@ Texture2D LoadTextureFromImage(Image img) {
 }
 bool FileExists(const char*) { return true; }
 Font LoadFontEx(const char* name, int size, int*, int) {
-    const unsigned int id = std::string(name) == "heading" ? 6u : 7u;
+    const unsigned int id = (std::string(name) == "heading" ||
+                             std::filesystem::path(name).filename() == "Oxanium-Bold.ttf") ? 6u : 7u;
     return {size, 96, 0, {id, 256, 256, 1, 0}, nullptr, nullptr};
 }
 Font GetFontDefault() { return {10, 96, 0, {98, 128, 128, 1, 0}, nullptr, nullptr}; }
 void UnloadFont(Font font) { unloadedFonts.push_back(font.texture.id); }
-void DrawTextEx(Font font, const char* text, Vector2 pos, float, float, Color) {
-    if (text) { drawnTexts.emplace_back(text); textDraws.push_back({text, pos, font.texture.id}); }
+void DrawTextEx(Font font, const char* text, Vector2 pos, float size, float, Color color) {
+    if (text) { drawnTexts.emplace_back(text); textDraws.push_back({text, pos, font.texture.id, size, color}); }
 }
 void UnloadTexture(Texture2D t) { unloaded.push_back(t.id); }
 void SetTextureFilter(Texture2D, int) {}

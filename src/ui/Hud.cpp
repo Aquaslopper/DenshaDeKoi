@@ -59,6 +59,7 @@ struct MatchHudTextures {
     Texture2D radioIcon{};
     Texture2D pauseIcon{};
     Texture2D homeIcon{};
+    Font headingFont{};
     MatchHudTextures() {
         const std::filesystem::path dir(GetApplicationDirectory());
         panel = LoadTexture((dir / "options" / "match-hud" / "MatchUI.png").string().c_str());
@@ -66,6 +67,15 @@ struct MatchHudTextures {
         radioIcon = LoadTexture((dir / "options" / "match-hud" / "radio.png").string().c_str());
         pauseIcon = LoadTexture((dir / "options" / "match-hud" / "pause.png").string().c_str());
         homeIcon = LoadTexture((dir / "options" / "match-hud" / "home.png").string().c_str());
+        const auto fontPath = dir / "fonts" / "Oxanium-Bold.ttf";
+        if (FileExists(fontPath.string().c_str())) {
+            const Font fallback = GetFontDefault();
+            Font loaded = LoadFontEx(fontPath.string().c_str(), 64, nullptr, 0);
+            if (loaded.texture.id && loaded.texture.id != fallback.texture.id) {
+                headingFont = loaded;
+                SetTextureFilter(headingFont.texture, TEXTURE_FILTER_BILINEAR);
+            }
+        }
         if (panel.id) SetTextureFilter(panel, TEXTURE_FILTER_BILINEAR);
         if (atlas.id) SetTextureFilter(atlas, TEXTURE_FILTER_POINT);
         if (radioIcon.id) SetTextureFilter(radioIcon, TEXTURE_FILTER_BILINEAR);
@@ -73,6 +83,25 @@ struct MatchHudTextures {
         if (homeIcon.id) SetTextureFilter(homeIcon, TEXTURE_FILTER_BILINEAR);
     }
 };
+
+const MatchHudTextures& GetMatchHudAssets() {
+    static const MatchHudTextures assets;
+    return assets;
+}
+
+void DrawCenteredShadowText(const Viewport& map, Font font, const char* text,
+                            float centerX, float y, float size, Color color) {
+    if (!font.texture.id) font = GetFontDefault();
+    const float scaledSize = size * map.scale;
+    const float spacing = 0.5f * map.scale;
+    const Vector2 measured = MeasureTextEx(font, text, scaledSize, spacing);
+    const Vector2 origin{map.box.x + centerX * map.scale - measured.x * 0.5f,
+                         map.box.y + y * map.scale};
+    const float shadow = std::max(1.0f, 2.0f * map.scale);
+    DrawTextEx(font, text, {origin.x + shadow, origin.y + shadow},
+               scaledSize, spacing, Color{0, 0, 0, 200});
+    DrawTextEx(font, text, origin, scaledSize, spacing, color);
+}
 
 void DrawMatchHudPanel(const Viewport& map, const MatchHudTextures& textures) {
     if (!textures.panel.id) return;
@@ -191,24 +220,36 @@ void DrawCardHints(const TableGame& game, const std::vector<TableCard>& cards, T
 }
 
 void DrawDealerSelection(const Viewport& map, const TableGame& game) {
-    DrawMatchText(map, matchBodyFont, "PICK A CARD TO DETERMINE DEALER", 405, 100, 28, WHITE);
+    const auto& assets = GetMatchHudAssets();
+    const Font font = assets.headingFont.texture.id ? assets.headingFont : matchBodyFont;
+    // Projected horizontal centers of DealerCardRects[0] and [1] bottom edges on 1360x768.
+    constexpr float leftCardCenterX = 554.0f;
+    constexpr float rightCardCenterX = 806.0f;
+    constexpr float cardLabelY = 504.0f;
+    constexpr float cardLabelSize = 28.0f;
+    constexpr float resultCenterX = static_cast<float>(TableLayout::ImageWidth) * 0.5f;
+    constexpr float resultY = 568.0f;
+    constexpr float resultSize = 34.0f;
+
     const int choice = game.DealerChoice();
     if (choice < 0) {
-        DrawMatchText(map, matchBodyFont, "CLICK TO PICK", 505, 520, 18, LIGHTGRAY);
-        DrawMatchText(map, matchBodyFont, "CLICK TO PICK", 760, 520, 18, LIGHTGRAY);
+        DrawCenteredShadowText(map, font, "CLICK TO PICK", leftCardCenterX, cardLabelY, cardLabelSize, WHITE);
+        DrawCenteredShadowText(map, font, "CLICK TO PICK", rightCardCenterX, cardLabelY, cardLabelSize, WHITE);
         return;
     }
     if (game.OpeningTimer() >= 0.9f) {
-        DrawMatchText(map, matchBodyFont, choice == 0 ? "YOUR CARD" : "CPU CARD", 520, 520, 18, WHITE);
-        DrawMatchText(map, matchBodyFont, choice == 1 ? "YOUR CARD" : "CPU CARD", 775, 520, 18, WHITE);
+        DrawCenteredShadowText(map, font, choice == 0 ? "YOUR CARD" : "CPU CARD",
+                               leftCardCenterX, cardLabelY, cardLabelSize, WHITE);
+        DrawCenteredShadowText(map, font, choice == 1 ? "YOUR CARD" : "CPU CARD",
+                               rightCardCenterX, cardLabelY, cardLabelSize, WHITE);
         const char* result = game.OpeningDealer() == Player::PLAYER ? "YOU ARE DEALER" : "CPU IS DEALER";
-        DrawMatchText(map, matchBodyFont, result, 570, 575, 30, WHITE);
+        DrawCenteredShadowText(map, font, result, resultCenterX, resultY, resultSize, WHITE);
     }
 }
 
 void DrawHud(const Viewport& map, const TableGame& game, const TableHudState& hud,
              Texture2D logo, Font bodyFont) {
-    static const MatchHudTextures matchHud;
+    const auto& matchHud = GetMatchHudAssets();
     DrawMatchHudPanel(map, matchHud);
     DrawCaptureCards(map, game, Player::PLAYER, matchHud);
     DrawCaptureCards(map, game, Player::OPPONENT, matchHud);
